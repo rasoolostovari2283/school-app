@@ -1,0 +1,2718 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  animation: fadeIn var(--transition-normal);
+  padding-bottom: 80px;
+  max-width: 1440px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Hero Header */
+.heroCard {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(14, 165, 233, 0.08) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: var(--radius-2xl);
+  padding: 28px 34px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.1);
+}
+
+.heroCard::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  left: -60px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.15);
+  filter: blur(50px);
+  pointer-events: none;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  line-height: 1.7;
+}
+
+.sampadBadge {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 5px 14px;
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* View Mode Switcher Tabs */
+.tabSwitcher {
+  display: inline-flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 6px;
+  border-radius: var(--radius-xl);
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.tabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tabBtn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tabBtnActive {
+  background: var(--primary-600);
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ TOP BRIEIFNG HUB (میز کار تدریس بالای صفحه - فضای باز و تمیز)
+   ───────────────────────────────────────────────────────────── */
+.dailyBriefingCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 30px 34px;
+  box-shadow: 0 14px 40px -12px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.briefingHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.briefingTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.briefingIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, #4f46e5, #0ea5e9);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.28);
+}
+
+.briefingTitle {
+  font-size: 1.25rem;
+  font-weight: 850;
+  color: var(--text-primary);
+}
+
+.briefingSubtitle {
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* Day Selector Strip in Briefing Hub */
+.daySelectorBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daySelectBtn {
+  padding: 10px 20px;
+  border-radius: var(--radius-xl);
+  font-size: 0.85rem;
+  font-weight: 750;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daySelectBtn:hover {
+  border-color: var(--primary-500);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.daySelectBtnActive {
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%) !important;
+  color: #ffffff !important;
+  border-color: #4f46e5 !important;
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35);
+}
+
+.dayCountBadge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+
+/* Classes list in the Top Briefing Card */
+.briefingClassesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 24px;
+}
+
+.briefingClassCard {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-top-width: 4px;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+}
+
+.briefingClassCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+}
+
+.briefingClassTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.briefingSubjectTitle {
+  font-size: 1.15rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ THE 2 KEY HIGHLIGHT BOXES:
+   «این درس رو تا اینجا تدریس کردی» & «تکالیف هم اینا تعیین کردی»
+   ───────────────────────────────────────────────────────────── */
+.progressHighlightBox {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.07) 0%, rgba(59, 130, 246, 0.04) 100%);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progressBoxTitle {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #06b6d4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progressBoxContent {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-weight: 600;
+}
+
+.homeworkHighlightBox {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.07) 0%, rgba(234, 88, 12, 0.04) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.homeworkBoxTitle {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.homeworkBoxContent {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-weight: 600;
+}
+
+.briefingCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 12px;
+}
+
+/* Quick Edit Button in Briefing */
+.quickEditBtn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.quickEditBtn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ WEEKLY TIMETABLE GRID (تقویم هفتگی با فاصله‌های جادار)
+   ───────────────────────────────────────────────────────────── */
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Filter & Grade Toolbar */
+.filterToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 16px 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+}
+
+.filterGradeGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filterGradeBtn {
+  padding: 7px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filterGradeBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--primary-500);
+}
+
+.filterGradeBtnActive {
+  background: var(--primary-600);
+  color: white !important;
+  border-color: var(--primary-600) !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+}
+
+.addCustomGradeBtn {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px dashed rgba(99, 102, 241, 0.4);
+  color: #818cf8;
+  border-radius: var(--radius-lg);
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all var(--transition-fast);
+  height: 32px;
+}
+
+.addCustomGradeBtn:hover {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: #6366f1;
+  color: #a5b4fc;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ WEEKLY CALENDAR BOARD (شنبه تا پنج‌شنبه - ستون‌های تفکیک‌شده برای تک‌تک کلاس‌ها)
+   ───────────────────────────────────────────────────────────── */
+
+.calendarDayTabsBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.calendarDayTab {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xl);
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.calendarDayTab:hover {
+  color: var(--text-primary);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.calendarDayTabActive {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+}
+
+.calendarDayTabBadge {
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.2);
+  font-weight: 800;
+}
+
+.calendarBoardScrollWrapper {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.calendarBoardGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(290px, 1fr));
+  gap: 18px;
+  min-width: 1200px;
+  align-items: stretch;
+}
+
+.calendarBoardGridSingleDay {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: auto;
+}
+
+.calendarDayColumn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  transition: all var(--transition-fast);
+}
+
+.calendarDayColumn:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+}
+
+.calendarDayColumnToday {
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 24px rgba(16, 185, 129, 0.08);
+}
+
+.calendarDayColumnHeader {
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.calendarDayColumnTitle {
+  font-size: 1.05rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendarDayCountPill {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+}
+
+.calendarDayColumnBody {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.calendarClassCard {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.025));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-right-width: 4px;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+}
+
+.calendarClassCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.calendarClassCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendarClassSubject {
+  font-size: 1rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.calendarClassMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.calendarMiniHighlight {
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.calendarMiniHighlightTopic {
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.calendarMiniHighlightHomework {
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.calendarMiniHighlightLabel {
+  font-weight: 800;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.calendarMiniHighlightLabelTopic {
+  color: #818cf8;
+}
+
+.calendarMiniHighlightLabelHomework {
+  color: #f59e0b;
+}
+
+.calendarMiniHighlightValue {
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.calendarClassFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.calendarEmptyDayBox {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-xl);
+  color: var(--text-tertiary);
+  font-size: 0.82rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.calendarDayColumnFooter {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.columnAddClassBtn {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 750;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.columnAddClassBtn:hover {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+.weeklyScheduleGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Day Band Card (Full-width row per day) */
+.dayBandCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.dayBandCard:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+}
+
+.dayBandHeader {
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dayBandTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dayBandTitle {
+  font-size: 1.1rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dayBandPill {
+  font-size: 0.75rem;
+  font-weight: 750;
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+}
+
+.addDayClassBtn {
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-lg);
+  padding: 5px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.addDayClassBtn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+/* Horizontal Flow of all classes in this day */
+.dayBandContent {
+  padding: 20px 24px;
+}
+
+.dayBandClassesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 18px;
+}
+
+.emptyDayBandNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-xl);
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ ENHANCED WEEKLY TIMETABLE MATRIX TABLE
+   ───────────────────────────────────────────────────────────── */
+
+.matrixWrapper {
+  overflow-x: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+  -webkit-overflow-scrolling: touch;
+}
+
+.matrixTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  min-width: 1150px;
+}
+
+.matrixTable th,
+.matrixTable td {
+  padding: 16px 14px;
+  border: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.matrixTable th {
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.85rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.matrixThContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.matrixThTime {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  direction: ltr;
+}
+
+.matrixDayCell {
+  background: rgba(255, 255, 255, 0.015);
+  text-align: center;
+  white-space: nowrap;
+  width: 130px;
+  min-width: 130px;
+  vertical-align: middle !important;
+}
+
+.matrixDayCellContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 4px;
+}
+
+.matrixDayName {
+  font-weight: 850;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.matrixDayPill {
+  font-size: 0.72rem;
+  font-weight: 750;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+}
+
+.matrixAddDayBtn {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--transition-fast);
+}
+
+.matrixAddDayBtn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: #6366f1;
+  color: #818cf8;
+}
+
+.matrixPeriodCell {
+  min-width: 200px;
+  background: transparent;
+}
+
+.matrixEmptySlot {
+  min-height: 120px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 12px 8px;
+  background: rgba(255, 255, 255, 0.005);
+}
+
+.matrixEmptySlot:hover {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #818cf8;
+}
+
+.matrixClassCard {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right-width: 4px;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.matrixClassCard:last-child {
+  margin-bottom: 0;
+}
+
+.matrixClassCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.matrixClassHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.matrixClassSubject {
+  font-size: 0.92rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.matrixClassMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.matrixClassHighlight {
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  font-size: 0.74rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matrixClassHighlightTopic {
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.matrixClassHighlightHomework {
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+}
+
+.matrixClassHighlightTitle {
+  font-weight: 800;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.matrixClassHighlightTitleTopic {
+  color: #818cf8;
+}
+
+.matrixClassHighlightTitleHomework {
+  color: #f59e0b;
+}
+
+.matrixClassHighlightText {
+  color: var(--text-primary);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.matrixClassFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-color);
+}
+
+/* Individual Class Session Item */
+.sessionCard {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 16px 18px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all var(--transition-fast);
+  border-right-width: 4px;
+}
+
+.sessionCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.sessionGrade10 {
+  border-right-color: #06b6d4;
+}
+
+.sessionGrade11 {
+  border-right-color: #8b5cf6;
+}
+
+.sessionGrade12 {
+  border-right-color: #f59e0b;
+}
+
+.sessionGradeOther {
+  border-right-color: #10b981;
+}
+
+.sessionTopRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.periodBadge {
+  font-size: 0.74rem;
+  font-weight: 750;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gradeBadge {
+  padding: 3px 9px;
+  border-radius: var(--radius-md);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.gradeBadge10 {
+  background: rgba(6, 182, 212, 0.12);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+
+.gradeBadge11 {
+  background: rgba(139, 92, 246, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.gradeBadge12 {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.gradeBadgeOther {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.sessionSubject {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.sessionClassName {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sessionTopicBox {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.sessionFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sessionTypeTag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+}
+
+.sessionActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusToggleBtn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--transition-fast);
+}
+
+.statusToggleBtn:hover {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.statusCompleted {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #10b981 !important;
+}
+
+.deletePlanBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast);
+  display: flex;
+  align-items: center;
+}
+
+.deletePlanBtn:hover {
+  color: #ef4444;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ COMPACT BOTTOM PLANNING BOX (باکس جمع‌وجور با فاصله‌گذاری تمیز)
+   ───────────────────────────────────────────────────────────── */
+.compactPlannerCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 28px 34px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 14px;
+}
+
+.compactPlannerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.compactPlannerTitle {
+  font-size: 1.15rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compactDayChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compactDayChip {
+  padding: 7px 15px;
+  border-radius: var(--radius-xl);
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.compactDayChipActive {
+  background: var(--primary-600);
+  color: white !important;
+  border-color: var(--primary-600) !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+}
+
+.compactGradeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compactGradeChip {
+  padding: 6px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.compactGradeChipActive {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: #06b6d4 !important;
+  color: #06b6d4 !important;
+}
+
+.compactFormGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.compactFormActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ SYLLABUS & CURRICULUM ROADMAP (طرح درس و بودجه‌بندی)
+   ───────────────────────────────────────────────────────────── */
+.roadmapGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 22px;
+}
+
+.roadmapCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.roadmapHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.roadmapTitle {
+  font-size: 1.05rem;
+  font-weight: 850;
+  color: var(--text-primary);
+}
+
+.roadmapTrack {
+  height: 9px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+
+.roadmapFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.5s ease-in-out;
+}
+
+.roadmapTopicsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.roadmapTopicItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ STUDENT LOGS TABLE (FOR ADVISOR / TEACHER REVIEW & STUDENTS)
+   ───────────────────────────────────────────────────────────── */
+.tableCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.tableHeader {
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tableHeader h3 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.studyTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.88rem;
+}
+
+.studyTable th,
+.studyTable td {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.studyTable th {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-tertiary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.studyTable tr:last-child td {
+  border-bottom: none;
+}
+
+.studyTable tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.subjectBadge {
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.accuracyBadge {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-weight: 800;
+  font-size: 0.78rem;
+}
+
+.feedbackBox {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+/* Modals */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: fadeIn var(--transition-fast);
+}
+
+.modalContent {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: slideUp var(--transition-normal);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.modalHeader h2 {
+  font-size: 1.25rem;
+  font-weight: 850;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.closeBtn:hover {
+  color: var(--text-primary);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ TEACHER DOCUMENTS & LESSON PLANS REPOSITORY (طرح درس و تقویم محتوایی)
+   ───────────────────────────────────────────────────────────── */
+.teacherDocsSection {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 30px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  box-shadow: 0 8px 30px -10px rgba(0, 0, 0, 0.05);
+  margin-top: 14px;
+}
+
+.teacherDocsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.teacherDocsTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.teacherDocsTitle {
+  font-size: 1.18rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.teacherDocsSubtitle {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.teacherDocsHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uploadToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: var(--radius-xl);
+  font-size: 0.84rem;
+  font-weight: 750;
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.25);
+  transition: all var(--transition-fast);
+}
+
+.uploadToggleBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
+}
+
+/* Upload Panel Form */
+.uploadPanel {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: slideUp var(--transition-normal);
+}
+
+.uploadPanelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.dropzoneContainer {
+  border: 2px dashed rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  text-align: center;
+  background: rgba(99, 102, 241, 0.03);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+}
+
+.dropzoneContainer:hover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.07);
+  transform: translateY(-1px);
+}
+
+.dropzoneIcon {
+  font-size: 2.2rem;
+  color: #6366f1;
+}
+
+.dropzonePrompt {
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.dropzoneHint {
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
+
+.filePreviewBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  padding: 6px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 0.82rem;
+  font-weight: 750;
+  margin-top: 6px;
+}
+
+/* Category Filter Tabs & Search Bar */
+.docsFilterRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.docsCategoryTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docsCategoryTab {
+  padding: 6px 14px;
+  border-radius: var(--radius-xl);
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docsCategoryTab:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  color: var(--text-primary);
+}
+
+.docsCategoryTabActive {
+  background: var(--primary-600) !important;
+  color: #ffffff !important;
+  border-color: var(--primary-600) !important;
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.25);
+}
+
+.docsSearchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 5px 12px;
+  min-width: 220px;
+}
+
+.docsSearchInput {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+/* Document Cards Grid */
+.docsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.docCard {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.docCard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.docCardTop {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.docTypeIconWrapper {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.docCardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.docTitle {
+  font-size: 0.95rem;
+  font-weight: 850;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.docMetaBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.docCategoryBadge {
+  font-size: 0.72rem;
+  font-weight: 750;
+  padding: 2px 8px;
+  border-radius: var(--radius-md);
+}
+
+.docGradeBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(6, 182, 212, 0.1);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.docDescription {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-color);
+}
+
+.docCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  gap: 8px;
+}
+
+.docFileDetails {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.docActionButtons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docDownloadLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.docDownloadLink:hover {
+  background: #4f46e5;
+  color: #ffffff;
+  border-color: #4f46e5;
+}
+
+.docDeleteBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  transition: color var(--transition-fast);
+}
+
+.docDeleteBtn:hover {
+  color: #ef4444;
+}
+
+.emptyDocsCard {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 40px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+}
+
+.emptyDocsIcon {
+  font-size: 3rem;
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+
+@media print {
+  .heroCard button,
+  .compactPlannerCard,
+  .teacherDocsSection,
+  .filterToolbar,
+  .tabSwitcher,
+  .sessionActions,
+  .quickEditBtn,
+  .notepadQuickCard,
+  .notesToolbar {
+    display: none !important;
+  }
+
+  .weeklyScheduleGrid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ★ STUDENT NOTEPAD / PERSONAL STUDY NOTES INTERFACE
+   ───────────────────────────────────────────────────────────── */
+.studentNotepadSection {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Quick Note Entry Card (دفترچه ثبت یادداشت سریع) */
+.notepadQuickCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 24px 28px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: relative;
+  overflow: hidden;
+  border-top: 4px solid #f59e0b;
+}
+
+.notepadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.notepadHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.notepadHeaderIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+}
+
+.notepadTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.notepadSub {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.notepadForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.notepadInput {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.notepadInput:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+  background: var(--bg-card);
+}
+
+.notepadTextarea {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  line-height: 1.7;
+  outline: none;
+  resize: vertical;
+  min-height: 110px;
+  transition: all var(--transition-fast);
+}
+
+.notepadTextarea:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+  background: var(--bg-card);
+}
+
+.notepadControlsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 6px;
+}
+
+.controlsLeftGroup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Color picker pills */
+.colorPickerBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  padding: 4px 8px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+}
+
+.colorPickerLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.colorDot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.colorDot:hover {
+  transform: scale(1.15);
+}
+
+.colorDotActive {
+  transform: scale(1.15);
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+
+.colorDotYellow { background: #fde047; }
+.colorDotBlue { background: #60a5fa; }
+.colorDotGreen { background: #4ade80; }
+.colorDotPurple { background: #c084fc; }
+.colorDotPink { background: #f472b6; }
+
+.categorySelectBox {
+  padding: 8px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.categorySelectBox:focus {
+  border-color: #f59e0b;
+}
+
+.pinToggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  transition: all var(--transition-fast);
+}
+
+.pinToggleLabelActive {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #f59e0b !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+.submitNoteBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 750;
+  border: none;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+}
+
+.submitNoteBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.45);
+}
+
+.submitNoteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Toolbar & Filters (نوار فیلتر و جستجو) */
+.notesToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.filterChipsGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filterChip {
+  padding: 7px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filterChip:hover {
+  border-color: #f59e0b;
+  color: var(--text-primary);
+}
+
+.filterChipActive {
+  background: #f59e0b !important;
+  color: #ffffff !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.notesSearchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 6px 16px;
+  min-width: 240px;
+  transition: all var(--transition-fast);
+}
+
+.notesSearchBox:focus-within {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+}
+
+.notesSearchInput {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  width: 100%;
+  font-family: inherit;
+}
+
+/* ── POST-IT NOTES GRID (دیوار یادداشت‌های چسبان) ── */
+.notesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 20px;
+}
+
+.noteCard {
+  border-radius: var(--radius-2xl);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  transition: all 0.22s ease-out;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  border: 1px solid transparent;
+  min-height: 200px;
+}
+
+.noteCard:hover {
+  transform: translateY(-4px) rotate(0.4deg);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+/* Color schemes for sticky notes */
+.noteCardYellow {
+  background: linear-gradient(145deg, #fef9c3 0%, #fef08a 100%);
+  border-color: #fde047;
+  color: #713f12;
+}
+
+:global([data-theme='dark']) .noteCardYellow {
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.16) 0%, rgba(217, 119, 6, 0.08) 100%);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fde68a;
+}
+
+.noteCardBlue {
+  background: linear-gradient(145deg, #dbeafe 0%, #bfdbfe 100%);
+  border-color: #93c5fd;
+  color: #1e3a8a;
+}
+
+:global([data-theme='dark']) .noteCardBlue {
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.16) 0%, rgba(37, 99, 235, 0.08) 100%);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #bfdbfe;
+}
+
+.noteCardGreen {
+  background: linear-gradient(145deg, #dcfce7 0%, #bbf7d0 100%);
+  border-color: #86efac;
+  color: #14532d;
+}
+
+:global([data-theme='dark']) .noteCardGreen {
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.16) 0%, rgba(5, 150, 105, 0.08) 100%);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #bbf7d0;
+}
+
+.noteCardPurple {
+  background: linear-gradient(145deg, #f3e8ff 0%, #e9d5ff 100%);
+  border-color: #d8b4fe;
+  color: #581c87;
+}
+
+:global([data-theme='dark']) .noteCardPurple {
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.16) 0%, rgba(147, 51, 234, 0.08) 100%);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #e9d5ff;
+}
+
+.noteCardPink {
+  background: linear-gradient(145deg, #fce7f3 0%, #fbcfe8 100%);
+  border-color: #f9a8d4;
+  color: #831843;
+}
+
+:global([data-theme='dark']) .noteCardPink {
+  background: linear-gradient(145deg, rgba(236, 72, 153, 0.16) 0%, rgba(219, 39, 119, 0.08) 100%);
+  border-color: rgba(236, 72, 153, 0.35);
+  color: #fbcfe8;
+}
+
+/* Card internals */
+.noteCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.noteCategoryTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:global([data-theme='dark']) .noteCategoryTag {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.notePinBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #d97706;
+}
+
+:global([data-theme='dark']) .notePinBadge {
+  color: #f59e0b;
+}
+
+.noteCardTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.noteCardContent {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  flex: 1;
+}
+
+.noteCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.12);
+  gap: 8px;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+:global([data-theme='dark']) .noteCardFooter {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.noteActionsRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.noteIconBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: var(--radius-md);
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  transition: all var(--transition-fast);
+  opacity: 0.75;
+}
+
+.noteIconBtn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+  transform: scale(1.1);
+}
+
+:global([data-theme='dark']) .noteIconBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Empty State */
+.emptyNotepad {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 50px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-secondary);
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+}
+
+.emptyNotepadIcon {
+  font-size: 3.5rem;
+  opacity: 0.8;
+}
+
+.emptyNotepadTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.emptyNotepadSub {
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
+  max-width: 440px;
+  line-height: 1.6;
+}
+
+/* ── STUDENT NOTE COMPLETION & CELEBRATION STYLES ── */
+.noteCardCompleted {
+  opacity: 0.92;
+  border-color: #10b981 !important;
+  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.12);
+}
+
+:global([data-theme='dark']) .noteCardCompleted {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+}
+
+.noteCardCelebrating {
+  animation: victoryCardBounce 0.75s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 10;
+}
+
+@keyframes victoryCardBounce {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.05) translateY(-6px) rotate(-1deg); box-shadow: 0 16px 36px rgba(16, 185, 129, 0.35); }
+  50% { transform: scale(0.98) translateY(0) rotate(1deg); }
+  75% { transform: scale(1.02) translateY(-2px); }
+  100% { transform: scale(1) translateY(0) rotate(0deg); }
+}
+
+.noteTitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  position: relative;
+}
+
+.noteCheckboxBtn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: inherit;
+  opacity: 0.65;
+  padding: 0;
+}
+
+:global([data-theme='dark']) .noteCheckboxBtn {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.noteCheckboxBtn:hover {
+  opacity: 1;
+  transform: scale(1.15);
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+}
+
+.noteCheckboxBtnChecked {
+  opacity: 1 !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
+  animation: checkPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes checkPop {
+  0% { transform: scale(0.5); }
+  60% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+.noteCardTitleCompleted {
+  text-decoration: line-through;
+  opacity: 0.62;
+  transition: all 0.25s ease;
+}
+
+.noteCardContentCompleted {
+  opacity: 0.75;
+}
+
+.noteCompletedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.22);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  animation: badgeSlideIn 0.3s ease-out;
+}
+
+:global([data-theme='dark']) .noteCompletedBadge {
+  background: rgba(16, 185, 129, 0.25);
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+@keyframes badgeSlideIn {
+  from { opacity: 0; transform: scale(0.8) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Floating celebratory motivational banner on note */
+.celebrationToast {
+  position: absolute;
+  top: -16px;
+  right: 10px;
+  left: 10px;
+  background: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  color: #ffffff;
+  padding: 8px 14px;
+  border-radius: var(--radius-xl);
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45);
+  animation: celebrationToastAnim 2.8s ease-in-out forwards;
+  pointer-events: none;
+  z-index: 25;
+}
+
+@keyframes celebrationToastAnim {
+  0% { opacity: 0; transform: translateY(12px) scale(0.85); }
+  15% { opacity: 1; transform: translateY(0) scale(1.02); }
+  25% { transform: scale(1); }
+  80% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.9); }
+}
+
+/* Particle / Confetti Burst */
+.confettiBurstWrapper {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 30;
+}
+
+.confettiParticle {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  width: var(--size, 8px);
+  height: var(--size, 8px);
+  background-color: var(--color, #f59e0b);
+  border-radius: var(--radius, 2px);
+  pointer-events: none;
+  animation: confettiFly 1.25s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes confettiFly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.6) rotate(0deg);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(calc(var(--tx) * 0.4), calc(var(--ty) * 0.4)) scale(1.2) rotate(var(--rot));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx), var(--ty)) scale(0.4) rotate(calc(var(--rot) * 2));
+  }
+}
+
+/* Star twinkle particles */
+.starSparkle {
+  position: absolute;
+  font-size: var(--star-size, 1.2rem);
+  color: var(--star-color, #fbbf24);
+  pointer-events: none;
+  animation: starTwinkle 1.1s ease-out forwards;
+}
+
+@keyframes starTwinkle {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.2);
+  }
+  30% {
+    opacity: 1;
+    transform: translate(var(--tx), var(--ty)) scale(1.3) rotate(20deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--tx) * 1.3), calc(var(--ty) * 1.3 - 20px)) scale(0.2) rotate(60deg);
+  }
+}
+
+/* Notepad Progress Bar & Stats Widget */
+.notepadProgressCard {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: var(--radius-xl);
+  padding: 14px 18px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+:global([data-theme='dark']) .notepadProgressCard {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14) 0%, rgba(16, 185, 129, 0.14) 100%);
+  border-color: rgba(99, 102, 241, 0.28);
+}
+
+.notepadProgressTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notepadProgressLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.notepadProgressPercent {
+  font-size: 0.85rem;
+  font-weight: 850;
+  color: #10b981;
+}
+
+.notepadProgressTrack {
+  width: 100%;
+  height: 9px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+:global([data-theme='dark']) .notepadProgressTrack {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.notepadProgressFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 70%, #34d399 100%);
+  transition: width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.notepadAllDoneBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px dashed rgba(16, 185, 129, 0.4);
+  animation: badgeSlideIn 0.4s ease;
+}
+
+:global([data-theme='dark']) .notepadAllDoneBanner {
+  color: #34d399;
+}
+
+

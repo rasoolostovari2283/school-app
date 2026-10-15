@@ -1,0 +1,1151 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  animation: fadeIn var(--transition-normal);
+  padding-bottom: var(--space-12);
+}
+
+/* ── Top Action Toolbar ── */
+.topToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-4) var(--space-6);
+  box-shadow: var(--shadow-sm);
+}
+
+.pageTitleBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pageIcon {
+  font-size: 1.75rem;
+  color: var(--primary-500);
+  background: rgba(99, 102, 241, 0.12);
+  padding: 8px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pageTitleBox h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.pageTitleBox p {
+  font-size: 0.813rem;
+  color: var(--text-tertiary);
+  margin: 2px 0 0 0;
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ── Parent Notice & Child Selector Banner ── */
+.parentNoticeBanner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(16, 185, 129, 0.12) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.parentNoticeInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.parentNoticeAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--primary-600);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.parentNoticeText h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.parentNoticeText p {
+  font-size: 0.813rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.childSwitchChips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.childChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.childChip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.childChipActive {
+  background: var(--primary-600);
+  color: #fff;
+  border-color: var(--primary-500);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.4);
+}
+
+/* ── Formal Report Card Paper Sheet ── */
+.reportCardSheet {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-3xl);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.reportCardSheet::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #6366f1, #06b6d4, #10b981, #f59e0b);
+}
+
+/* ── Official School Header ── */
+.schoolHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--space-6);
+  border-bottom: 2px dashed var(--border-color);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.schoolEmblemBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.schoolLogo {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, #4f46e5, #06b6d4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
+}
+
+.schoolDetails h2 {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.schoolDetails p {
+  font-size: 0.813rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.reportCardTitleCenter {
+  text-align: center;
+  flex: 1;
+}
+
+.reportCardTitleCenter h3 {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: var(--primary-500);
+  margin: 0 0 6px 0;
+  letter-spacing: -0.5px;
+}
+
+.termBadge {
+  display: inline-block;
+  padding: 4px 16px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--primary-500);
+  font-size: 0.813rem;
+  font-weight: 700;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.headerDateBox {
+  text-align: left;
+  font-size: 0.813rem;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ── Student Meta Strip ── */
+.studentMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metaLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.metaValue {
+  font-size: 0.938rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* ── KPI Summary Cards ── */
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.kpiCard {
+  background: var(--bg-card-secondary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.kpiHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kpiTitle {
+  font-size: 0.813rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.kpiValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.kpiMainNumber {
+  font-size: 1.75rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.kpiSubText {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* ── Formal Grades Table ── */
+.tableContainer {
+  overflow-x: auto;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  margin-bottom: var(--space-8);
+}
+
+.gradeTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.875rem;
+}
+
+.gradeTable th {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-weight: 700;
+  padding: var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.gradeTable td {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.gradeTable tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.gradeTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.courseTitleCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.courseName {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.teacherName {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* Score Pill */
+.scorePill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  font-weight: 800;
+  font-size: 0.875rem;
+}
+
+.scoreExcellent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.scoreGood {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.scoreFair {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.scorePoor {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.statusPassBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.statusFailBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.progressBarTrack {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.5s ease-out;
+}
+
+/* ── Discipline & Behavior Box ── */
+.disciplineBox {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5) var(--space-6);
+  margin-bottom: var(--space-8);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.disciplineLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.disciplineIconBox {
+  font-size: 2rem;
+}
+
+.disciplineScoreBadge {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 4px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* ── Signatures & School Stamp ── */
+.signatureSection {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-6);
+  padding-top: var(--space-8);
+  border-top: 2px dashed var(--border-color);
+  text-align: center;
+}
+
+.signatureBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.signatureRole {
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.signatureLine {
+  width: 120px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-size: 0.813rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.stampBox {
+  width: 70px;
+  height: 70px;
+  border-radius: var(--radius-full);
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  color: var(--primary-500);
+  font-weight: 700;
+  transform: rotate(-10deg);
+}
+
+/* ── Teacher Roster & Matrix Styles ── */
+.classSelectWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.classSelect {
+  padding: 10px 18px;
+  background: var(--bg-card-secondary, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.938rem;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.classSelect:focus {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.classStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.statCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+}
+
+.statHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.statLabel {
+  font-size: 0.813rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.statIcon {
+  font-size: 1.25rem;
+  color: var(--primary-500);
+}
+
+.statValue {
+  font-size: 1.625rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.statSub {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.categoriesBar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+}
+
+.categoryList {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.categoryTag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-full);
+  font-size: 0.813rem;
+  font-weight: 700;
+  color: #c7d2fe;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 6px 12px;
+  width: 240px;
+}
+
+.searchBox input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.813rem;
+  width: 100%;
+}
+
+.matrixWrapper {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  overflow-x: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.matrixTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.matrixTable th {
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 800;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.matrixTable td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.matrixTable tr:last-child td {
+  border-bottom: none;
+}
+
+.matrixTable tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.studentCell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.studentAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.875rem;
+}
+
+.studentMetaCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.studentName {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.studentCode {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--text-tertiary);
+}
+
+.scoreInputWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.scoreInput {
+  width: 72px;
+  padding: 8px 10px;
+  text-align: center;
+  font-family: monospace;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  background: var(--bg-card-secondary, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.scoreInput:focus {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.scoreInputSuccess {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.1) !important;
+  color: #34d399 !important;
+}
+
+.scoreInputError {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #f87171 !important;
+}
+
+.cellSavedIndicator {
+  position: absolute;
+  left: -20px;
+  color: #10b981;
+  font-weight: 900;
+  font-size: 0.938rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.cellSavingIndicator {
+  position: absolute;
+  left: -20px;
+  font-size: 0.813rem;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.weightedScoreCell {
+  font-size: 1.125rem;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+}
+
+.viewReportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  font-size: 0.813rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.viewReportBtn:hover {
+  background: var(--primary-600);
+  border-color: var(--primary-500);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: var(--space-4);
+  animation: fadeIn var(--transition-fast);
+}
+
+.modalContent {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modalBody {
+  padding: var(--space-6);
+}
+
+/* ── Management Gradebook by Teacher Breakdown & Sharing Styles ── */
+.modeTabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 6px;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+}
+
+.modeTabBtn {
+  flex: 1;
+  min-width: 180px;
+  padding: 12px 18px;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 750;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.modeTabBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modeTabBtnActive {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+.shareWithMgmtBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 8px 16px;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s ease;
+}
+
+.shareWithMgmtBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.mgmtBreakdownGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+.mgmtTeacherCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+  position: relative;
+  border-right: 4px solid #6366f1;
+}
+
+.mgmtTeacherCard:hover {
+  border-color: #6366f1;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.mgmtCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.teacherAvatarCircle {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 850;
+  flex-shrink: 0;
+}
+
+.teacherCodePill {
+  font-family: monospace;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+[data-theme='dark'] .teacherCodePill {
+  color: #818cf8;
+}
+
+.mgmtStatsPills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.statBadgeItem {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 750;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.statBadgeAvg {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.statBadgePass {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.statBadgeTop {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.statBadgeCount {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.attentionCalloutBox {
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px dashed rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-xl);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attentionCalloutTitle {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attentionStudentsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attentionStudentItem {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: #ef4444;
+}
+
+.teacherNotesSection {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Modal styles for Sharing Report */
+.shareModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.shareModalDialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  max-width: 540px;
+  width: 100%;
+  padding: 24px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Print Specific Styles ── */
+@media print {
+  /* Hide non-printable elements */
+  .topToolbar,
+  .parentNoticeBanner,
+  .classStatsGrid,
+  .categoriesBar,
+  .modalHeader,
+  :global(aside),
+  :global(nav),
+  :global(header),
+  :global(button) {
+    display: none !important;
+  }
+
+  :global(body) {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .reportCardSheet {
+    border: 2px solid #000 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+    padding: 20px !important;
+    margin: 0 !important;
+  }
+
+  .schoolDetails :global(h2),
+  .reportCardTitleCenter :global(h3),
+  .metaValue,
+  .courseName,
+  .kpiMainNumber {
+    color: #000 !important;
+  }
+
+  .gradeTable :global(th) {
+    background: #f1f5f9 !important;
+    color: #000 !important;
+  }
+
+  .gradeTable :global(td) {
+    color: #000 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+  }
+
+  .scorePill {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    background: none !important;
+  }
+}

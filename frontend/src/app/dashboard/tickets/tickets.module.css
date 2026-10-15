@@ -1,0 +1,174 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  animation: fadeIn var(--transition-normal);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ── Split Layout: Ticket List & Thread ── */
+.layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: var(--space-5);
+  min-height: 600px;
+}
+
+.ticketListPane {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 720px;
+}
+
+.ticketListHeader {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.ticketItemsWrapper {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ticketItem {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color-light);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ticketItem:hover {
+  background: var(--bg-hover);
+}
+
+.ticketItemActive {
+  background: rgba(99, 102, 241, 0.12);
+  border-right: 3px solid var(--primary-500);
+}
+
+.ticketMetaRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.ticketNum {
+  font-family: monospace;
+  font-weight: 700;
+  color: #a5b4fc;
+}
+
+.ticketSubject {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* ── Thread Pane ── */
+.threadPane {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 720px;
+}
+
+.threadHeader {
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.threadMessages {
+  flex: 1;
+  padding: var(--space-5);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.messageBubble {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: var(--radius-xl);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bubbleMine {
+  align-self: flex-start;
+  background: var(--primary-600);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.bubbleOther {
+  align-self: flex-end;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-bottom-left-radius: 4px;
+}
+
+.bubbleMeta {
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.replyBar {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 8px;
+  background: var(--bg-secondary);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}

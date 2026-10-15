@@ -1,0 +1,455 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  animation: fadeIn var(--transition-normal);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.headerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.headerIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(6, 182, 212, 0.2) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+}
+
+.title {
+  font-size: 1.625rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.sessBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+/* ── Navigation Tabs ── */
+.navTabs {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-2);
+  overflow-x: auto;
+}
+
+.navTab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.navTab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.navTabActive {
+  color: #fff;
+  background: var(--primary-600);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
+/* ── Section Bento Container ── */
+.sessBento {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ── Credit Summary Strip ── */
+.creditStrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.creditCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.creditIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-400);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.creditInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.creditVal {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.creditLbl {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+}
+
+/* ── Course Grid ── */
+.courseGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-5);
+}
+
+.courseCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  transition: all var(--transition-normal);
+}
+
+.courseCard:hover {
+  border-color: var(--border-specular);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.courseHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.courseCode {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: monospace;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.courseCredits {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.courseName {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.courseDesc {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.courseMetaList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-color-light);
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.courseMetaItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.capacityBarWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capacityLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.capacityBarBg {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.capacityBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #06b6d4);
+  border-radius: var(--radius-full);
+}
+
+.courseFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+/* ── Transcript Table ── */
+.tableContainer {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.transcriptTable {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.875rem;
+}
+
+.transcriptTable th {
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.transcriptTable td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color-light);
+  color: var(--text-primary);
+}
+
+.transcriptTable tr:last-child td {
+  border-bottom: none;
+}
+
+.transcriptTable tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.gradePass {
+  color: #34d399;
+  font-weight: 800;
+}
+
+.gradePending {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.gpaBanner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.gpaTitle {
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.gpaSubtitle {
+  font-size: 0.8125rem;
+  color: #c7d2fe;
+}
+
+.gpaScore {
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #34d399;
+  letter-spacing: -0.02em;
+}
+
+/* ── Academic Calendar ── */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.timelineItem {
+  display: flex;
+  gap: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.timelineItem:hover {
+  border-color: var(--border-specular);
+  transform: translateX(-4px);
+}
+
+.timelineDateCol {
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timelineDate {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: var(--primary-300);
+}
+
+.timelineSemester {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.timelineBody {
+  flex: 1;
+}
+
+.timelineTitle {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.timelineDesc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ── Anonymous Feedback / SESS Inquiry ── */
+.feedbackGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+
+.feedbackFormCard, .trackingCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cardHeaderTitle {
+  font-size: 1.1875rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.cardHeaderSubtitle {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+}
+
+.trackingResult {
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ticketResponseBox {
+  padding: var(--space-3) var(--space-4);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md);
+  color: #a7f3d0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 850px) {
+  .feedbackGrid {
+    grid-template-columns: 1fr;
+  }
+}

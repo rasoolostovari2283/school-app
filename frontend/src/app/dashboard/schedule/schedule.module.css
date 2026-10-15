@@ -1,0 +1,162 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  animation: fadeIn var(--transition-normal);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.clashBanner {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.875rem;
+  color: #c7d2fe;
+}
+
+/* ── Timetable Grid ── */
+.timetableWrapper {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2xl);
+  overflow-x: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.timetable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 800px;
+}
+
+.timetable th {
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 800;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.timetable th:last-child {
+  border-left: none;
+}
+
+.dayHeaderCell {
+  width: 130px;
+  background: rgba(99, 102, 241, 0.06) !important;
+  color: #a5b4fc !important;
+  font-weight: 800;
+  font-size: 0.9375rem !important;
+}
+
+.periodCell {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color-light);
+  border-left: 1px solid var(--border-color-light);
+  height: 110px;
+  vertical-align: top;
+  transition: all var(--transition-fast);
+}
+
+.periodCell:last-child {
+  border-left: none;
+}
+
+.periodCell:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lessonCard {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(30, 27, 75, 0.4) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.lessonCard:hover {
+  border-color: var(--primary-400);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.25);
+}
+
+.lessonSubject {
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.lessonTeacher {
+  font-size: 0.75rem;
+  color: #c7d2fe;
+}
+
+.lessonRoom {
+  font-size: 0.75rem;
+  color: #38bdf8;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.emptySlot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.deleteLessonBtn {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: none;
+  border: none;
+  color: #f87171;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.deleteLessonBtn:hover {
+  opacity: 1;
+}
