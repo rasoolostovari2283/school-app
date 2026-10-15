@@ -250,13 +250,22 @@ export default function TeachersDatabasePage() {
   // ── Save Teacher (Add or Edit) ──
   const handleSaveTeacher = (e) => {
     e.preventDefault();
-    if (!teacherForm.name.trim()) return toast.error('لطفاً نام دبیر را وارد فرمایید');
-    if (!teacherForm.code.trim()) return toast.error('لطفاً کد اختصاصی دبیر را مشخص کنید');
+    const cleanName = teacherForm.name.trim();
+    if (!cleanName) {
+      toast.error('لطفاً نام و نام‌خانوادگی دبیر را وارد فرمایید');
+      return;
+    }
+
+    // Auto-generate code if empty
+    const cleanCode = teacherForm.code.trim().toUpperCase() || `TCH-${teachers.length + 101}`;
 
     const finalSubject =
       teacherForm.subject === 'سایر'
         ? teacherForm.customSubject.trim() || 'عمومی'
         : teacherForm.subject;
+
+    const cleanPhone = teacherForm.phone.trim() || 'ثبت نشده';
+    const cleanPersonnel = teacherForm.personnel_code.trim() || '---';
 
     if (editingTeacher) {
       // Update existing
@@ -264,13 +273,13 @@ export default function TeachersDatabasePage() {
         if (t.id === editingTeacher.id) {
           return {
             ...t,
-            name: teacherForm.name.trim(),
-            code: teacherForm.code.trim().toUpperCase(),
+            name: cleanName,
+            code: cleanCode,
             subject: finalSubject,
-            phone: teacherForm.phone.trim() || 'ثبت نشده',
-            personnel_code: teacherForm.personnel_code.trim() || '---',
-            grades: teacherForm.grades,
-            status: teacherForm.status,
+            phone: cleanPhone,
+            personnel_code: cleanPersonnel,
+            grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
+            status: teacherForm.status || 'active',
           };
         }
         return t;
@@ -278,18 +287,18 @@ export default function TeachersDatabasePage() {
 
       setTeachers(updatedList);
       saveTeachersToStorage(updatedList);
-      toast.success(`اطلاعات دبیر «${teacherForm.name}» با موفقیت در دیتابیس بروزرسانی شد ✨`);
+      toast.success(`اطلاعات دبیر «${cleanName}» با موفقیت در دیتابیس بروزرسانی شد ✨`);
     } else {
       // Add new
       const newTeacherObj = {
         id: `tch-${Date.now()}`,
-        name: teacherForm.name.trim(),
-        code: teacherForm.code.trim().toUpperCase(),
+        name: cleanName,
+        code: cleanCode,
         subject: finalSubject,
-        phone: teacherForm.phone.trim() || 'ثبت نشده',
-        personnel_code: teacherForm.personnel_code.trim() || '---',
-        grades: teacherForm.grades,
-        status: teacherForm.status,
+        phone: cleanPhone,
+        personnel_code: cleanPersonnel,
+        grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
+        status: teacherForm.status || 'active',
         classes_count: 0,
       };
 
@@ -748,19 +757,29 @@ export default function TeachersDatabasePage() {
 
       {/* ── MODAL: Add / Edit Teacher ── */}
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsModalOpen(false);
+          }}
+        >
           <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3 className={styles.modalTitle}>
                 <HiOutlineAcademicCap style={{ color: '#6366f1' }} />
                 {editingTeacher ? `ویرایش مشخصات دبیر: ${editingTeacher.name}` : 'ثبت معلم جدید در دیتابیس مدرسه'}
               </h3>
-              <button className={styles.modalCloseBtn} onClick={() => setIsModalOpen(false)}>
+              <button
+                type="button"
+                className={styles.modalCloseBtn}
+                onClick={() => setIsModalOpen(false)}
+                aria-label="بستن"
+              >
                 <HiOutlineXMark />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleSaveTeacher} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Full Name */}
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>نام و نام خانوادگی دبیر *</label>
@@ -770,22 +789,21 @@ export default function TeachersDatabasePage() {
                   placeholder="مثلاً: دکتر علی رضایی یا مهندس زهرا باقری"
                   value={teacherForm.name}
                   onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })}
-                  required
                   autoFocus
                 />
               </div>
 
               {/* Code & Personnel Code */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className={styles.modalRow2Col}>
                 <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>کد اختصاصی دبیر در مدرسه (TCH) *</label>
+                  <label className={styles.formLabel}>کد اختصاصی دبیر در مدرسه (TCH)</label>
                   <input
                     type="text"
                     className={styles.formInput}
                     style={{ fontFamily: 'monospace', letterSpacing: '1px' }}
+                    placeholder="مثال: TCH-106 (خودکار)"
                     value={teacherForm.code}
                     onChange={(e) => setTeacherForm({ ...teacherForm, code: e.target.value })}
-                    required
                   />
                 </div>
 
@@ -801,8 +819,8 @@ export default function TeachersDatabasePage() {
                 </div>
               </div>
 
-              {/* Subject & Custom Subject */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Subject & Phone */}
+              <div className={styles.modalRow2Col}>
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>درس / رشته تخصصی *</label>
                   <select
@@ -820,7 +838,7 @@ export default function TeachersDatabasePage() {
                 </div>
 
                 <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>شماره تماس همراه دبیر *</label>
+                  <label className={styles.formLabel}>شماره تماس همراه دبیر</label>
                   <input
                     type="tel"
                     className={styles.formInput}
@@ -828,7 +846,6 @@ export default function TeachersDatabasePage() {
                     value={teacherForm.phone}
                     onChange={(e) => setTeacherForm({ ...teacherForm, phone: e.target.value })}
                     dir="ltr"
-                    required
                   />
                 </div>
               </div>
@@ -842,7 +859,6 @@ export default function TeachersDatabasePage() {
                     placeholder="عنوان درس را بنویسید..."
                     value={teacherForm.customSubject}
                     onChange={(e) => setTeacherForm({ ...teacherForm, customSubject: e.target.value })}
-                    required
                   />
                 </div>
               )}

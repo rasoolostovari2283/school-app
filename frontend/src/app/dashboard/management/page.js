@@ -378,22 +378,25 @@ export default function ManagementDashboardPage() {
 
   const handleSaveTeacher = (e) => {
     e.preventDefault();
-    if (!newTeacher.name.trim()) return toast.error('نام معلم را وارد کنید');
-    if (!newTeacher.code.trim()) return toast.error('کد اختصاصی معلم را وارد کنید');
+    const cleanName = newTeacher.name.trim();
+    if (!cleanName) return toast.error('نام و نام‌خانوادگی معلم را وارد کنید');
+
+    const cleanCode = newTeacher.code.trim().toUpperCase() || `TCH-${100 + teachers.length + 1}`;
 
     const teacherObj = {
       id: `tch-${Date.now()}`,
-      name: newTeacher.name.trim(),
-      code: newTeacher.code.trim().toUpperCase(),
-      subject: newTeacher.subject,
+      name: cleanName,
+      code: cleanCode,
+      subject: newTeacher.subject || 'ریاضی و هندسه',
       phone: newTeacher.phone.trim() || 'ثبت نشده',
-      grades: newTeacher.grades,
+      grades: newTeacher.grades && newTeacher.grades.length > 0 ? newTeacher.grades : ['پایه دهم'],
     };
 
     const updated = [teacherObj, ...teachers];
     setTeachers(updated);
     try {
       localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
+      localStorage.setItem('school_teachers_database', JSON.stringify(updated));
     } catch (err) {}
 
     toast.success(`معلم گرامی «${teacherObj.name}» با کد اختصاصی ${teacherObj.code} به زیرمجموعه مدرسه افزوده شد 🎉`);
@@ -1279,20 +1282,31 @@ export default function ManagementDashboardPage() {
       {/* ══════════════════════════════════════════════════════════════════════
           MODAL: ثبت معلم جدید زیرمجموعه مدرسه
       ══════════════════════════════════════════════════════════════════════ */}
+      {/* ── MODAL: ثبت معلم جدید زیرمجموعه مدرسه ── */}
       {showTeacherModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowTeacherModal(false)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowTeacherModal(false);
+          }}
+        >
           <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3 className={styles.modalTitle}>
                 <HiOutlineAcademicCap style={{ color: '#6366f1' }} />
                 ثبت معلم جدید زیرمجموعه {schoolData.name}
               </h3>
-              <button className={styles.modalCloseBtn} onClick={() => setShowTeacherModal(false)}>
+              <button
+                type="button"
+                className={styles.modalCloseBtn}
+                onClick={() => setShowTeacherModal(false)}
+                aria-label="بستن"
+              >
                 <HiOutlineXMark />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTeacher} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleSaveTeacher} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>نام و نام خانوادگی دبیر *</label>
                 <input
@@ -1301,20 +1315,20 @@ export default function ManagementDashboardPage() {
                   placeholder="مثلاً: دکتر علی رضایی"
                   value={newTeacher.name}
                   onChange={(e) => setNewTeacher({ ...newTeacher, name: e.target.value })}
-                  required
+                  autoFocus
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className={styles.modalRow2Col}>
                 <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>کد اختصاصی معلم *</label>
+                  <label className={styles.formLabel}>کد اختصاصی معلم</label>
                   <input
                     type="text"
                     className={styles.formInput}
                     style={{ fontFamily: 'monospace', letterSpacing: '1px' }}
+                    placeholder="مثال: TCH-106 (خودکار)"
                     value={newTeacher.code}
                     onChange={(e) => setNewTeacher({ ...newTeacher, code: e.target.value })}
-                    required
                   />
                 </div>
 
@@ -1346,6 +1360,7 @@ export default function ManagementDashboardPage() {
                   placeholder="0912xxxxxxx"
                   value={newTeacher.phone}
                   onChange={(e) => setNewTeacher({ ...newTeacher, phone: e.target.value })}
+                  dir="ltr"
                 />
               </div>
 

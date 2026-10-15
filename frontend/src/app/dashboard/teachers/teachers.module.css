@@ -701,6 +701,12 @@
   opacity: 0.85;
 }
 
+.modalRow2Col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 /* ── Mobile Responsive ── */
 @media (max-width: 768px) {
   .header {
@@ -731,5 +737,44 @@
 
   .teachersGrid {
     grid-template-columns: 1fr;
+  }
+
+  .modalRow2Col {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .modalOverlay {
+    padding: 10px;
+  }
+
+  .modalDialog {
+    padding: 18px 16px;
+    max-height: 94vh;
+    border-radius: var(--radius-xl);
+    gap: 14px;
+  }
+
+  .modalTitle {
+    font-size: 1rem;
+  }
+
+  .gradesCheckboxGrid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .modalFooter {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modalSubmitBtn,
+  .modalCancelBtn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
+    text-align: center;
   }
 }
