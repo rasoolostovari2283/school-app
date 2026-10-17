@@ -194,6 +194,8 @@ const useAuthStore = create((set, get) => ({
         settings: {
           school_name: schoolName,
           schools: [schoolName],
+          taught_grades: entryData.grades || (entryData.role === 'teacher' ? ['پایه دهم ریاضی', 'پایه دهم تجربی'] : []),
+          subject: entryData.subject || (entryData.role === 'teacher' ? 'ریاضیات و حسابان' : null),
           is_teacher_onboarded: entryData.role === 'teacher' ? true : false,
         },
       };

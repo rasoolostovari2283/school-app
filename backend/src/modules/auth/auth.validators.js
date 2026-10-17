@@ -20,7 +20,11 @@ const quickEntrySchema = Joi.object({
   phone: Joi.string().allow(null, ''),
   role: Joi.string().valid('teacher', 'student', 'parent', 'admin').default('student'),
   password: Joi.string().allow(null, ''),
-});
+  school_name: Joi.string().allow(null, ''),
+  school_code: Joi.string().allow(null, ''),
+  grades: Joi.array().items(Joi.string()).allow(null),
+  subject: Joi.string().allow(null, ''),
+}).unknown(true);
 
 const updateProfileSchema = Joi.object({
   display_name: Joi.string().min(2).max(100),

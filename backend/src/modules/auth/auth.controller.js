@@ -206,7 +206,7 @@ class AuthController {
    */
   async getTeacherSetupOptions(req, res, next) {
     try {
-      const options = await authService.getTeacherSetupOptions(req.user.id);
+      const options = await authService.getTeacherSetupOptions(req.user?.id);
       res.json({
         success: true,
         data: options,

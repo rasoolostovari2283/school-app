@@ -160,4 +160,26 @@ const requireClassMember = async (req, res, next) => {
   }
 };
 
-module.exports = { authenticate, authorize, requireClassMember };
+/**
+ * Optional authentication middleware — attaches user if token is valid,
+ * but allows request to continue if no token is provided.
+ */
+const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, config.jwt.secret);
+      const user = await db('users').where({ id: decoded.userId }).first();
+      if (user) {
+        delete user.password_hash;
+        req.user = user;
+      }
+    }
+  } catch (e) {
+    // Gracefully ignore token errors for optional routes
+  }
+  next();
+};
+
+module.exports = { authenticate, authorize, requireClassMember, optionalAuth };

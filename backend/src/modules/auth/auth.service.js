@@ -187,7 +187,7 @@ class AuthService {
    * Smart Quick Entry by full name and phone number
    * Generates a unique entry ID / username based on name, or logs in if already registered
    */
-  async quickEntry({ display_name, phone, role = 'student', password = null, school_name = null, school_code = null }) {
+  async quickEntry({ display_name, phone, role = 'student', password = null, school_name = null, school_code = null, grades = null, subject = null }) {
     if (!display_name || !display_name.trim()) {
       const error = new Error('نام و نام‌خانوادگی الزامی است');
       error.statusCode = 400;
@@ -239,24 +239,34 @@ class AuthService {
         user.username = generatedUser;
       }
 
+      let settings = {};
+      if (user.settings) {
+        try { settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : user.settings; } catch (e) {}
+      }
+
       if (matchedSchool) {
-        let settings = {};
-        if (user.settings) {
-          try { settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : user.settings; } catch (e) {}
-        }
         settings.school_name = matchedSchool.name;
         settings.school_code = matchedSchool.code;
         if (role === 'teacher') {
           settings.schools = Array.from(new Set([matchedSchool.name, ...(settings.schools || [])]));
         }
-        await db('users').where({ id: user.id }).update({
-          school_id: matchedSchool.id,
-          settings: JSON.stringify(settings),
-        });
-        user.school_id = matchedSchool.id;
-        user.school_name = matchedSchool.name;
-        user.settings = JSON.stringify(settings);
       }
+
+      if (Array.isArray(grades) && grades.length > 0) {
+        settings.taught_grades = Array.from(new Set([...(settings.taught_grades || []), ...grades]));
+        settings.is_teacher_onboarded = true;
+      }
+      if (subject && subject.trim()) {
+        settings.subject = subject.trim();
+      }
+
+      const updatePayload = { settings: JSON.stringify(settings) };
+      if (matchedSchool) updatePayload.school_id = matchedSchool.id;
+      await db('users').where({ id: user.id }).update(updatePayload);
+
+      user.school_id = matchedSchool ? matchedSchool.id : user.school_id;
+      user.school_name = matchedSchool ? matchedSchool.name : (settings.school_name || null);
+      user.settings = JSON.stringify(settings);
 
       delete user.password_hash;
       const tokens = this.generateTokens(user.id, user.role);
@@ -282,6 +292,9 @@ class AuthService {
       school_name: matchedSchool ? matchedSchool.name : null,
       school_code: matchedSchool ? matchedSchool.code : null,
       schools: matchedSchool ? [matchedSchool.name] : [],
+      taught_grades: Array.isArray(grades) && grades.length > 0 ? grades : [],
+      subject: subject && subject.trim() ? subject.trim() : null,
+      is_teacher_onboarded: Array.isArray(grades) && grades.length > 0,
     };
 
     const newUser = await insertAndReturn(db, 'users', {
@@ -693,6 +706,16 @@ class AuthService {
           'دوازدهم هنرستان (کاردانش)',
         ],
       },
+      {
+        id: 'special',
+        title: 'کنکور، المپیاد و دوره‌های تقویتی',
+        icon: '🏆',
+        grades: [
+          'کلاس کنکور سراسری',
+          'المپیاد علمی و تیزهوشان',
+          'کلاس‌های تقویتی و تست‌زنی',
+        ],
+      },
     ];
 
     const subjects = [
@@ -735,7 +758,7 @@ class AuthService {
     }
 
     // Teacher's current profile settings
-    const teacher = await db('users').where({ id: teacherId }).first();
+    const teacher = teacherId ? await db('users').where({ id: teacherId }).first() : null;
     let currentSettings = {};
     if (teacher?.settings) {
       try { currentSettings = typeof teacher.settings === 'string' ? JSON.parse(teacher.settings) : teacher.settings; } catch (e) {}

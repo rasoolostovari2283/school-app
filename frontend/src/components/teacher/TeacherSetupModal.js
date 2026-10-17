@@ -27,43 +27,79 @@ const DEFAULT_TEACHER_SETUP_OPTIONS = {
   stages: [
     {
       id: 'high',
-      title: 'دوره دوم متوسطه (دبیرستان)',
+      title: 'متوسطه دوم (دبیرستان نظری)',
       icon: '🎓',
       grades: [
         'پایه دهم ریاضی',
         'پایه دهم تجربی',
         'پایه دهم انسانی',
+        'پایه دهم معارف',
         'پایه یازدهم ریاضی',
         'پایه یازدهم تجربی',
+        'پایه یازدهم انسانی',
+        'پایه یازدهم معارف',
         'پایه دوازدهم ریاضی',
         'پایه دوازدهم تجربی',
+        'پایه دوازدهم انسانی',
+        'پایه دوازدهم معارف',
       ],
     },
     {
-      id: 'junior',
-      title: 'دوره اول متوسطه (راهنمایی)',
-      icon: '🏫',
+      id: 'middle',
+      title: 'متوسطه اول (راهنمایی)',
+      icon: '📚',
       grades: ['پایه هفتم', 'پایه هشتم', 'پایه نهم'],
     },
     {
-      id: 'primary',
-      title: 'دوره ابتدایی (دبستان)',
-      icon: '✏️',
-      grades: ['پایه اول', 'پایه دوم', 'پایه سوم', 'پایه چهارم', 'پایه پنجم', 'پایه ششم'],
+      id: 'elementary',
+      title: 'دبستان (ابتدایی)',
+      icon: '🎒',
+      grades: [
+        'اول دبستان',
+        'دوم دبستان',
+        'سوم دبستان',
+        'چهارم دبستان',
+        'پنجم دبستان',
+        'ششم دبستان',
+      ],
+    },
+    {
+      id: 'vocational',
+      title: 'هنرستان و فنی‌حرفه‌ای',
+      icon: '⚙️',
+      grades: [
+        'دهم هنرستان (فنی‌حرفه‌ای)',
+        'دهم هنرستان (کاردانش)',
+        'یازدهم هنرستان (فنی‌حرفه‌ای)',
+        'یازدهم هنرستان (کاردانش)',
+        'دوازدهم هنرستان (فنی‌حرفه‌ای)',
+        'دوازدهم هنرستان (کاردانش)',
+      ],
+    },
+    {
+      id: 'special',
+      title: 'کنکور، المپیاد و دوره‌های تقویتی',
+      icon: '🏆',
+      grades: [
+        'کلاس کنکور سراسری',
+        'المپیاد علمی و تیزهوشان',
+        'کلاس‌های تقویتی و تست‌زنی',
+      ],
     },
   ],
   subjects: [
-    'ریاضی و هندسه',
-    'حسابان و دیفرانسیل',
-    'فیزیک',
-    'شیمی',
-    'زیست‌شناسی و ژنتیک',
+    'ریاضیات و حسابان',
+    'فیزیک و آزمایشگاه',
+    'شیمی تخصصی',
+    'زیست‌شناسی',
+    'هندسه و گسسته',
     'ادبیات فارسی',
     'زبان انگلیسی',
-    'عربی',
+    'عربی و زبان قرآن',
     'دین و زندگی',
+    'علوم تجربی',
+    'برنامه‌نویسی و کامپیوتر',
     'فلسفه و منطق',
-    'کامپیوتر و هوش مصنوعی',
     'مشاوره و سلامت روان',
   ],
   studentCounts: {
@@ -105,6 +141,7 @@ export default function TeacherSetupModal({
   const [isCustomSubject, setIsCustomSubject] = useState(false);
 
   const [selectedGrades, setSelectedGrades] = useState(new Set());
+  const [customGradeInput, setCustomGradeInput] = useState('');
   const [setupResult, setSetupResult] = useState(null);
 
   useEffect(() => {
@@ -135,6 +172,14 @@ export default function TeacherSetupModal({
         }
       }
     } catch (e) {}
+
+    // Safeguard stages and studentCounts
+    if (!data.stages || data.stages.length === 0) {
+      data.stages = DEFAULT_TEACHER_SETUP_OPTIONS.stages;
+    }
+    if (!data.studentCounts) {
+      data.studentCounts = DEFAULT_TEACHER_SETUP_OPTIONS.studentCounts || {};
+    }
 
     setOptions(data);
 
@@ -203,8 +248,34 @@ export default function TeacherSetupModal({
   };
 
   const currentStage = useMemo(() => {
-    return options.stages.find((s) => s.id === activeStageId) || options.stages[0];
-  }, [options.stages, activeStageId]);
+    const stageList = (options?.stages && options.stages.length > 0) ? options.stages : DEFAULT_TEACHER_SETUP_OPTIONS.stages;
+    if (activeStageId === 'all') {
+      const allGrades = [];
+      stageList.forEach((st) => {
+        if (Array.isArray(st.grades)) {
+          st.grades.forEach((g) => {
+            if (!allGrades.includes(g)) allGrades.push(g);
+          });
+        }
+      });
+      return {
+        id: 'all',
+        title: 'همه مقاطع و پایه‌های تحصیلی',
+        icon: '🌟',
+        grades: allGrades,
+      };
+    }
+    return stageList.find((s) => s.id === activeStageId) || stageList[0];
+  }, [options?.stages, activeStageId]);
+
+  const handleAddCustomGrade = (e) => {
+    if (e) e.preventDefault();
+    const clean = customGradeInput.trim();
+    if (!clean) return;
+    setSelectedGrades((prev) => new Set([...prev, clean]));
+    setCustomGradeInput('');
+    toast.success(`پایه/کلاس «${clean}» افزوده و تیک زده شد ✨`);
+  };
 
   const toggleGrade = (grade) => {
     setSelectedGrades((prev) => {
@@ -702,8 +773,21 @@ export default function TeacherSetupModal({
 
               {/* Stage Navigation Tabs */}
               <div className={styles.stageTabs}>
-                {options.stages.map((stage) => {
-                  const stageGradesCount = stage.grades.filter((g) => selectedGrades.has(g)).length;
+                <button
+                  type="button"
+                  className={`${styles.stageTabBtn} ${activeStageId === 'all' ? styles.stageTabBtnActive : ''}`}
+                  onClick={() => setActiveStageId('all')}
+                >
+                  <span>🌟</span>
+                  <span>همه مقاطع و پایه‌ها</span>
+                  {selectedGrades.size > 0 && (
+                    <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.3)', padding: '1px 6px', borderRadius: '10px' }}>
+                      {selectedGrades.size}
+                    </span>
+                  )}
+                </button>
+                {(options?.stages || DEFAULT_TEACHER_SETUP_OPTIONS.stages).map((stage) => {
+                  const stageGradesCount = (stage.grades || []).filter((g) => selectedGrades.has(g)).length;
                   return (
                     <button
                       type="button"
@@ -727,7 +811,7 @@ export default function TeacherSetupModal({
               {currentStage && (
                 <div className={styles.gradeStageHeader}>
                   <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                    پایه‌های {currentStage.title}:
+                    پایه‌های {currentStage.title} ({currentStage.grades?.length || 0} گزینه):
                   </span>
                   <div className={styles.bulkBtnGroup}>
                     <button
@@ -735,7 +819,7 @@ export default function TeacherSetupModal({
                       className={styles.bulkBtn}
                       onClick={() => selectAllInStage(currentStage)}
                     >
-                      ✓ انتخاب همه در این مقطع
+                      ✓ انتخاب همه در این بخش
                     </button>
                     <button
                       type="button"
@@ -748,40 +832,83 @@ export default function TeacherSetupModal({
                 </div>
               )}
 
-              {/* Grades Grid for active stage */}
-              {currentStage && (
+              {/* Grades Grid with explicit checkboxes */}
+              {currentStage && Array.isArray(currentStage.grades) && currentStage.grades.length > 0 ? (
                 <div className={styles.gradesGrid}>
                   {currentStage.grades.map((grade) => {
                     const isSelected = selectedGrades.has(grade);
-                    const count = options.studentCounts[grade] || 0;
+                    const count = options?.studentCounts?.[grade] || 0;
                     return (
-                      <div
+                      <label
                         key={grade}
                         className={`${styles.gradeCard} ${isSelected ? styles.gradeCardSelected : ''}`}
-                        onClick={() => toggleGrade(grade)}
+                        style={{ cursor: 'pointer' }}
                       >
-                        <div className={styles.gradeCardLeft}>
-                          <span className={styles.gradeName}>{grade}</span>
-                          <span className={styles.studentCountTag}>
-                            <span>👥</span>
-                            <span>{count > 0 ? `${count} دانش‌آموز` : 'آماده اتصال دانش‌آموزان'}</span>
-                          </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleGrade(grade)}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              accentColor: '#10b981',
+                              cursor: 'pointer',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <div className={styles.gradeCardLeft}>
+                            <span className={styles.gradeName}>{grade}</span>
+                            <span className={styles.studentCountTag}>
+                              <span>👥</span>
+                              <span>{count > 0 ? `${count} دانش‌آموز آماده اتصال` : 'آماده ثبت کلاس و دانش‌آموزان'}</span>
+                            </span>
+                          </div>
                         </div>
 
                         <div className={`${styles.gradeCheckDot} ${isSelected ? styles.gradeCheckDotSelected : ''}`}>
                           {isSelected ? <HiOutlineCheck style={{ strokeWidth: 3 }} /> : null}
                         </div>
-                      </div>
+                      </label>
                     );
                   })}
                 </div>
+              ) : (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  در حال بارگذاری گزینه‌های پایه‌ها...
+                </div>
               )}
+
+              {/* Custom Grade Creator */}
+              <div style={{ marginTop: '12px', background: 'var(--bg-surface)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '12px 14px' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  ✏️ پایه، رشته یا کلاس دیگری مدنظرتان است که در گزینه‌های بالا نیست؟
+                </div>
+                <form onSubmit={handleAddCustomGrade} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="مثال: دهم تجربی کلاس ۲، یا کلاس المپیاد ریاضی..."
+                    value={customGradeInput}
+                    onChange={(e) => setCustomGradeInput(e.target.value)}
+                    style={{ flex: 1, minWidth: '220px', fontSize: '0.84rem' }}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.82rem', padding: '8px 14px', whiteSpace: 'nowrap' }}
+                  >
+                    <HiOutlinePlus />
+                    <span>افزودن و تیک زدن</span>
+                  </button>
+                </form>
+              </div>
 
               {/* Selected Grades Chips Preview */}
               {selectedGrades.size > 0 && (
-                <div style={{ marginTop: '10px' }}>
+                <div style={{ marginTop: '14px' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                    پایه‌های انتخاب‌شده شما ({selectedGrades.size} پایه):
+                    پایه‌های انتخاب‌شده شما ({selectedGrades.size} پایه تیک‌خورده):
                   </div>
                   <div className={styles.selectedGradesChipsRow}>
                     {Array.from(selectedGrades).map((g) => (

@@ -73,6 +73,24 @@ function previewUsername(displayName) {
   return base || 'user';
 }
 
+const TEACHER_LOGIN_GRADES = [
+  'پایه دهم ریاضی',
+  'پایه دهم تجربی',
+  'پایه دهم انسانی',
+  'پایه یازدهم ریاضی',
+  'پایه یازدهم تجربی',
+  'پایه یازدهم انسانی',
+  'پایه دوازدهم ریاضی',
+  'پایه دوازدهم تجربی',
+  'پایه دوازدهم انسانی',
+  'پایه هفتم',
+  'پایه هشتم',
+  'پایه نهم',
+  'دبستان (ابتدایی)',
+  'هنرستان (فنی‌حرفه‌ای و کاردانش)',
+  'کلاس‌های کنکور و المپیاد',
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, quickEntry, parentLogin, registerSchool, demoLogin, fetchSchools } = useAuthStore();
@@ -135,6 +153,18 @@ export default function LoginPage() {
     school_code: '',
   });
   const [showSmartPassword, setShowSmartPassword] = useState(false);
+  const [smartTeacherGrades, setSmartTeacherGrades] = useState(['پایه دهم ریاضی', 'پایه دهم تجربی']);
+  const [smartCustomGrade, setSmartCustomGrade] = useState('');
+
+  const toggleSmartTeacherGrade = (grade) => {
+    setSmartTeacherGrades((prev) => {
+      if (prev.includes(grade)) {
+        return prev.filter((g) => g !== grade);
+      } else {
+        return [...prev, grade];
+      }
+    });
+  };
 
   // Account Login State
   const [accountForm, setAccountForm] = useState({
@@ -202,6 +232,7 @@ export default function LoginPage() {
         password: smartForm.password.trim() || undefined,
         school_name: finalSchoolName || undefined,
         school_code: isCustomSchoolSelected ? undefined : smartForm.school_code,
+        grades: smartForm.role === 'teacher' ? smartTeacherGrades : undefined,
       });
 
       const user = res.data.user;
@@ -643,6 +674,108 @@ export default function LoginPage() {
                   </div>
                 )}
               </div>
+
+              {/* ── Teacher Grades Selection (پایه‌هایی که با آن‌ها کلاس دارید) ── */}
+              {smartForm.role === 'teacher' && (
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1.5px solid rgba(79, 70, 229, 0.3)',
+                  borderRadius: '14px',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  marginTop: '4px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📚</span>
+                      <span>پایه‌هایی که با آن‌ها کلاس دارید (تیک بزنید): *</span>
+                    </label>
+                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
+                      {smartTeacherGrades.length} پایه انتخاب شده
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    پایه‌هایی که تدریس می‌فرمایید را تیک بزنید تا دانش‌آموزان این پایه‌ها به پنل شما متصل شوند:
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+                    {TEACHER_LOGIN_GRADES.map((grade) => {
+                      const isChecked = smartTeacherGrades.includes(grade);
+                      return (
+                        <label
+                          key={grade}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 10px',
+                            borderRadius: '10px',
+                            border: isChecked ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                            background: isChecked ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-surface)',
+                            cursor: 'pointer',
+                            fontSize: '0.78rem',
+                            fontWeight: isChecked ? 750 : 600,
+                            color: isChecked ? '#10b981' : 'var(--text-primary)',
+                            transition: 'all 0.15s ease-in-out',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSmartTeacherGrade(grade)}
+                            style={{
+                              width: '16px',
+                              height: '16px',
+                              accentColor: '#10b981',
+                              cursor: 'pointer',
+                            }}
+                          />
+                          <span>{grade}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add custom grade for teacher */}
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="پایه یا کلاس دیگر (مثلاً: دهم تجربی ۲)..."
+                      value={smartCustomGrade}
+                      onChange={(e) => setSmartCustomGrade(e.target.value)}
+                      style={{ flex: 1, fontSize: '0.78rem', padding: '6px 10px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!smartCustomGrade.trim()) return;
+                        const clean = smartCustomGrade.trim();
+                        if (!smartTeacherGrades.includes(clean)) {
+                          setSmartTeacherGrades([...smartTeacherGrades, clean]);
+                        }
+                        setSmartCustomGrade('');
+                        toast.success(`پایه «${clean}» اضافه و تیک زده شد 👍`);
+                      }}
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #10b981',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      + افزودن و تیک زدن
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Optional Password with Visibility Toggle */}
               <div className={styles.inputGroup}>

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('./auth.controller');
-const { authenticate } = require('../../middleware/auth');
+const { authenticate, optionalAuth } = require('../../middleware/auth');
 const localCaptcha = require('../../utils/localCaptcha');
 
 router.post('/quick-entry', authController.quickEntry);
@@ -13,9 +13,9 @@ router.post('/parent-login', authController.parentLogin);
 router.post('/refresh', authController.refresh);
 router.get('/me', authenticate, authController.getMe);
 router.put('/profile', authenticate, authController.updateProfile);
-router.get('/student-setup-options', authenticate, authController.getStudentSetupOptions);
+router.get('/student-setup-options', optionalAuth, authController.getStudentSetupOptions);
 router.post('/student-setup', authenticate, authController.saveStudentSetup);
-router.get('/teacher-setup-options', authenticate, authController.getTeacherSetupOptions);
+router.get('/teacher-setup-options', optionalAuth, authController.getTeacherSetupOptions);
 router.post('/teacher-setup', authenticate, authController.saveTeacherSetup);
 
 // Domestic Offline-Safe Captcha
