@@ -269,12 +269,14 @@
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: var(--shadow-sm);
 }
 
 .transcriptTable {
   width: 100%;
+  min-width: 620px;
   border-collapse: collapse;
   text-align: right;
   font-size: 0.875rem;

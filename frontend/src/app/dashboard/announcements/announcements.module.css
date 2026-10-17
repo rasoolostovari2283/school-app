@@ -401,3 +401,108 @@
   font-size: 0.875rem;
   font-weight: 600;
 }
+
+.priorityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.audienceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+/* ── Mobile Responsive Styles ── */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .headerTitle {
+    font-size: 1.25rem;
+  }
+
+  .headerSubtitle {
+    font-size: 0.78rem;
+  }
+
+  .statsGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .statCard {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .statIcon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+  }
+
+  .statValue {
+    font-size: 1.25rem;
+  }
+
+  .statLabel {
+    font-size: 0.72rem;
+  }
+
+  .tabsRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .filterTabs {
+    width: 100%;
+    overflow-x: auto;
+    padding: 4px;
+  }
+
+  .filterTab {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+  }
+
+  .modalContent {
+    padding: 16px;
+    max-height: 94vh;
+    border-radius: var(--radius-xl);
+  }
+
+  .priorityGrid,
+  .audienceGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .cardFooter {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .cardActions {
+    width: 100%;
+  }
+
+  .cardActions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

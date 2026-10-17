@@ -681,5 +681,71 @@
   border: 1px solid rgba(6, 182, 212, 0.25);
 }
 
+/* ── Mobile Responsive Styles ── */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .filtersBar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .tabList {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .selectClass {
+    width: 100%;
+  }
+
+  .assignmentGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .modalBackdrop,
+  .modalOverlay {
+    padding: 8px;
+  }
+
+  .modalContent,
+  .modalCard {
+    padding: 16px;
+    max-height: 94vh;
+    border-radius: var(--radius-xl);
+    width: 100%;
+  }
+
+  .modalHeader {
+    padding-bottom: 12px;
+  }
+
+  .modalFooter {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modalFooter button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 
 

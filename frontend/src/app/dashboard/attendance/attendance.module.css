@@ -869,7 +869,123 @@
     background: #ffffff !important;
     color: #111827 !important;
   }
+}
 
+/* ── Mobile Responsive Styles ── */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .creatorCard {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .creatorInputs {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .creatorInputs select,
+  .creatorInputs input {
+    width: 100% !important;
+  }
+
+  .statsGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .statCard {
+    padding: 10px 12px;
+  }
+
+  .statValue {
+    font-size: 1.25rem;
+  }
+
+  .activeSessionBanner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .sessionRight,
+  .sessionLeft {
+    width: 100%;
+  }
+
+  .sessionActions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .sessionActions button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  /* CRITICAL: Stack Present and Absent lists in 1 column on mobile to prevent overlapping */
+  .twoListsContainer {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .presentListBox,
+  .absentListBox {
+    padding: 14px;
+    width: 100%;
+  }
+
+  .twoListsTopBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .exportBar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .exportButtonsGroup {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .downloadPillBtn {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+    font-size: 0.72rem;
+  }
+
+  .studentCard {
+    padding: 10px 12px;
+  }
+
+  .studentCardRight {
+    gap: 8px;
+  }
+
+  .studentName {
+    font-size: 0.82rem;
+  }
+}
+
+@media print {
   /* مخفی کردن تمام المان‌های محیطی داشبورد */
   :global(#sidebar),
   :global(aside),

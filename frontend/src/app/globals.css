@@ -538,3 +538,50 @@ a:hover {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.7);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL MOBILE RESPONSIVENESS & TOUCH ENHANCEMENTS (بهینه‌سازی موبایل)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  :root {
+    --space-8: 1.25rem;
+    --space-6: 1rem;
+    --space-5: 0.875rem;
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Prevent text clipping and awkward word-breaks */
+  h1, h2, h3, h4, h5, p, span, label {
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  /* Smooth touch scrolling for all scroll containers */
+  [class*="Wrapper"],
+  [class*="Container"],
+  [class*="table"],
+  [class*="modal"] {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Prevent iOS zoom-in distortion on inputs */
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Button flex wrap protection */
+  .btn {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}

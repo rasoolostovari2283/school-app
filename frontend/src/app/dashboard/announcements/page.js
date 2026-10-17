@@ -695,7 +695,7 @@ export default function AnnouncementsPage() {
                 <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px', display: 'block' }}>
                   سطح اهمیت و فوریت:
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div className={styles.priorityGrid}>
                   <div
                     className={`${styles.priorityRadio} ${form.priority === 'urgent' ? styles.audienceSelected : ''}`}
                     onClick={() => setForm({ ...form, priority: 'urgent' })}
@@ -736,7 +736,7 @@ export default function AnnouncementsPage() {
                 <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px', display: 'block' }}>
                   مخاطبان هدف (چه کسانی دریافت کنند؟):
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div className={styles.audienceGrid}>
                   <div
                     className={`${styles.audienceOptionCard} ${form.target_audience === 'all' ? styles.audienceSelected : ''}`}
                     onClick={() => setForm({ ...form, target_audience: 'all' })}

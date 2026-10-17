@@ -970,6 +970,68 @@
   background: rgba(16, 185, 129, 0.2);
 }
 
+/* ── Mobile Responsive Styles ── */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .quizStatsGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .quizGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .quizCard {
+    padding: 16px;
+  }
+
+  .modalBackdrop {
+    padding: 8px;
+  }
+
+  .modalContent {
+    padding: 14px;
+    max-height: 94vh;
+    border-radius: var(--radius-xl);
+    width: 100%;
+  }
+
+  .modalHeader {
+    padding-bottom: 12px;
+  }
+
+  .questionCard {
+    padding: 12px;
+  }
+
+  .optionRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .modalFooter {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modalFooter button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 @media print {
   body * {
     visibility: hidden;
