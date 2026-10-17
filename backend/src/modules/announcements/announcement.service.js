@@ -72,10 +72,21 @@ class AnnouncementService {
    * Get available targeting options (distinct grades, subjects, and classes)
    */
   async getTargetingOptions() {
-    const allClasses = await db('classes')
-      .where({ is_active: true })
-      .select('id', 'name', 'grade', 'subject')
-      .orderBy('name');
+    let allClasses = [];
+    try {
+      allClasses = await db('classes')
+        .where(function() {
+          this.where({ is_active: true }).orWhere({ is_active: 1 });
+        })
+        .select('id', 'name', 'grade', 'subject')
+        .orderBy('name');
+    } catch (e) {
+      try {
+        allClasses = await db('classes').select('id', 'name', 'grade', 'subject');
+      } catch (err) {
+        allClasses = [];
+      }
+    }
 
     const gradeSet = new Set();
     const subjectSet = new Set();
@@ -89,14 +100,35 @@ class AnnouncementService {
       }
     });
 
-    // Add standard Iranian K-12 grades if not yet in database so teachers can always pick them
+    try {
+      const userDepts = await db('users').whereNotNull('department').distinct('department');
+      userDepts.forEach(u => {
+        if (u.department && u.department.trim()) {
+          gradeSet.add(u.department.trim());
+        }
+      });
+    } catch (e) {}
+
+    // Add standard Iranian K-12 grades so teachers can always pick them
     const standardGrades = [
-      'پایه دهم',
-      'پایه یازدهم',
-      'پایه دوازدهم',
+      'پایه دهم ریاضی',
+      'پایه دهم تجربی',
+      'پایه دهم انسانی',
+      'پایه یازدهم ریاضی',
+      'پایه یازدهم تجربی',
+      'پایه یازدهم انسانی',
+      'پایه دوازدهم ریاضی',
+      'پایه دوازدهم تجربی',
+      'پایه دوازدهم انسانی',
       'پایه هفتم',
       'پایه هشتم',
       'پایه نهم',
+      'دبستان (ابتدایی)',
+      'هنرستان (فنی‌حرفه‌ای و کاردانش)',
+      'کلاس‌های کنکور و المپیاد',
+      'پایه دهم',
+      'پایه یازدهم',
+      'پایه دوازدهم',
       'دوره دوم متوسطه',
       'دوره اول متوسطه',
       'پایه کنکور',
@@ -105,14 +137,24 @@ class AnnouncementService {
 
     // Add standard subjects
     const standardSubjects = [
-      'ریاضی و هندسه',
+      'ریاضیات و حسابان',
       'فیزیک',
       'شیمی',
       'زیست‌شناسی',
-      'ادبیات و فارسی',
+      'هندسه و گسسته',
+      'ادبیات و زبان فارسی',
       'زبان انگلیسی',
-      'عربی',
+      'عربی و زبان قرآن',
       'دین و زندگی',
+      'تاریخ و جغرافیا',
+      'علوم تجربی',
+      'علوم اجتماعی و جامعه‌شناسی',
+      'فلسفه و منطق',
+      'روان‌شناسی',
+      'کامپیوتر و برنامه‌نویسی',
+      'هنر و گرافیک',
+      'تربیت بدنی و ورزش',
+      'کار و فناوری',
       'مشاوره و هدایت تحصیلی',
     ];
     standardSubjects.forEach(s => subjectSet.add(s));

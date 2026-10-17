@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
 import toast from 'react-hot-toast';
@@ -17,17 +17,62 @@ import {
   HiOutlineShieldCheck,
   HiOutlineEye,
   HiOutlineCheck,
+  HiOutlinePlus,
 } from 'react-icons/hi2';
 import styles from './announcements.module.css';
+
+const DEFAULT_ANNOUNCEMENT_GRADES = [
+  'پایه دهم ریاضی',
+  'پایه دهم تجربی',
+  'پایه دهم انسانی',
+  'پایه یازدهم ریاضی',
+  'پایه یازدهم تجربی',
+  'پایه یازدهم انسانی',
+  'پایه دوازدهم ریاضی',
+  'پایه دوازدهم تجربی',
+  'پایه دوازدهم انسانی',
+  'پایه هفتم',
+  'پایه هشتم',
+  'پایه نهم',
+  'دبستان (ابتدایی)',
+  'هنرستان (فنی‌حرفه‌ای و کاردانش)',
+  'کلاس‌های کنکور و المپیاد',
+  'پایه دهم',
+  'پایه یازدهم',
+  'پایه دوازدهم',
+];
+
+const DEFAULT_ANNOUNCEMENT_SUBJECTS = [
+  'ریاضیات و حسابان',
+  'فیزیک',
+  'شیمی',
+  'زیست‌شناسی',
+  'هندسه و گسسته',
+  'ادبیات و زبان فارسی',
+  'زبان انگلیسی',
+  'عربی و زبان قرآن',
+  'دین و زندگی',
+  'تاریخ و جغرافیا',
+  'علوم تجربی',
+  'علوم اجتماعی و جامعه‌شناسی',
+  'فلسفه و منطق',
+  'روان‌شناسی',
+  'کامپیوتر و برنامه‌نویسی',
+  'هنر و گرافیک',
+  'تربیت بدنی و ورزش',
+  'کار و فناوری',
+];
 
 export default function AnnouncementsPage() {
   const { user } = useAuthStore();
   const [announcements, setAnnouncements] = useState([]);
   const [targetingOptions, setTargetingOptions] = useState({
-    grades: [],
-    subjects: [],
+    grades: DEFAULT_ANNOUNCEMENT_GRADES,
+    subjects: DEFAULT_ANNOUNCEMENT_SUBJECTS,
     classes: [],
   });
+  const [customGradeInput, setCustomGradeInput] = useState('');
+  const [customSubjectInput, setCustomSubjectInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
 
@@ -51,11 +96,23 @@ export default function AnnouncementsPage() {
 
   const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
 
+  const myTaughtGrades = useMemo(() => {
+    try {
+      let settings = user?.settings;
+      if (!settings && typeof window !== 'undefined') {
+        const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
+        settings = cached?.settings;
+      }
+      const parsed = typeof settings === 'string' ? JSON.parse(settings) : (settings || {});
+      return Array.isArray(parsed.taught_grades) ? parsed.taught_grades : [];
+    } catch (e) {
+      return [];
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchAnnouncements();
-    if (isTeacherOrAdmin) {
-      fetchTargetingOptions();
-    }
+    fetchTargetingOptions();
   }, [user]);
 
   const fetchAnnouncements = async () => {
@@ -74,21 +131,88 @@ export default function AnnouncementsPage() {
   };
 
   const fetchTargetingOptions = async () => {
+    let teacherGrades = [];
+    let teacherSubject = null;
+    try {
+      let settings = user?.settings;
+      if (!settings && typeof window !== 'undefined') {
+        const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
+        settings = cached?.settings;
+      }
+      const parsedSettings = typeof settings === 'string' ? JSON.parse(settings) : (settings || {});
+      if (Array.isArray(parsedSettings.taught_grades)) {
+        teacherGrades = parsedSettings.taught_grades;
+      }
+      if (parsedSettings.subject) {
+        teacherSubject = parsedSettings.subject;
+      }
+    } catch (e) {}
+
     try {
       const res = await api.get('/announcements/targeting-options');
-      if (res.data?.success) {
-        setTargetingOptions(res.data.data);
+      if (res.data?.success && res.data.data) {
+        const fetched = res.data.data;
+        const mergedGrades = Array.from(new Set([
+          ...teacherGrades,
+          ...(fetched.grades || []),
+          ...DEFAULT_ANNOUNCEMENT_GRADES,
+        ]));
+        const mergedSubjects = Array.from(new Set([
+          ...(teacherSubject ? [teacherSubject] : []),
+          ...(fetched.subjects || []),
+          ...DEFAULT_ANNOUNCEMENT_SUBJECTS,
+        ]));
+        setTargetingOptions({
+          grades: mergedGrades,
+          subjects: mergedSubjects,
+          classes: fetched.classes || [],
+        });
+        return;
       }
     } catch (err) {
       console.error('Error fetching targeting options:', err);
-      // Fallback
-      try {
-        const clsRes = await api.get('/classes');
-        if (clsRes.data?.success) {
-          setTargetingOptions(prev => ({ ...prev, classes: clsRes.data.data.classes || [] }));
-        }
-      } catch (e) {}
     }
+
+    // Fallback if network or error
+    setTargetingOptions((prev) => ({
+      ...prev,
+      grades: Array.from(new Set([...teacherGrades, ...prev.grades, ...DEFAULT_ANNOUNCEMENT_GRADES])),
+      subjects: Array.from(new Set([...(teacherSubject ? [teacherSubject] : []), ...prev.subjects, ...DEFAULT_ANNOUNCEMENT_SUBJECTS])),
+    }));
+  };
+
+  const handleAddCustomGrade = () => {
+    if (!customGradeInput || !customGradeInput.trim()) return;
+    const clean = customGradeInput.trim();
+    if (!targetingOptions.grades.includes(clean)) {
+      setTargetingOptions((prev) => ({
+        ...prev,
+        grades: [clean, ...prev.grades],
+      }));
+    }
+    toggleGradeSelect(clean);
+    setCustomGradeInput('');
+    toast.success(`پایه «${clean}» اضافه و انتخاب شد 👍`);
+  };
+
+  const handleAddCustomSubject = () => {
+    if (!customSubjectInput || !customSubjectInput.trim()) return;
+    const clean = customSubjectInput.trim();
+    if (!targetingOptions.subjects.includes(clean)) {
+      setTargetingOptions((prev) => ({
+        ...prev,
+        subjects: [clean, ...prev.subjects],
+      }));
+    }
+    toggleSubjectSelect(clean);
+    setCustomSubjectInput('');
+    toast.success(`درس «${clean}» اضافه و انتخاب شد 👍`);
+  };
+
+  const selectOnlyTeacherGrades = (grades) => {
+    if (!grades || grades.length === 0) return;
+    setForm({ ...form, target_grades: [...grades] });
+    toast.success(`پایه‌های اختصاصی شما (${grades.length} پایه) انتخاب شدند 👍`);
   };
 
   const handleCreateAnnouncement = async (e) => {
@@ -645,18 +769,75 @@ export default function AnnouncementsPage() {
               {/* Target Grades (پایه‌های تحصیلی) */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0 }}>
-                    🎓 پایه‌های تحصیلی هدف:
+                  <label style={{ fontSize: '0.875rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🎓</span>
+                    <span>پایه‌های تحصیلی هدف (کدام پایه‌ها دریافت کنند؟): *</span>
                   </label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                    {form.target_grades.includes('*') ? 'ارسال به تمام پایه‌ها' : `${form.target_grades.length} پایه انتخاب شده`}
+                  <span style={{ fontSize: '0.75rem', color: form.target_grades.includes('*') ? '#6366f1' : '#10b981', fontWeight: 700 }}>
+                    {form.target_grades.includes('*') ? '🌟 ارسال به تمام پایه‌ها (سراسری)' : `✅ ${form.target_grades.length} پایه انتخاب شده`}
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '110px', overflowY: 'auto', padding: '2px' }}>
+
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: 0 }}>
+                  روی هر پایه که می‌خواهید کلیک کنید تا فعال شود (امکان انتخاب همزمان چند پایه وجود دارد):
+                </p>
+
+                {/* Quick Shortcuts for Teacher */}
+                {myTaughtGrades.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>انتخاب سریع:</span>
+                    <button
+                      type="button"
+                      onClick={() => selectOnlyTeacherGrades(myTaughtGrades)}
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                        background: 'rgba(99, 102, 241, 0.1)',
+                        color: '#6366f1',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        fontWeight: 700,
+                      }}
+                    >
+                      👨‍🏫 فقط پایه‌های تدریس من ({myTaughtGrades.length} پایه)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleGradeSelect('*')}
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                      }}
+                    >
+                      🌟 تمام پایه‌های مدرسه
+                    </button>
+                  </div>
+                )}
+
+                {/* Grade Selection Chips */}
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                  padding: '8px',
+                  background: 'var(--bg-hover)',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-color)',
+                }}>
                   <button
                     type="button"
                     className={`btn ${form.target_grades.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
+                    style={{
+                      fontSize: '0.8125rem',
+                      padding: '6px 14px',
+                      borderRadius: '20px',
+                      fontWeight: form.target_grades.includes('*') ? 800 : 600,
+                    }}
                     onClick={() => toggleGradeSelect('*')}
                   >
                     🌟 تمام پایه‌ها (سراسری)
@@ -664,32 +845,80 @@ export default function AnnouncementsPage() {
 
                   {targetingOptions.grades?.map((g) => {
                     const isSelected = !form.target_grades.includes('*') && form.target_grades.includes(g);
+                    const isMyGrade = myTaughtGrades.includes(g);
                     return (
                       <button
                         key={g}
                         type="button"
                         className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
+                        style={{
+                          fontSize: '0.8125rem',
+                          padding: '6px 14px',
+                          borderRadius: '20px',
+                          fontWeight: isSelected ? 800 : (isMyGrade ? 700 : 500),
+                          borderColor: isSelected ? '#10b981' : (isMyGrade ? '#6366f1' : undefined),
+                          background: isSelected ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : (isMyGrade ? 'rgba(99, 102, 241, 0.08)' : undefined),
+                          color: isSelected ? '#ffffff' : (isMyGrade ? '#4f46e5' : undefined),
+                        }}
                         onClick={() => toggleGradeSelect(g)}
+                        title={isMyGrade ? 'از پایه‌های تدریس شما' : ''}
                       >
-                        {g}
+                        {isSelected ? '✓ ' : ''}{g} {isMyGrade && !isSelected ? '⭐' : ''}
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Add Custom Grade Input */}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="افزودن پایه یا کلاس دیگر (مثلاً: دهم ریاضی ۲ یا نهم ب)..."
+                    value={customGradeInput}
+                    onChange={(e) => setCustomGradeInput(e.target.value)}
+                    style={{ flex: 1, fontSize: '0.78rem', padding: '6px 10px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomGrade();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleAddCustomGrade}
+                    style={{ fontSize: '0.75rem', padding: '6px 12px', whiteSpace: 'nowrap', fontWeight: 700 }}
+                  >
+                    <HiOutlinePlus style={{ verticalAlign: 'middle', marginLeft: '4px' }} />
+                    افزودن و انتخاب
+                  </button>
                 </div>
               </div>
 
               {/* Target Subjects (درس‌های هدف) */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0 }}>
-                    📖 درس‌های هدف:
+                  <label style={{ fontSize: '0.875rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>📖</span>
+                    <span>درس‌های هدف:</span>
                   </label>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                     {form.target_subjects.includes('*') ? 'ارسال به تمام درس‌ها' : `${form.target_subjects.length} درس انتخاب شده`}
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '110px', overflowY: 'auto', padding: '2px' }}>
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  maxHeight: '140px',
+                  overflowY: 'auto',
+                  padding: '8px',
+                  background: 'var(--bg-hover)',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-color)',
+                }}>
                   <button
                     type="button"
                     className={`btn ${form.target_subjects.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
@@ -706,13 +935,47 @@ export default function AnnouncementsPage() {
                         key={s}
                         type="button"
                         className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
+                        style={{
+                          fontSize: '0.8125rem',
+                          padding: '6px 14px',
+                          borderRadius: '20px',
+                          fontWeight: isSelected ? 800 : 500,
+                          borderColor: isSelected ? '#10b981' : undefined,
+                          background: isSelected ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : undefined,
+                        }}
                         onClick={() => toggleSubjectSelect(s)}
                       >
-                        {s}
+                        {isSelected ? '✓ ' : ''}{s}
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Add Custom Subject Input */}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="افزودن درس دلخواه دیگر (مثلاً: زیست المپیاد یا آزمایشگاه علوم)..."
+                    value={customSubjectInput}
+                    onChange={(e) => setCustomSubjectInput(e.target.value)}
+                    style={{ flex: 1, fontSize: '0.78rem', padding: '6px 10px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomSubject();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleAddCustomSubject}
+                    style={{ fontSize: '0.75rem', padding: '6px 12px', whiteSpace: 'nowrap', fontWeight: 700 }}
+                  >
+                    <HiOutlinePlus style={{ verticalAlign: 'middle', marginLeft: '4px' }} />
+                    افزودن و انتخاب
+                  </button>
                 </div>
               </div>
 
