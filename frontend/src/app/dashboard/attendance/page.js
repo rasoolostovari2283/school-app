@@ -1720,17 +1720,17 @@ export default function AttendancePage() {
             <div className={styles.creatorCard}>
               <div className={styles.creatorHeader}>
                 <div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <HiOutlinePlay style={{ color: '#818cf8' }} />
+                  <h3 className={styles.creatorTitle}>
+                    <HiOutlinePlay className={styles.creatorTitleIcon} />
                     ایجاد باکس حضور و غیاب کلاسی (بدون نیاز به کد)
                   </h3>
-                  <p style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem', marginTop: '4px' }}>
+                  <p className={styles.creatorDesc}>
                     کلاس مد نظرتان را انتخاب کنید و هر وقت خواستید با فشردن دکمه زیر، باکس ثبت حضور ۱۵ دقیقه‌ای را باز کنید.
                   </p>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  <span className={styles.durationLabel}>
                     مدت زمان مهلت:
                   </span>
                   <div className={styles.durationPills}>
@@ -1767,21 +1767,15 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', paddingTop: '8px' }}>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              <div className={styles.creatorFooter}>
+                <div className={styles.creatorClassInfo}>
                   📍 کلاس مقصد: <strong>{selectedClass?.name || 'کلاس انتخاب نشده'}</strong>
                 </div>
 
                 <button
-                  className="btn btn-primary"
+                  className={styles.creatorStartBtn}
                   onClick={handleStartSession}
                   disabled={startingSession}
-                  style={{
-                    padding: '12px 28px',
-                    fontSize: '1rem',
-                    fontWeight: 700,
-                    boxShadow: '0 8px 24px rgba(99, 102, 241, 0.4)',
-                  }}
                 >
                   <HiOutlinePlay style={{ fontSize: '1.25rem' }} />
                   <span>{startingSession ? 'در حال فعال‌سازی...' : `شروع باکس حضور و غیاب (${selectedDuration} دقیقه‌ای)`}</span>
