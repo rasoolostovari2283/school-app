@@ -1147,6 +1147,9 @@ export default function ReportCardPage() {
         </div>
 
         {/* ── 4. Roster & Scores Matrix Table ── */}
+        <div className={styles.mobileScrollHint}>
+          <span>📱 برای مشاهده کامل نمرات، نام‌ها و دکمه کارنامه، جدول را به چپ بکشید ⟷</span>
+        </div>
         {loadingTeacher ? (
           <div className="skeleton" style={{ height: 320, borderRadius: 'var(--radius-2xl)' }} />
         ) : (
@@ -1940,6 +1943,9 @@ function OfficialReportCardPaperSheet({ reportData }) {
       </div>
 
       {/* Formal Grades Table */}
+      <div className={styles.mobileScrollHint}>
+        <span>📱 برای مشاهده نمرات مستمر، میان‌ترم و پایانی، جدول را به چپ بکشید ⟷</span>
+      </div>
       <div className={styles.tableContainer}>
         <table className={styles.gradeTable}>
           <thead>
