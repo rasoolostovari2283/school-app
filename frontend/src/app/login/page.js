@@ -91,6 +91,27 @@ const TEACHER_LOGIN_GRADES = [
   'کلاس‌های کنکور و المپیاد',
 ];
 
+const DEFAULT_TEACHER_SUBJECTS = [
+  'ریاضیات و حسابان',
+  'فیزیک',
+  'شیمی',
+  'زیست‌شناسی',
+  'هندسه و گسسته',
+  'ادبیات و زبان فارسی',
+  'زبان انگلیسی',
+  'عربی و زبان قرآن',
+  'دین و زندگی',
+  'تاریخ و جغرافیا',
+  'علوم تجربی',
+  'علوم اجتماعی و جامعه‌شناسی',
+  'فلسفه و منطق',
+  'روان‌شناسی',
+  'کامپیوتر و برنامه‌نویسی',
+  'هنر و گرافیک',
+  'تربیت بدنی و ورزش',
+  'کار و فناوری',
+];
+
 const DEFAULT_LOGIN_SCHOOLS = [
   { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)', code: 'SCH-1001', city: 'تهران', level: 'متوسطه دوم (دبیرستان)', is_registered: true },
   { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)', code: 'SCH-1002', city: 'تهران', level: 'متوسطه دوم (دبیرستان)', is_registered: true },
@@ -173,6 +194,7 @@ export default function LoginPage() {
   const [showSmartPassword, setShowSmartPassword] = useState(false);
   const [smartTeacherGrades, setSmartTeacherGrades] = useState(['پایه دهم ریاضی', 'پایه دهم تجربی']);
   const [smartCustomGrade, setSmartCustomGrade] = useState('');
+  const [smartTeacherSubject, setSmartTeacherSubject] = useState('ریاضیات و حسابان');
 
   const toggleSmartTeacherGrade = (grade) => {
     setSmartTeacherGrades((prev) => {
@@ -251,6 +273,7 @@ export default function LoginPage() {
         school_name: finalSchoolName || undefined,
         school_code: smartForm.school_code || undefined,
         grades: smartForm.role === 'teacher' ? smartTeacherGrades : undefined,
+        subject: smartForm.role === 'teacher' ? (smartTeacherSubject || '').trim() || undefined : undefined,
       });
 
       const user = res.data.user;
@@ -726,6 +749,126 @@ export default function LoginPage() {
                   </div>
                 )}
               </div>
+
+              {/* ── Teacher Subject Selection & Typing (درس و تخصص آموزشی دبیر) ── */}
+              {smartForm.role === 'teacher' && (
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1.5px solid rgba(16, 185, 129, 0.35)',
+                  borderRadius: '14px',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  marginTop: '4px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📖</span>
+                      <span>درس و تخصص تدریسی شما (هم قابل تایپ، هم انتخاب از لیست): *</span>
+                    </label>
+                    {smartTeacherSubject && (
+                      <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
+                        درس: {smartTeacherSubject}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    عنوان درسی که تدریس می‌فرمایید را تایپ نمایید یا از گزینه‌های لیست انتخاب فرمایید:
+                  </p>
+
+                  {/* Direct Text Input with Datalist Autocomplete */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      list="login-teacher-subjects-datalist"
+                      className="input"
+                      placeholder="نام درس را بنویسید (مثلاً: ریاضیات، شیمی، فیزیک، زیست المپیاد، حسابان)..."
+                      value={smartTeacherSubject}
+                      onChange={(e) => setSmartTeacherSubject(e.target.value)}
+                      style={{ flex: 1, fontWeight: 750, fontSize: '0.88rem' }}
+                    />
+                    {smartTeacherSubject && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setSmartTeacherSubject('')}
+                        style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
+                        title="پاک کردن متن برای تایپ عنوان جدید"
+                      >
+                        ✕ پاک کردن
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Native Datalist */}
+                  <datalist id="login-teacher-subjects-datalist">
+                    {DEFAULT_TEACHER_SUBJECTS.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </datalist>
+
+                  {/* Dropdown Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      📋 یا انتخاب از لیست دروس:
+                    </span>
+                    <select
+                      className="input"
+                      value={DEFAULT_TEACHER_SUBJECTS.includes(smartTeacherSubject) ? smartTeacherSubject : ''}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setSmartTeacherSubject(e.target.value);
+                          toast.success(`درس «${e.target.value}» انتخاب شد 👍`);
+                        }
+                      }}
+                      style={{ flex: 1, fontSize: '0.82rem', padding: '6px 10px', cursor: 'pointer' }}
+                    >
+                      <option value="">-- کلیک کنید تا از میان دروس استاندارد انتخاب فرمایید --</option>
+                      {DEFAULT_TEACHER_SUBJECTS.map((sub) => (
+                        <option key={sub} value={sub}>
+                          📚 {sub}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Quick Chips for Subjects */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                      گزینه‌های آماده:
+                    </span>
+                    {DEFAULT_TEACHER_SUBJECTS.slice(0, 10).map((sub) => {
+                      const isCurrent = smartTeacherSubject === sub;
+                      return (
+                        <button
+                          key={sub}
+                          type="button"
+                          onClick={() => {
+                            setSmartTeacherSubject(sub);
+                            toast.success(`درس «${sub}» انتخاب شد 👍`);
+                          }}
+                          style={{
+                            fontSize: '0.73rem',
+                            padding: '3px 8px',
+                            borderRadius: '8px',
+                            border: isCurrent ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                            background: isCurrent ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-surface)',
+                            color: isCurrent ? '#10b981' : 'var(--text-primary)',
+                            fontWeight: isCurrent ? 800 : 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease-in-out',
+                          }}
+                        >
+                          📚 {sub}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* ── Teacher Grades Selection (پایه‌هایی که با آن‌ها کلاس دارید) ── */}
               {smartForm.role === 'teacher' && (

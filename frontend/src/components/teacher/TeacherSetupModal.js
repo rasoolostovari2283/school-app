@@ -94,16 +94,21 @@ const DEFAULT_TEACHER_SETUP_OPTIONS = {
     'ریاضیات و حسابان',
     'فیزیک و آزمایشگاه',
     'شیمی تخصصی',
-    'زیست‌شناسی',
-    'هندسه و گسسته',
-    'ادبیات فارسی',
+    'زیست‌شناسی و ژنتیک',
+    'هندسه، گسسته و آمار',
+    'ادبیات و زبان فارسی',
     'زبان انگلیسی',
     'عربی و زبان قرآن',
-    'دین و زندگی',
+    'دین و زندگی و معارف',
     'علوم تجربی',
-    'برنامه‌نویسی و کامپیوتر',
+    'برنامه‌نویسی، رایانه و هوش مصنوعی',
     'فلسفه و منطق',
-    'مشاوره و سلامت روان',
+    'تاریخ، جغرافیا و مطالعات اجتماعی',
+    'آموزش ابتدایی (تمام دروس)',
+    'دروس تخصصی هنرستان و فنی‌حرفه‌ای',
+    'هنر و گرافیک',
+    'مشاوره، برنامه‌ریزی و هدایت تحصیلی',
+    'تربیت بدنی و ورزش',
   ],
   studentCounts: {
     'پایه دهم ریاضی': 28,
@@ -189,6 +194,19 @@ export default function TeacherSetupModal({
       });
     }
 
+    // Safeguard subjects
+    if (!data.subjects || !Array.isArray(data.subjects) || data.subjects.length === 0) {
+      data.subjects = [...DEFAULT_TEACHER_SETUP_OPTIONS.subjects];
+    } else {
+      const subSet = new Set(data.subjects);
+      DEFAULT_TEACHER_SETUP_OPTIONS.subjects.forEach((ds) => {
+        if (!subSet.has(ds)) {
+          data.subjects.push(ds);
+          subSet.add(ds);
+        }
+      });
+    }
+
     // Safeguard stages and studentCounts
     if (!data.stages || data.stages.length === 0) {
       data.stages = DEFAULT_TEACHER_SETUP_OPTIONS.stages;
@@ -228,15 +246,13 @@ export default function TeacherSetupModal({
 
     // Pre-fill subject
     const currentSub = initialData?.subject || data.currentSetup?.subject || '';
-    const foundSub = (data.subjects || []).find((s) => s === currentSub);
-    if (foundSub) {
-      setSelectedSubject(foundSub);
-      setIsCustomSubject(false);
-    } else if (currentSub) {
-      setIsCustomSubject(true);
+    if (currentSub) {
+      setSelectedSubject(currentSub);
       setCustomSubject(currentSub);
+      setIsCustomSubject(false);
     } else if (data.subjects && data.subjects.length > 0) {
       setSelectedSubject(data.subjects[0]);
+      setCustomSubject(data.subjects[0]);
     }
 
     // Pre-fill grades
@@ -385,9 +401,9 @@ export default function TeacherSetupModal({
 
     const allSchools = Array.from(new Set([finalPrimarySchool, ...additionalSchools].filter(Boolean)));
 
-    const finalSubject = isCustomSubject ? customSubject.trim() : selectedSubject;
+    const finalSubject = (selectedSubject || customSubject || '').trim();
     if (!finalSubject) {
-      toast.error('لطفاً درس یا زمینه تدریس خود را مشخص فرمایید');
+      toast.error('لطفاً عنوان درس تدریسی خود را بنویسید یا از لیست انتخاب فرمایید');
       return;
     }
 
@@ -804,42 +820,121 @@ export default function TeacherSetupModal({
                 <span>۲. درس و تخصص آموزشی دبیر</span>
               </div>
               <p className={styles.sectionHint}>
-                عنوان درسی که تدریس می‌فرمایید را مشخص فرمایید:
+                عنوان درسی که تدریس می‌فرمایید را می‌توانید به صورت دلخواه بنویسید یا از گزینه‌های لیست انتخاب فرمایید:
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {!isCustomSubject ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    📖 عنوان درس تدریسی شما (هم قابل تایپ، هم انتخاب از لیست): *
+                  </label>
+                  {selectedSubject && (
+                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
+                      درس: {selectedSubject}
+                    </span>
+                  )}
+                </div>
+
+                {/* Direct Text Input with Datalist */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    list="teacher-subjects-datalist"
+                    className="input"
+                    placeholder="نام درس را تایپ فرمایید (مثال: ریاضیات، حسابان، زیست المپیاد، فیزیک تجربی)..."
+                    value={selectedSubject}
+                    onChange={(e) => {
+                      setSelectedSubject(e.target.value);
+                      setCustomSubject(e.target.value);
+                    }}
+                    required
+                    style={{ flex: 1, fontWeight: 750, fontSize: '0.9rem' }}
+                  />
+                  {selectedSubject && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setSelectedSubject('');
+                        setCustomSubject('');
+                      }}
+                      style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
+                      title="پاک کردن متن"
+                    >
+                      ✕ پاک کردن
+                    </button>
+                  )}
+                </div>
+
+                {/* Native Datalist for autocomplete */}
+                <datalist id="teacher-subjects-datalist">
+                  {(options.subjects || []).map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
+                </datalist>
+
+                {/* Dropdown Selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    📋 یا انتخاب از لیست دروس متداول:
+                  </span>
                   <select
                     className="input"
-                    value={selectedSubject}
-                    onChange={(e) => setSelectedSubject(e.target.value)}
+                    value={(options.subjects || []).includes(selectedSubject) ? selectedSubject : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setSelectedSubject(e.target.value);
+                        setCustomSubject(e.target.value);
+                      }
+                    }}
+                    style={{ flex: 1, fontSize: '0.82rem', padding: '6px 10px', cursor: 'pointer' }}
                   >
-                    {options.subjects.map((sub) => (
+                    <option value="">-- کلیک کنید تا از میان دروس استاندارد انتخاب فرمایید --</option>
+                    {(options.subjects || []).map((sub) => (
                       <option key={sub} value={sub}>
-                        {sub}
+                        📚 {sub}
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="عنوان درس را بنویسید (مثال: حسابان ۲، فیزیک کنکور، زیست‌شناسی المپیاد)..."
-                    value={customSubject}
-                    onChange={(e) => setCustomSubject(e.target.value)}
-                    required
-                  />
-                )}
+                </div>
 
-                <button
-                  type="button"
-                  className={styles.customSchoolToggle}
-                  onClick={() => setIsCustomSubject(!isCustomSubject)}
-                >
-                  {isCustomSubject
-                    ? '📋 انتخاب از لیست دروس متداول'
-                    : '✍️ ثبت عنوان درس دلخواه یا تخصصی دیگر'}
-                </button>
+                {/* Quick Chips for Subjects */}
+                {(options.subjects || []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                      گزینه‌های آماده:
+                    </span>
+                    {(options.subjects || []).slice(0, 10).map((sub) => {
+                      const isCurrent = selectedSubject === sub;
+                      return (
+                        <button
+                          key={sub}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSubject(sub);
+                            setCustomSubject(sub);
+                            toast.success(`درس «${sub}» انتخاب شد 👍`);
+                          }}
+                          style={{
+                            fontSize: '0.74rem',
+                            padding: '4px 10px',
+                            borderRadius: '8px',
+                            border: isCurrent ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                            background: isCurrent ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-surface)',
+                            color: isCurrent ? '#10b981' : 'var(--text-primary)',
+                            fontWeight: isCurrent ? 800 : 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease-in-out',
+                          }}
+                        >
+                          📚 {sub}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
