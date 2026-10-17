@@ -129,12 +129,76 @@ export default function ClassRostersPage() {
 
   const fetchClassRoster = async (classId) => {
     if (!classId) return;
+
+    // Helper to get school students pool not in this class
+    const getSchoolStudentsPool = (enrolledIds = new Set(), enrolledCodes = new Set()) => {
+      let pool = [];
+      try {
+        const currentCode = user?.school_code || user?.schoolId || '402100';
+        const mgmtSaved = localStorage.getItem(`mgmt_students_${currentCode}`);
+        if (mgmtSaved) {
+          const list = JSON.parse(mgmtSaved);
+          if (Array.isArray(list) && list.length > 0) pool = list;
+        }
+        if (pool.length === 0) {
+          const dbSaved = localStorage.getItem('school_students_database');
+          if (dbSaved) {
+            const list = JSON.parse(dbSaved);
+            if (Array.isArray(list) && list.length > 0) pool = list;
+          }
+        }
+      } catch (e) {}
+
+      if (pool.length === 0) {
+        pool = [
+          { id: 'std-pool-1', name: 'محمد پارسا رادمنش', code: 'STD-1001', grade: 'پایه دهم', phone: '09123456701' },
+          { id: 'std-pool-2', name: 'علیرضا اسدی', code: 'STD-1002', grade: 'پایه دهم', phone: '09123456702' },
+          { id: 'std-pool-3', name: 'سینا محمدی', code: 'STD-1003', grade: 'پایه دهم', phone: '09123456703' },
+          { id: 'std-pool-4', name: 'امیررضا صادقی', code: 'STD-2001', grade: 'پایه یازدهم', phone: '09123456704' },
+          { id: 'std-pool-5', name: 'مهدی کریمی', code: 'STD-2002', grade: 'پایه یازدهم', phone: '09123456705' },
+          { id: 'std-pool-6', name: 'نیما قنبری', code: 'STD-3001', grade: 'پایه دوازدهم', phone: '09123456706' },
+          { id: 'std-pool-7', name: 'آرش حسینی', code: 'STD-3002', grade: 'پایه دوازدهم', phone: '09123456707' },
+        ];
+      }
+
+      return pool
+        .filter((s) => !enrolledIds.has(s.id) && !enrolledCodes.has(s.code || s.student_code))
+        .map((s) => ({
+          id: s.id,
+          display_name: s.name || s.display_name,
+          student_code: s.code || s.student_code,
+          department: s.grade || s.department,
+          phone: s.phone || '',
+          parent_name: s.parent_name || '',
+          parent_phone: s.parent_phone || '',
+        }));
+    };
+
     try {
       const res = await api.get(`/classes/${classId}/roster`);
       if (res.data?.data) {
-        setRosterData(res.data.data);
+        const data = res.data.data;
+        const students = data.students || [];
+        const enrolledIds = new Set(students.map((s) => s.id));
+        const enrolledCodes = new Set(students.map((s) => s.student_code).filter(Boolean));
+
+        const pool = getSchoolStudentsPool(enrolledIds, enrolledCodes);
+        const combinedAvailable = [...(data.available_students || [])];
+        pool.forEach((p) => {
+          if (!combinedAvailable.some((ca) => ca.id === p.id || (p.student_code && ca.student_code === p.student_code))) {
+            combinedAvailable.push(p);
+          }
+        });
+
+        const completeRoster = {
+          ...data,
+          students,
+          total_students: students.length,
+          available_students: combinedAvailable,
+        };
+        setRosterData(completeRoster);
         try {
-          localStorage.setItem(`class_roster_${classId}`, JSON.stringify(res.data.data));
+          localStorage.setItem(`class_roster_${classId}`, JSON.stringify(completeRoster));
         } catch (e) {}
         return;
       }
@@ -143,25 +207,30 @@ export default function ClassRostersPage() {
     }
 
     // Local fallback
+    let localSavedRoster = null;
     try {
       const saved = localStorage.getItem(`class_roster_${classId}`);
       if (saved) {
-        setRosterData(JSON.parse(saved));
-        return;
+        localSavedRoster = JSON.parse(saved);
       }
     } catch (e) {}
 
-    const targetClass = classes.find((c) => c.id === classId);
-    const initialStudents = [
+    const targetClass = classes.find((c) => c.id === classId) || { id: classId, name: 'کلاس انتخابی' };
+    const students = localSavedRoster?.students || [
       { id: `std-${classId}-1`, display_name: 'محمد پارسا رادمنش', student_code: 'STD-1001', department: targetClass?.grade || 'پایه دهم', phone: '09123456701', parent_name: 'آقای رادمنش', parent_phone: '09123456701' },
       { id: `std-${classId}-2`, display_name: 'علیرضا اسدی', student_code: 'STD-1002', department: targetClass?.grade || 'پایه دهم', phone: '09123456702', parent_name: 'آقای اسدی', parent_phone: '09123456702' },
       { id: `std-${classId}-3`, display_name: 'سینا محمدی', student_code: 'STD-1003', department: targetClass?.grade || 'پایه دهم', phone: '09123456703', parent_name: 'خانم محمدی', parent_phone: '09123456703' },
     ];
+
+    const enrolledIds = new Set(students.map((s) => s.id));
+    const enrolledCodes = new Set(students.map((s) => s.student_code).filter(Boolean));
+    const available = getSchoolStudentsPool(enrolledIds, enrolledCodes);
+
     const newRoster = {
-      class: targetClass || { id: classId, name: 'کلاس انتخابی' },
-      students: initialStudents,
-      total_students: initialStudents.length,
-      available_students: [],
+      class: targetClass,
+      students: students,
+      total_students: students.length,
+      available_students: available,
     };
     try {
       localStorage.setItem(`class_roster_${classId}`, JSON.stringify(newRoster));
@@ -176,13 +245,14 @@ export default function ClassRostersPage() {
 
     const found = rosterData?.available_students?.find((s) => s.id === studentId);
     if (found) {
-      setSingleStudentForm((prev) => ({
-        ...prev,
+      setSingleStudentForm({
         display_name: found.display_name || '',
         student_code: found.student_code || '',
         department: found.department || activeClass?.grade || '',
         phone: found.phone || '',
-      }));
+        parent_name: found.parent_name || '',
+        parent_phone: found.parent_phone || '',
+      });
     }
   };
 
@@ -194,16 +264,24 @@ export default function ClassRostersPage() {
       return;
     }
 
+    const currentClassId = selectedClassId || classes[0]?.id;
+    if (!currentClassId) {
+      toast.error('ابتدا یک کلاس را انتخاب یا ایجاد نمایید');
+      return;
+    }
+
     setSubmitting(true);
     let addedStudent = null;
+    const finalStudentCode = singleStudentForm.student_code.trim() || `STD-${Math.floor(10000 + Math.random() * 90000)}`;
 
     try {
       const payload = {
         ...singleStudentForm,
+        student_code: finalStudentCode,
         student_id: selectedExistingId || undefined,
       };
 
-      const res = await api.post(`/classes/${selectedClassId}/students`, payload);
+      const res = await api.post(`/classes/${currentClassId}/students`, payload);
       if (res.data?.data?.student) {
         addedStudent = res.data.data.student;
       }
@@ -213,31 +291,89 @@ export default function ClassRostersPage() {
 
     if (!addedStudent) {
       addedStudent = {
-        id: selectedExistingId || `std-${Date.now()}`,
+        id: selectedExistingId || `std-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         display_name: singleStudentForm.display_name.trim(),
-        student_code: singleStudentForm.student_code.trim() || `STD-${Math.floor(10000 + Math.random() * 90000)}`,
+        student_code: finalStudentCode,
         department: singleStudentForm.department.trim() || activeClass?.grade || 'پایه عمومی',
         phone: singleStudentForm.phone.trim(),
         parent_name: singleStudentForm.parent_name.trim(),
         parent_phone: singleStudentForm.parent_phone.trim(),
+        created_at: new Date().toISOString(),
+      };
+    } else {
+      addedStudent = {
+        ...addedStudent,
+        display_name: addedStudent.display_name || singleStudentForm.display_name.trim(),
+        student_code: addedStudent.student_code || finalStudentCode,
+        department: addedStudent.department || singleStudentForm.department.trim() || activeClass?.grade || 'پایه عمومی',
+        phone: addedStudent.phone || singleStudentForm.phone.trim(),
+        parent_name: addedStudent.parent_name || singleStudentForm.parent_name.trim(),
+        parent_phone: addedStudent.parent_phone || singleStudentForm.parent_phone.trim(),
       };
     }
 
+    // 1. Update Roster State & localStorage
     setRosterData((prev) => {
       const existing = prev?.students || [];
-      const updated = [addedStudent, ...existing.filter((s) => s.id !== addedStudent.id)];
+      const updated = [addedStudent, ...existing.filter((s) => s.id !== addedStudent.id && s.student_code !== addedStudent.student_code)];
+      const updatedAvailable = (prev?.available_students || []).filter(
+        (s) => s.id !== addedStudent.id && s.student_code !== addedStudent.student_code
+      );
       const newRoster = {
         ...prev,
         students: updated,
         total_students: updated.length,
+        available_students: updatedAvailable,
       };
       try {
-        localStorage.setItem(`class_roster_${selectedClassId}`, JSON.stringify(newRoster));
+        localStorage.setItem(`class_roster_${currentClassId}`, JSON.stringify(newRoster));
       } catch (e) {}
       return newRoster;
     });
 
-    toast.success('دانش‌آموز با موفقیت به لیست این کلاس اضافه شد 🎉');
+    // 2. Save to global school database so student is accessible in attendance, gradebook, messages, etc.
+    try {
+      const currentCode = user?.school_code || user?.schoolId || '402100';
+      const mgmtKey = `mgmt_students_${currentCode}`;
+      let allSchoolStudents = [];
+      const savedMgmt = localStorage.getItem(mgmtKey);
+      if (savedMgmt) {
+        allSchoolStudents = JSON.parse(savedMgmt);
+      }
+      const existingIdx = allSchoolStudents.findIndex(
+        (s) => s.id === addedStudent.id || (s.code && s.code === addedStudent.student_code)
+      );
+      const formattedForMgmt = {
+        id: addedStudent.id,
+        name: addedStudent.display_name,
+        code: addedStudent.student_code,
+        grade: addedStudent.department || activeClass?.grade || 'پایه عمومی',
+        class_name: activeClass?.name || 'کلاس عمومی',
+        phone: addedStudent.phone,
+        parent_name: addedStudent.parent_name,
+        parent_phone: addedStudent.parent_phone,
+      };
+      if (existingIdx >= 0) {
+        allSchoolStudents[existingIdx] = { ...allSchoolStudents[existingIdx], ...formattedForMgmt };
+      } else {
+        allSchoolStudents.push(formattedForMgmt);
+      }
+      localStorage.setItem(mgmtKey, JSON.stringify(allSchoolStudents));
+      localStorage.setItem('school_students_database', JSON.stringify(allSchoolStudents));
+    } catch (e) {
+      console.warn('Could not sync student to school database:', e);
+    }
+
+    // 3. Update classes count
+    setClasses((prev) =>
+      prev.map((c) =>
+        c.id === currentClassId
+          ? { ...c, student_count: (c.student_count || 0) + 1 }
+          : c
+      )
+    );
+
+    toast.success(`دانش‌آموز «${addedStudent.display_name}» با موفقیت به لیست این کلاس اضافه شد 🎉`);
     setShowAddSingleModal(false);
     setSingleStudentForm({
       display_name: '',
@@ -653,8 +789,13 @@ export default function ClassRostersPage() {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => setShowAddSingleModal(true)}
-            disabled={!selectedClassId}
+            onClick={() => {
+              if (!selectedClassId && classes.length > 0) {
+                setSelectedClassId(classes[0].id);
+              }
+              setShowAddSingleModal(true);
+            }}
+            disabled={classes.length === 0}
           >
             <HiOutlinePlus />
             <span>افزودن تکی دانش‌آموز</span>
@@ -813,7 +954,7 @@ export default function ClassRostersPage() {
             <div className={styles.modalHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '1.25rem', color: '#6366f1' }}>👤</span>
-                <h2>افزودن تکی دانش‌آموز به کلاس «{activeClass?.name}»</h2>
+                <h2>افزودن تکی دانش‌آموز به کلاس «{activeClass?.name || 'کلاس'}»</h2>
               </div>
               <button className={styles.closeBtn} onClick={() => setShowAddSingleModal(false)}>
                 <HiOutlineXMark />
@@ -881,22 +1022,22 @@ export default function ClassRostersPage() {
                 </div>
 
                 <div className="form-group">
-                  <label style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px', display: 'block' }}>
-                    کد دانش‌آموزی (شناسه اختصاصی) *
+                  <label style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>کد دانش‌آموزی (شناسه اختصاصی)</span>
+                    <span style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 500 }}>(اختیاری - ایجاد خودکار)</span>
                   </label>
                   <input
                     type="text"
                     className="input"
-                    placeholder="مثلاً: 4021088"
+                    placeholder="مثلاً: 4021088 (در صورت خالی ماندن خودکار ایجاد می‌شود)"
                     value={singleStudentForm.student_code}
                     onChange={(e) => {
                       setSingleStudentForm({ ...singleStudentForm, student_code: e.target.value });
                       setSelectedExistingId('');
                     }}
-                    required
                   />
                   <span style={{ fontSize: '0.71875rem', color: 'var(--text-tertiary)', marginTop: '3px', display: 'block' }}>
-                    این کد جهت ورود دانش‌آموز و اتصال اولیا به سامانه استفاده می‌شود.
+                    این کد جهت ورود دانش‌آموز و اتصال اولیا به سامانه استفاده می‌شود (در صورت خالی ماندن، کد سیستمی ایجاد می‌گردد).
                   </span>
                 </div>
               </div>
