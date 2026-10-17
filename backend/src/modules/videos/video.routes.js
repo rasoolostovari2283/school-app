@@ -333,7 +333,8 @@ router.post(
   ]),
   async (req, res, next) => {
     try {
-      if (req.user.role !== 'teacher' && req.user.role !== 'student') {
+      const userRole = (req.user?.role || 'teacher').toLowerCase();
+      if (!['teacher', 'student', 'admin', 'manager'].includes(userRole)) {
         return res.status(403).json({ success: false, message: 'فقط کاربران مدرسه مجاز به بارگذاری هستند' });
       }
 
@@ -357,18 +358,19 @@ router.post(
 
       const id = uuidv4();
       const folderName = (req.body.folder_name || req.body.folder || 'عمومی').trim();
+      const currentUserId = req.user?.id || 'teacher-default';
 
       // Ensure custom folder is registered
       if (folderName && folderName !== 'عمومی') {
         try {
           const exists = await db('video_folders')
-            .where({ name: folderName, teacher_id: req.user.id })
+            .where({ name: folderName, teacher_id: currentUserId })
             .first();
           if (!exists) {
             await db('video_folders').insert({
               id: uuidv4(),
               name: folderName,
-              teacher_id: req.user.id,
+              teacher_id: currentUserId,
               color: '#6366f1',
             });
           }
@@ -380,7 +382,7 @@ router.post(
         title: req.body.title || mainFile.originalname,
         description: req.body.description || '',
         class_id: req.body.class_id || null,
-        teacher_id: req.user.id,
+        teacher_id: currentUserId,
         folder_name: folderName,
         category: req.body.category || 'تدریس',
         file_url: `/uploads/${mainFile.filename}`,

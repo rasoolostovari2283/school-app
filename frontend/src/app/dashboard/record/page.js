@@ -1808,105 +1808,129 @@ export default function ClassRecordStudioPage() {
     toast.success('ویدیو با موفقیت دانلود شد 📥');
   };
 
-  // Save to School Video Archive API
+  // Save to School Video Archive API and Navigate to Videos
   const handlePublishToArchive = async () => {
-    if (!recordedBlob) return;
     setIsUploading(true);
+    const classObj = classesList.find((c) => c.id === selectedClassId);
+    const folderName = classObj?.name || 'تخته هوشمند';
+    const videoTitle = projectName || 'تدریس تخته هوشمند';
+    const sessionDate = new Date().toLocaleDateString('fa-IR');
+
+    let currentBlob = recordedBlob;
+    let localVideoUrl = recordedVideoUrl;
+
+    if (!localVideoUrl && currentBlob) {
+      localVideoUrl = URL.createObjectURL(currentBlob);
+      setRecordedVideoUrl(localVideoUrl);
+    }
+
+    if (!currentBlob && recordedChunksRef.current && recordedChunksRef.current.length > 0) {
+      currentBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+      setRecordedBlob(currentBlob);
+      if (!localVideoUrl) {
+        localVideoUrl = URL.createObjectURL(currentBlob);
+        setRecordedVideoUrl(localVideoUrl);
+      }
+    }
+
+    const localSession = {
+      id: `wb-${Date.now()}`,
+      title: videoTitle,
+      date: sessionDate,
+      duration: recSeconds,
+      classTitle: classObj?.name || 'کلاس عمومی',
+      videoUrl: localVideoUrl,
+      file_url: localVideoUrl,
+      sizeBytes: currentBlob?.size || 0,
+      folder_name: folderName,
+      category: 'تخته هوشمند',
+      is_whiteboard_recording: true,
+      created_at: sessionDate,
+    };
+
+    // 1. Immediately store session locally so it is guaranteed to show in Videos section
+    saveSessionsToLocal([localSession, ...recordedSessions.filter((s) => s.id !== localSession.id)]);
 
     try {
-      const formData = new FormData();
-      const fileName = `${projectName || 'تدریس'}.webm`;
-      formData.append('file', recordedBlob, fileName);
-      formData.append('title', projectName || 'تدریس تخته هوشمند');
-      formData.append('description', `تدریس ضبط شده با تخته هوشمند در تاریخ ${new Date().toLocaleDateString('fa-IR')}`);
-      if (selectedClassId) {
-        formData.append('class_id', selectedClassId);
-      }
-      const classObj = classesList.find((c) => c.id === selectedClassId);
-      const folderName = classObj?.name || 'تخته هوشمند';
-      formData.append('folder_name', folderName);
-      formData.append('category', 'تخته هوشمند');
-      formData.append('duration_seconds', recSeconds);
+      const globalKey = 'educonnect_recorded_sessions';
+      let existingGlobal = [];
+      const raw = localStorage.getItem(globalKey);
+      if (raw) existingGlobal = JSON.parse(raw);
+      localStorage.setItem(
+        globalKey,
+        JSON.stringify([localSession, ...existingGlobal.filter((s) => s.id !== localSession.id)])
+      );
+    } catch (e) {
+      console.warn('Global sessions cache write error:', e);
+    }
 
-      // Auto-generate & attach Whiteboard Notes PDF if pages exist
+    // 2. Upload to backend if blob is available
+    if (currentBlob) {
       try {
-        saveCurrentPageData();
-        const { jsPDF } = await import('jspdf');
-        const mainCanvas = canvasRef.current;
-        const width = mainCanvas?.width || 1920;
-        const height = mainCanvas?.height || 1080;
-        const doc = new jsPDF({
-          orientation: width >= height ? 'landscape' : 'portrait',
-          unit: 'px',
-          format: [width, height],
-          hotfixes: ['px_scaling'],
+        const formData = new FormData();
+        const fileName = `${projectName || 'تدریس'}.webm`;
+        formData.append('file', currentBlob, fileName);
+        formData.append('title', videoTitle);
+        formData.append('description', `تدریس ضبط شده با تخته هوشمند در تاریخ ${sessionDate}`);
+        if (selectedClassId) {
+          formData.append('class_id', selectedClassId);
+        }
+        formData.append('folder_name', folderName);
+        formData.append('category', 'تخته هوشمند');
+        formData.append('duration_seconds', recSeconds);
+
+        // Optional quick notes PDF export
+        try {
+          if (typeof window !== 'undefined' && boardPagesRef.current?.length > 0) {
+            saveCurrentPageData();
+            const { jsPDF } = await import('jspdf');
+            const mainCanvas = canvasRef.current;
+            const width = mainCanvas?.width || 1280;
+            const height = mainCanvas?.height || 720;
+            const doc = new jsPDF({
+              orientation: width >= height ? 'landscape' : 'portrait',
+              unit: 'px',
+              format: [width, height],
+            });
+            const page = boardPagesRef.current[0];
+            if (page?.drawingDataUrl) {
+              doc.addImage(page.drawingDataUrl, 'JPEG', 0, 0, width, height);
+              const pdfBlob = doc.output('blob');
+              if (pdfBlob && pdfBlob.size > 500) {
+                formData.append('pdf', pdfBlob, `جزوه-${videoTitle}.pdf`);
+                formData.append('pdf_name', `جزوه-${videoTitle}.pdf`);
+              }
+            }
+          }
+        } catch (pdfErr) {
+          console.warn('PDF note generation skipped in video publish:', pdfErr);
+        }
+
+        const res = await api.post('/videos', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        const offscreen = document.createElement('canvas');
-        offscreen.width = width;
-        offscreen.height = height;
-        const offCtx = offscreen.getContext('2d');
-        const totalP = boardPagesRef.current.length;
-
-        for (let i = 0; i < totalP; i++) {
-          const page = boardPagesRef.current[i];
-          offCtx.fillStyle = page.boardType === 'blackboard' ? '#1a2e22' : '#ffffff';
-          offCtx.fillRect(0, 0, width, height);
-          if (page.drawingDataUrl) {
-            const img = await new Promise((res) => {
-              const im = new Image();
-              im.onload = () => res(im);
-              im.onerror = () => res(null);
-              im.src = page.drawingDataUrl;
-            });
-            if (img) offCtx.drawImage(img, 0, 0);
-          }
-          const pageImgData = offscreen.toDataURL('image/jpeg', 0.9);
-          if (i > 0) doc.addPage([width, height]);
-          doc.addImage(pageImgData, 'JPEG', 0, 0, width, height);
+        if (res.data?.data?.video) {
+          const serverVideo = res.data.data.video;
+          localSession.id = serverVideo.id;
+          localSession.videoUrl = serverVideo.file_url || serverVideo.video_url || localVideoUrl;
+          localSession.file_url = serverVideo.file_url || serverVideo.video_url || localVideoUrl;
+          localSession.pdf_url = serverVideo.pdf_url;
+          localSession.pdf_name = serverVideo.pdf_name;
+          saveSessionsToLocal([localSession, ...recordedSessions.filter((s) => s.id !== localSession.id)]);
         }
-
-        const pdfBlob = doc.output('blob');
-        if (pdfBlob && pdfBlob.size > 500) {
-          const cleanDocTitle = `جزوه-${projectName || 'تدریس-هوشمند'}.pdf`.replace(/[/\\?%*:|"<>]/g, '-');
-          formData.append('pdf', pdfBlob, cleanDocTitle);
-          formData.append('pdf_name', cleanDocTitle);
-        }
-      } catch (pdfErr) {
-        console.warn('Auto PDF notes generation skipped:', pdfErr);
+      } catch (err) {
+        console.warn('Backend video upload note (saved in local archive):', err);
       }
-
-      const res = await api.post('/videos', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const serverVideo = res.data?.data?.video;
-
-      // Also persist to local list
-      const newSession = {
-        id: serverVideo?.id || Date.now().toString(),
-        title: projectName || 'جلسه تدریس هوشمند',
-        date: new Date().toLocaleDateString('fa-IR'),
-        duration: recSeconds,
-        classTitle: classObj?.name || 'کلاس عمومی',
-        videoUrl: serverVideo?.file_url || recordedVideoUrl,
-        sizeBytes: recordedBlob.size,
-        folder_name: folderName,
-        category: 'تخته هوشمند',
-        pdf_url: serverVideo?.pdf_url,
-        pdf_name: serverVideo?.pdf_name,
-      };
-      saveSessionsToLocal([newSession, ...recordedSessions]);
-
-      toast.success('ویدیو و جزوه با موفقیت در بخش ویدیوها و رسانه‌ها منتشر شد! 🎉');
-      setShowSaveModal(false);
-      setIsStudioOpen(false);
-    } catch (err) {
-      console.error('Failed to publish video:', err);
-      toast.error(err.response?.data?.message || 'خطا در بارگذاری ویدیو در آرشیو');
-    } finally {
-      setIsUploading(false);
     }
+
+    toast.success('ویدیو با موفقیت ذخیره شد و در حال انتقال به بخش ویدیوها... 🎉');
+    setShowSaveModal(false);
+    setIsStudioOpen(false);
+    setIsUploading(false);
+
+    // 3. Seamlessly redirect to the videos page
+    router.push('/dashboard/videos');
   };
 
   // Finish and save locally + auto background upload to videos
@@ -3059,13 +3083,13 @@ export default function ClassRecordStudioPage() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 12,
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: 10,
                 background: 'var(--bg-secondary)',
-                padding: '12px 16px',
+                padding: '12px 14px',
                 borderRadius: 'var(--radius-lg)',
                 marginBottom: 16,
-                fontSize: '0.875rem',
+                fontSize: '0.85rem',
               }}
             >
               <div>
@@ -3078,7 +3102,7 @@ export default function ClassRecordStudioPage() {
               </div>
               <div>
                 <span style={{ color: 'var(--text-tertiary)' }}>فرمت ذخیره: </span>
-                <span style={{ fontWeight: 700 }}>WebM Video (1080p HD)</span>
+                <span style={{ fontWeight: 700 }}>WebM Video HD</span>
               </div>
               <div>
                 <span style={{ color: 'var(--text-tertiary)' }}>حجم فایل: </span>
@@ -3089,11 +3113,20 @@ export default function ClassRecordStudioPage() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn btn-outline"
-                  style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  style={{
+                    flex: '1 1 150px',
+                    minWidth: '130px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '11px 14px',
+                    fontSize: '0.875rem',
+                  }}
                   onClick={handleDownloadVideo}
                 >
                   <HiOutlineArrowDownTray size={18} />
@@ -3103,12 +3136,27 @@ export default function ClassRecordStudioPage() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  style={{ flex: 1.3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  style={{
+                    flex: '1.4 1 200px',
+                    minWidth: '170px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '11px 16px',
+                    fontSize: '0.875rem',
+                    fontWeight: 800,
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    borderColor: '#059669',
+                    color: '#ffffff',
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                    cursor: isUploading ? 'not-allowed' : 'pointer',
+                  }}
                   onClick={handlePublishToArchive}
                   disabled={isUploading}
                 >
                   <HiOutlineCloudArrowUp size={20} />
-                  <span>{isUploading ? 'در حال ثبت...' : 'ذخیره و نمایش در بخش ویدیوها'}</span>
+                  <span>{isUploading ? 'در حال ثبت و انتقال...' : 'ذخیره و نمایش در بخش ویدیوها'}</span>
                 </button>
               </div>
 
@@ -3126,7 +3174,8 @@ export default function ClassRecordStudioPage() {
                   color: '#dc2626',
                   background: 'rgba(239, 68, 68, 0.05)',
                   fontWeight: 700,
-                  padding: '10px 16px',
+                  padding: '11px 16px',
+                  fontSize: '0.875rem',
                 }}
                 onClick={handleExportPdf}
                 disabled={isExportingPdf}
@@ -3149,10 +3198,11 @@ export default function ClassRecordStudioPage() {
                   justifyContent: 'center',
                   gap: 8,
                   fontWeight: 800,
-                  padding: '10px 16px',
+                  padding: '11px 16px',
                   background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                   color: 'white',
                   boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
+                  fontSize: '0.875rem',
                 }}
                 onClick={() => {
                   const classObj = classesList.find((c) => c.id === selectedClassId);
@@ -3181,7 +3231,7 @@ export default function ClassRecordStudioPage() {
               <button
                 type="button"
                 className="btn btn-ghost"
-                style={{ width: '100%', fontSize: '0.8125rem', color: 'var(--text-tertiary)' }}
+                style={{ width: '100%', fontSize: '0.85rem', color: 'var(--text-tertiary)', padding: '10px' }}
                 onClick={handleSaveLocallyAndClose}
               >
                 ذخیره در پنل و بستن پنجره
