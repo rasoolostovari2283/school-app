@@ -45,7 +45,12 @@ class ExternalLiveService {
     if (provider === 'skyroom') {
       let roomUrl = cls.skyroom_url;
       if (!roomUrl) {
-        throw new Error('لینک اتاق اسکای‌روم برای این کلاس تنظیم نشده است');
+        return {
+          provider: 'native',
+          joinUrl: `/dashboard/classes/${classId}/live`,
+          roomTitle: cls.name,
+          target: '_self',
+        };
       }
 
       // If user provided a basic URL, we can append user display params if applicable
@@ -65,7 +70,12 @@ class ExternalLiveService {
       const meetingId = cls.bbb_meeting_id || `class_${cls.id}`;
 
       if (!serverUrl || !secret) {
-        throw new Error('آدرس سرور یا سکرت بیگ‌بلو‌باتن (BBB) تنظیم نشده است');
+        return {
+          provider: 'native',
+          joinUrl: `/dashboard/classes/${classId}/live`,
+          roomTitle: cls.name,
+          target: '_self',
+        };
       }
 
       // BBB Checksum calculation helper (SHA1)

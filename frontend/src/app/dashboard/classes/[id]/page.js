@@ -152,8 +152,8 @@ export default function ClassDetailPage() {
     }
   };
 
-  const handleSaveLiveSettings = async (e) => {
-    e.preventDefault();
+  const handleSaveLiveSettings = async (e, launchImmediately = false) => {
+    if (e && e.preventDefault) e.preventDefault();
     setSavingSettings(true);
     try {
       const res = await api.put(`/classes/${classId}/live-settings`, {
@@ -164,9 +164,17 @@ export default function ClassDetailPage() {
         bbb_secret: bbbSecret,
         bbb_meeting_id: bbbMeetingId,
       });
-      setClassData(res.data.data.class);
-      toast.success('تنظیمات بستر کلاس آنلاین (اسکای‌روم / بیگ‌بلو‌باتن) ذخیره شد! 🎉');
+      if (res.data?.data?.class) {
+        setClassData(res.data.data.class);
+      }
+      toast.success('تنظیمات بستر کلاس آنلاین ذخیره شد! 🎉');
       setShowLiveSettingsModal(false);
+
+      if (launchImmediately) {
+        setTimeout(() => {
+          handleLaunchLive();
+        }, 150);
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'خطا در ذخیره تنظیمات');
     } finally {
@@ -1024,7 +1032,7 @@ export default function ClassDetailPage() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -1034,10 +1042,27 @@ export default function ClassDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  className="btn btn-primary"
+                  className="btn btn-outline"
                   disabled={savingSettings}
                 >
-                  {savingSettings ? 'در حال ذخیره...' : 'ذخیره تنظیمات بستر'}
+                  {savingSettings ? 'در حال ذخیره...' : 'فقط ذخیره تنظیمات'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    borderColor: '#dc2626',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontWeight: 750,
+                  }}
+                  disabled={savingSettings}
+                  onClick={(e) => handleSaveLiveSettings(e, true)}
+                >
+                  <HiOutlineVideoCamera size={18} />
+                  <span>ثبت اطلاعات و ورود به کلاس آنلاین 🔴</span>
                 </button>
               </div>
             </form>

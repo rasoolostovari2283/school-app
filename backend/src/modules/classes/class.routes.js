@@ -17,9 +17,9 @@ router.post('/:id/invite', authorize('teacher'), classController.createInvite);
 router.put('/:id/quiet-hours', authorize('teacher'), classController.updateQuietHours);
 router.delete('/:id', authorize('teacher', 'admin', 'manager'), classController.deleteClass);
 router.get('/:id/live-status', requireClassMember, classController.getLiveStatus);
-router.put('/:id/live-settings', authorize('teacher'), classController.updateLiveSettings);
+router.put('/:id/live-settings', authorize('teacher', 'admin', 'manager'), classController.updateLiveSettings);
 router.get('/:id/live-launch', requireClassMember, classController.getLiveLaunchUrl);
-router.post('/:id/sync-external-recording', authorize('teacher'), classController.syncExternalRecording);
+router.post('/:id/sync-external-recording', authorize('teacher', 'admin', 'manager'), classController.syncExternalRecording);
 
 // Class Rosters & Student Database Management
 router.get('/:id/roster', authorize('teacher', 'admin', 'manager'), classController.getClassRoster);

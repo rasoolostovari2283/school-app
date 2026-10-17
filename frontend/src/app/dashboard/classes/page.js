@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import useAuthStore from '../../../stores/authStore';
 import useClassStore from '../../../stores/classStore';
 import toast from 'react-hot-toast';
@@ -14,10 +15,12 @@ import {
   HiOutlineAcademicCap,
   HiOutlineXMark,
   HiOutlineTrash,
+  HiOutlineVideoCamera,
 } from 'react-icons/hi2';
 import styles from './classes.module.css';
 
 export default function ClassesPage() {
+  const router = useRouter();
   const { user } = useAuthStore();
   const { classes, fetchClasses, createClass, joinClass, deleteClass, isLoading } = useClassStore();
   const locale = user?.locale || 'fa';
@@ -26,6 +29,8 @@ export default function ClassesPage() {
   const [formData, setFormData] = useState({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [teachersList, setTeachersList] = useState([]);
+  const [launchLiveAfterCreate, setLaunchLiveAfterCreate] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     fetchClasses();
@@ -38,15 +43,26 @@ export default function ClassesPage() {
     } catch (e) {}
   }, [user]);
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
+  const handleCreate = async (e, launchLive = false) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!formData.name?.trim()) {
+      toast.error('لطفاً نام کلاس را وارد کنید');
+      return;
+    }
+    setIsSubmitting(true);
     try {
       const cls = await createClass(formData);
-      toast.success(`کلاس "${cls.name}" با موفقیت ساخته شد! 🎉`);
+      toast.success(`کلاس "${cls.name}" با موفقیت ثبت شد! 🎉`);
       setShowModal(false);
-      setFormData({ name: '', subject: '', grade: '', join_code: '' });
+      setFormData({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
+      if (launchLive || launchLiveAfterCreate) {
+        toast.loading('در حال انتقال به کلاس آنلاین...', { duration: 1500 });
+        router.push(`/dashboard/classes/${cls.id}/live`);
+      }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ساخت کلاس');
+      toast.error(err.response?.data?.message || 'خطا در ثبت کلاس');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -195,6 +211,25 @@ export default function ClassesPage() {
                       <span className={styles.joinCode}>{cls.join_code}</span>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <Link
+                          href={`/dashboard/classes/${cls.id}/live`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="btn btn-primary btn-sm"
+                          style={{
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            borderColor: '#ef4444',
+                            color: '#fff',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: 700,
+                            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.35)'
+                          }}
+                          title="شروع یا ورود به کلاس آنلاین"
+                        >
+                          <HiOutlineVideoCamera size={16} />
+                          <span>کلاس آنلاین 🔴</span>
+                        </Link>
+                        <Link
                           href="/dashboard/report-card"
                           onClick={(e) => e.stopPropagation()}
                           className="btn btn-secondary btn-sm"
@@ -225,6 +260,29 @@ export default function ClassesPage() {
                           <span>حذف</span>
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {user?.role !== 'teacher' && (
+                    <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                      <Link
+                        href={`/dashboard/classes/${cls.id}/live`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="btn btn-primary btn-sm"
+                        style={{
+                          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                          borderColor: '#ef4444',
+                          color: '#fff',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontWeight: 700,
+                          boxShadow: '0 2px 8px rgba(239, 68, 68, 0.35)'
+                        }}
+                      >
+                        <HiOutlineVideoCamera size={16} />
+                        <span>ورود به کلاس آنلاین 🔴</span>
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -264,7 +322,7 @@ export default function ClassesPage() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>
-                {modalType === 'create' ? 'ساخت کلاس درس جدید' : 'عضویت در کلاس با کد'}
+                {modalType === 'create' ? 'ساخت و برگزاری کلاس درس' : 'عضویت در کلاس با کد'}
               </h2>
               <button
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', fontSize: '1.5rem', cursor: 'pointer' }}
@@ -275,7 +333,7 @@ export default function ClassesPage() {
             </div>
 
             {modalType === 'create' ? (
-              <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <form onSubmit={(e) => handleCreate(e, launchLiveAfterCreate)} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
                   <label style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>نام کلاس *</label>
                   <input
@@ -339,13 +397,67 @@ export default function ClassesPage() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                    ایجاد کلاس و دریافت کد
+                {/* Instant Live Class Option */}
+                <div
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    borderRadius: 'var(--radius-xl)',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setLaunchLiveAfterCreate(!launchLiveAfterCreate)}
+                >
+                  <input
+                    type="checkbox"
+                    id="instantLiveCheck"
+                    checked={launchLiveAfterCreate}
+                    onChange={(e) => setLaunchLiveAfterCreate(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: '#ef4444', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="instantLiveCheck" style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', userSelect: 'none' }}>
+                    🔴 پس از ثبت کلاس، بلافاصله وارد محیط کلاس آنلاین شو
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCreate(e, true)}
+                    disabled={isSubmitting}
+                    className="btn btn-primary"
+                    style={{
+                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                      borderColor: '#ef4444',
+                      fontWeight: 700,
+                      padding: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
+                    }}
+                  >
+                    <HiOutlineVideoCamera size={20} />
+                    <span>{isSubmitting ? 'در حال ثبت و بارگذاری...' : 'ثبت و شروع کلاس آنلاین 🔴'}</span>
                   </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
-                    انصراف
-                  </button>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="btn btn-secondary"
+                      style={{ flex: 1 }}
+                    >
+                      {isSubmitting ? 'در حال ثبت...' : 'فقط ثبت کلاس (بدون ورود به لایو)'}
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                      انصراف
+                    </button>
+                  </div>
                 </div>
               </form>
             ) : (

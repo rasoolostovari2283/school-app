@@ -885,6 +885,22 @@ export default function LiveClassroomPage() {
     handleLowerHandRef.current = handleLowerHand;
   });
 
+  // Fetch class details for title & subject
+  useEffect(() => {
+    if (!classId) return;
+    const fetchClassDetails = async () => {
+      try {
+        const res = await api.get(`/classes/${classId}`);
+        if (res.data?.data?.class) {
+          setClassData(res.data.data.class);
+        }
+      } catch (e) {
+        console.warn('Could not fetch class details:', e);
+      }
+    };
+    fetchClassDetails();
+  }, [classId]);
+
   // ── 4. Socket Connection & Setup ──
   useEffect(() => {
     if (!classId) return;

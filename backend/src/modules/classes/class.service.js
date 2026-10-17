@@ -11,7 +11,7 @@ class ClassService {
     return code;
   }
 
-  async createClass(teacherId, { name, subject, grade, school_id }) {
+  async createClass(teacherId, { name, subject, grade, school_id, teacher_name }) {
     let joinCode;
     let codeExists = true;
     while (codeExists) {
@@ -21,7 +21,15 @@ class ClassService {
     }
 
     let validTeacherId = teacherId;
-    const teacherExists = await db('users').where({ id: teacherId }).first();
+    if (teacher_name) {
+      const teacherByName = await db('users')
+        .where('display_name', teacher_name)
+        .orWhere('username', teacher_name)
+        .first();
+      if (teacherByName) validTeacherId = teacherByName.id;
+    }
+
+    const teacherExists = await db('users').where({ id: validTeacherId }).first();
     if (!teacherExists) {
       const fallbackTeacher = (await db('users').where({ role: 'teacher' }).first()) || (await db('users').first());
       if (fallbackTeacher) {
@@ -43,6 +51,15 @@ class ClassService {
       school_id: validSchoolId || null,
       teacher_id: validTeacherId,
     });
+
+    try {
+      await db('class_members').insert({
+        id: generateId(),
+        class_id: cls.id,
+        user_id: validTeacherId,
+        role: 'teacher',
+      });
+    } catch (e) {}
 
     return cls;
   }
