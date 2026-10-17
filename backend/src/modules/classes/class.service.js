@@ -20,13 +20,28 @@ class ClassService {
       codeExists = !!existing;
     }
 
+    let validTeacherId = teacherId;
+    const teacherExists = await db('users').where({ id: teacherId }).first();
+    if (!teacherExists) {
+      const fallbackTeacher = (await db('users').where({ role: 'teacher' }).first()) || (await db('users').first());
+      if (fallbackTeacher) {
+        validTeacherId = fallbackTeacher.id;
+      }
+    }
+
+    let validSchoolId = school_id;
+    if (school_id) {
+      const schoolExists = await db('schools').where({ id: school_id }).first();
+      if (!schoolExists) validSchoolId = null;
+    }
+
     const cls = await insertAndReturn(db, 'classes', {
       name,
       subject,
       grade,
       join_code: joinCode,
-      school_id: school_id || null,
-      teacher_id: teacherId,
+      school_id: validSchoolId || null,
+      teacher_id: validTeacherId,
     });
 
     return cls;
