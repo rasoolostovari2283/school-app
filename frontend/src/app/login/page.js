@@ -91,6 +91,16 @@ const TEACHER_LOGIN_GRADES = [
   'کلاس‌های کنکور و المپیاد',
 ];
 
+const DEFAULT_LOGIN_SCHOOLS = [
+  { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)', code: 'SCH-1001', city: 'تهران', level: 'متوسطه دوم (دبیرستان)', is_registered: true },
+  { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)', code: 'SCH-1002', city: 'تهران', level: 'متوسطه دوم (دبیرستان)', is_registered: true },
+  { id: 'sch-3', name: 'دبیرستان ماندگار البرز', code: 'SCH-1005', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+  { id: 'sch-4', name: 'دبیرستان استعدادهای درخشان شهید بهشتی', code: 'SCH-1004', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+  { id: 'sch-5', name: 'دبیرستان نمونه دولتی رشد', code: 'SCH-1008', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+  { id: 'sch-6', name: 'مجتمع آموزشی هوشمند ادیبان', code: 'SCH-1003', city: 'تهران', level: 'مجتمع آموزشی کامل' },
+  { id: 'sch-7', name: 'هنرستان فنی نمونه شهید بهشتی', code: 'SCH-1007', city: 'تهران', level: 'هنرستان فنی و حرفه‌ای' },
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, quickEntry, parentLogin, registerSchool, demoLogin, fetchSchools } = useAuthStore();
@@ -103,7 +113,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Available Schools List for Login Selection
-  const [availableSchools, setAvailableSchools] = useState([]);
+  const [availableSchools, setAvailableSchools] = useState(DEFAULT_LOGIN_SCHOOLS);
   const [customSchoolName, setCustomSchoolName] = useState('');
   const [isCustomSchoolSelected, setIsCustomSchoolSelected] = useState(false);
 
@@ -113,10 +123,18 @@ export default function LoginPage() {
       if (fetchSchools) {
         const list = await fetchSchools();
         if (Array.isArray(list) && list.length > 0) {
-          setAvailableSchools(list);
+          const nameSet = new Set(list.map((s) => (s.name || '').trim()));
+          const combined = [...list];
+          DEFAULT_LOGIN_SCHOOLS.forEach((ds) => {
+            if (!nameSet.has(ds.name.trim())) {
+              combined.push(ds);
+              nameSet.add(ds.name.trim());
+            }
+          });
+          setAvailableSchools(combined);
           setSmartForm((prev) => {
-            if (!prev.school_name && list[0]?.name) {
-              return { ...prev, school_name: list[0].name, school_code: list[0].code || '' };
+            if (!prev.school_name && combined[0]?.name) {
+              return { ...prev, school_name: combined[0].name, school_code: combined[0].code || '' };
             }
             return prev;
           });
@@ -149,8 +167,8 @@ export default function LoginPage() {
     phone: '',
     role: 'student',
     password: '',
-    school_name: '',
-    school_code: '',
+    school_name: DEFAULT_LOGIN_SCHOOLS[0].name,
+    school_code: DEFAULT_LOGIN_SCHOOLS[0].code,
   });
   const [showSmartPassword, setShowSmartPassword] = useState(false);
   const [smartTeacherGrades, setSmartTeacherGrades] = useState(['پایه دهم ریاضی', 'پایه دهم تجربی']);
@@ -224,14 +242,14 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const finalSchoolName = isCustomSchoolSelected ? customSchoolName.trim() : smartForm.school_name;
+      const finalSchoolName = (smartForm.school_name || customSchoolName || '').trim();
       const res = await quickEntry({
         display_name: smartForm.display_name.trim(),
         phone: smartForm.phone.trim(),
         role: smartForm.role,
         password: smartForm.password.trim() || undefined,
         school_name: finalSchoolName || undefined,
-        school_code: isCustomSchoolSelected ? undefined : smartForm.school_code,
+        school_code: smartForm.school_code || undefined,
         grades: smartForm.role === 'teacher' ? smartTeacherGrades : undefined,
       });
 
@@ -582,95 +600,129 @@ export default function LoginPage() {
               {/* ── School Selection for Student & Teacher ── */}
               <div className={styles.inputGroup}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className={styles.inputLabel} htmlFor="smart_school_select">
-                    🏛️ انتخاب مدرسه {smartForm.role === 'teacher' ? 'محل تدریس دبیر' : 'تحصیلی شما'}: *
+                  <label className={styles.inputLabel} htmlFor="smart_school_input">
+                    🏛️ نام مدرسه {smartForm.role === 'teacher' ? 'اصلی محل تدریس دبیر' : 'تحصیلی شما'} (هم قابل تایپ، هم انتخاب از لیست): *
                   </label>
-                  {isCustomSchoolSelected && (
+                  {smartForm.school_name && (
+                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
+                      مدرسه: {smartForm.school_name}
+                    </span>
+                  )}
+                </div>
+
+                {/* Direct Text Input with Datalist Autocomplete */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    id="smart_school_input"
+                    type="text"
+                    list="available-schools-datalist"
+                    className="input"
+                    placeholder="نام کامل مدرسه خود را تایپ فرمایید یا از گزینه‌های زیر انتخاب نمایید..."
+                    value={smartForm.school_name}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const found = availableSchools.find((s) => s.name === val);
+                      setSmartForm({
+                        ...smartForm,
+                        school_name: val,
+                        school_code: found?.code || '',
+                      });
+                      setCustomSchoolName(val);
+                    }}
+                    style={{ flex: 1, fontWeight: 750 }}
+                    required
+                  />
+                  {smartForm.school_name && (
                     <button
                       type="button"
-                      onClick={() => setIsCustomSchoolSelected(false)}
-                      style={{ fontSize: '0.78rem', color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 800 }}
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setSmartForm({ ...smartForm, school_name: '', school_code: '' });
+                        setCustomSchoolName('');
+                      }}
+                      style={{ fontSize: '0.75rem', padding: '8px 10px', whiteSpace: 'nowrap' }}
+                      title="پاک کردن متن"
                     >
-                      📋 انتخاب از لیست مدارس
+                      ✕ پاک کردن
                     </button>
                   )}
                 </div>
 
-                {!isCustomSchoolSelected ? (
+                {/* Datalist for autocomplete */}
+                <datalist id="available-schools-datalist">
+                  {availableSchools.map((sch) => (
+                    <option key={sch.id || sch.name} value={sch.name}>
+                      {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''}
+                    </option>
+                  ))}
+                </datalist>
+
+                {/* Dropdown list for instant selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    📋 یا انتخاب از لیست:
+                  </span>
                   <select
-                    id="smart_school_select"
                     className="input"
-                    value={smartForm.school_name}
+                    value={availableSchools.some((s) => s.name === smartForm.school_name) ? smartForm.school_name : ''}
                     onChange={(e) => {
-                      if (e.target.value === 'CUSTOM') {
-                        setIsCustomSchoolSelected(true);
-                      } else {
+                      if (e.target.value) {
                         const found = availableSchools.find((s) => s.name === e.target.value);
                         setSmartForm({
                           ...smartForm,
                           school_name: e.target.value,
                           school_code: found?.code || '',
                         });
+                        setCustomSchoolName(e.target.value);
                       }
                     }}
-                    style={{ cursor: 'pointer', fontWeight: 700 }}
+                    style={{ flex: 1, fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer' }}
                   >
+                    <option value="">-- برای انتخاب از مدارس ثبت‌شده و نمونه کلیک کنید --</option>
                     {availableSchools.map((sch) => (
                       <option key={sch.id || sch.name} value={sch.name}>
                         🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
                       </option>
                     ))}
-                    <option value="CUSTOM">✏️ سایر مدارس (تایپ نام مدرسه جدید / دلخواه...)</option>
                   </select>
-                ) : (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      id="custom_school_input"
-                      type="text"
-                      className="input"
-                      placeholder="نام کامل مدرسه خود را وارد فرمایید..."
-                      value={customSchoolName}
-                      onChange={(e) => setCustomSchoolName(e.target.value)}
-                      required
-                      autoFocus
-                      style={{ flex: 1 }}
-                    />
-                  </div>
-                )}
+                </div>
 
                 {/* Quick Helper for Registered Schools */}
                 {availableSchools.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                      مدارس فعال:
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                      گزینه‌های آماده:
                     </span>
-                    {availableSchools.slice(0, 4).map((sch) => (
-                      <button
-                        key={sch.code || sch.name}
-                        type="button"
-                        onClick={() => {
-                          setIsCustomSchoolSelected(false);
-                          setSmartForm({
-                            ...smartForm,
-                            school_name: sch.name,
-                            school_code: sch.code || '',
-                          });
-                          toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
-                        }}
-                        style={{
-                          fontSize: '0.72rem',
-                          padding: '3px 8px',
-                          borderRadius: '8px',
-                          border: smartForm.school_name === sch.name ? '1.5px solid #4f46e5' : '1px solid rgba(99, 102, 241, 0.25)',
-                          background: smartForm.school_name === sch.name ? 'rgba(79, 70, 229, 0.15)' : 'rgba(99, 102, 241, 0.06)',
-                          color: smartForm.school_name === sch.name ? '#4f46e5' : 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          fontWeight: smartForm.school_name === sch.name ? 800 : 600,
-                        }}
-                      >
-                        🏛️ {sch.name} {sch.is_registered ? '✨' : ''}
-                      </button>
-                    ))}
+                    {availableSchools.slice(0, 7).map((sch) => {
+                      const isSelected = smartForm.school_name === sch.name;
+                      return (
+                        <button
+                          key={sch.code || sch.name}
+                          type="button"
+                          onClick={() => {
+                            setSmartForm({
+                              ...smartForm,
+                              school_name: sch.name,
+                              school_code: sch.code || '',
+                            });
+                            setCustomSchoolName(sch.name);
+                            toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
+                          }}
+                          style={{
+                            fontSize: '0.73rem',
+                            padding: '3px 8px',
+                            borderRadius: '8px',
+                            border: isSelected ? '1.5px solid #4f46e5' : '1px solid rgba(99, 102, 241, 0.25)',
+                            background: isSelected ? 'rgba(79, 70, 229, 0.15)' : 'rgba(99, 102, 241, 0.06)',
+                            color: isSelected ? '#4f46e5' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            fontWeight: isSelected ? 800 : 600,
+                          }}
+                        >
+                          🏛️ {sch.name} {sch.is_registered ? '✨' : ''}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

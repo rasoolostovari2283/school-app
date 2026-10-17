@@ -19,10 +19,13 @@ import styles from './TeacherSetupModal.module.css';
 
 const DEFAULT_TEACHER_SETUP_OPTIONS = {
   schools: [
-    { id: 'sch-1', name: 'مجتمع آموزشی هوشمند علامه حلی', city: 'تهران', studentsCount: 180 },
-    { id: 'sch-2', name: 'دبیرستان استعدادهای درخشان شهید بهشتی', city: 'تهران', studentsCount: 140 },
-    { id: 'sch-3', name: 'دبیرستان نمونه دولتی البرز', city: 'تهران', studentsCount: 210 },
-    { id: 'sch-4', name: 'دبیرستان فرزانگان ۱', city: 'تهران', studentsCount: 160 },
+    { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)', code: 'SCH-1001', city: 'تهران', studentsCount: 180, is_registered: true },
+    { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)', code: 'SCH-1002', city: 'تهران', studentsCount: 160, is_registered: true },
+    { id: 'sch-3', name: 'دبیرستان ماندگار البرز', code: 'SCH-1005', city: 'تهران', studentsCount: 210 },
+    { id: 'sch-4', name: 'دبیرستان استعدادهای درخشان شهید بهشتی', code: 'SCH-1004', city: 'تهران', studentsCount: 140 },
+    { id: 'sch-5', name: 'دبیرستان نمونه دولتی رشد', code: 'SCH-1008', city: 'تهران', studentsCount: 195 },
+    { id: 'sch-6', name: 'مجتمع آموزشی هوشمند ادیبان', code: 'SCH-1003', city: 'تهران', studentsCount: 175 },
+    { id: 'sch-7', name: 'هنرستان فنی نمونه شهید بهشتی', code: 'SCH-1007', city: 'تهران', studentsCount: 150 },
   ],
   stages: [
     {
@@ -173,6 +176,19 @@ export default function TeacherSetupModal({
       }
     } catch (e) {}
 
+    // Safeguard schools
+    if (!data.schools || !Array.isArray(data.schools) || data.schools.length === 0) {
+      data.schools = [...DEFAULT_TEACHER_SETUP_OPTIONS.schools];
+    } else {
+      const nameSet = new Set(data.schools.map((s) => (s.name || '').trim()));
+      DEFAULT_TEACHER_SETUP_OPTIONS.schools.forEach((ds) => {
+        if (!nameSet.has(ds.name.trim())) {
+          data.schools.push(ds);
+          nameSet.add(ds.name.trim());
+        }
+      });
+    }
+
     // Safeguard stages and studentCounts
     if (!data.stages || data.stages.length === 0) {
       data.stages = DEFAULT_TEACHER_SETUP_OPTIONS.stages;
@@ -199,12 +215,15 @@ export default function TeacherSetupModal({
     const foundSchool = (data.schools || []).find((s) => s.name === currentSchool);
     if (foundSchool) {
       setSelectedSchool(foundSchool.name);
+      setCustomSchool(foundSchool.name);
       setIsCustomSchool(false);
     } else if (currentSchool) {
       setSelectedSchool(currentSchool);
+      setCustomSchool(currentSchool);
       setIsCustomSchool(false);
     } else if (data.schools && data.schools.length > 0) {
       setSelectedSchool(data.schools[0].name);
+      setCustomSchool(data.schools[0].name);
     }
 
     // Pre-fill subject
@@ -358,9 +377,9 @@ export default function TeacherSetupModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const finalPrimarySchool = isCustomSchool ? customSchool.trim() : selectedSchool;
+    const finalPrimarySchool = (selectedSchool || customSchool || '').trim();
     if (!finalPrimarySchool) {
-      toast.error('لطفاً نام مدرسه را مشخص فرمایید');
+      toast.error('لطفاً نام مدرسه اصلی خود را وارد یا انتخاب فرمایید');
       return;
     }
 
@@ -562,61 +581,124 @@ export default function TeacherSetupModal({
             <div className={styles.section}>
               <div className={styles.sectionTitle}>
                 <HiOutlineBuildingLibrary className={styles.sectionTitleIcon} />
-                <span>۱. نام مدرسه یا مجتمع آموزشی (و امکان افزودن مدارس دیگر)</span>
+                <span>۱. نام مدرسه اصلی محل تدریس (و مدارس دیگر)</span>
               </div>
               <p className={styles.sectionHint}>
-                مدرسه اصلی خود را انتخاب کنید یا نام مدرسه دلخواه و مدارس دیگری که در آن تدریس دارید را وارد نمایید:
+                نام مدرسه اصلی خود را می‌توانید به صورت دلخواه بنویسید یا از گزینه‌های لیست انتخاب فرمایید:
               </p>
 
               <div className={styles.schoolSearchWrap}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-secondary)' }}>
-                  🏫 مدرسه اصلی شما:
-                </label>
-                {!isCustomSchool ? (
-                  <select
-                    className={`input ${styles.schoolSelect}`}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    🏫 نام مدرسه اصلی شما (هم قابل تایپ، هم انتخاب از لیست): *
+                  </label>
+                  {selectedSchool && (
+                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
+                      مدرسه انتخاب‌شده: {selectedSchool}
+                    </span>
+                  )}
+                </div>
+
+                {/* Direct Text Input with Datalist Autocomplete */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    list="teacher-schools-datalist"
+                    className="input"
+                    placeholder="نام مدرسه اصلی خود را تایپ کنید (مثلاً: دبیرستان علامه حلی ۱)..."
                     value={selectedSchool}
-                    onChange={handleMainSchoolChange}
-                  >
-                    {options.schools.map((sch) => (
-                      <option key={sch.id || sch.name} value={sch.name}>
-                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
-                      </option>
-                    ))}
-                    <option value="CUSTOM">✏️ سایر مدارس (تایپ نام مدرسه جدید / دلخواه...)</option>
-                  </select>
-                ) : (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="نام کامل مدرسه اصلی خود را بنویسید (مثال: دبیرستان علامه حلی ۱ تهران)..."
-                      value={customSchool}
-                      onChange={(e) => setCustomSchool(e.target.value)}
-                      required
-                      autoFocus
-                      style={{ flex: 1 }}
-                    />
+                    onChange={(e) => {
+                      setSelectedSchool(e.target.value);
+                      setCustomSchool(e.target.value);
+                    }}
+                    required
+                    style={{ flex: 1, fontWeight: 750, fontSize: '0.9rem' }}
+                  />
+                  {selectedSchool && (
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      onClick={() => setIsCustomSchool(false)}
-                      style={{ fontSize: '0.8rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
+                      onClick={() => {
+                        setSelectedSchool('');
+                        setCustomSchool('');
+                      }}
+                      style={{ fontSize: '0.78rem', padding: '8px 12px', whiteSpace: 'nowrap' }}
+                      title="پاک کردن متن برای تایپ نام جدید"
                     >
-                      انتخاب از لیست
+                      ✕ پاک کردن
                     </button>
+                  )}
+                </div>
+
+                {/* Native Datalist for autocomplete */}
+                <datalist id="teacher-schools-datalist">
+                  {options.schools.map((sch) => (
+                    <option key={sch.id || sch.name} value={sch.name}>
+                      {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''}
+                    </option>
+                  ))}
+                </datalist>
+
+                {/* Dropdown Selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    📋 یا انتخاب از لیست گزینه‌ها:
+                  </span>
+                  <select
+                    className="input"
+                    value={options.schools.some((s) => s.name === selectedSchool) ? selectedSchool : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setSelectedSchool(e.target.value);
+                        setCustomSchool(e.target.value);
+                      }
+                    }}
+                    style={{ flex: 1, fontSize: '0.82rem', padding: '6px 10px', cursor: 'pointer' }}
+                  >
+                    <option value="">-- کلیک کنید تا از میان مدارس نمونه و ثبت‌شده انتخاب فرمایید --</option>
+                    {options.schools.map((sch) => (
+                      <option key={sch.id || sch.name} value={sch.name}>
+                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quick Chips for Schools */}
+                {options.schools.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                      گزینه‌های پیشنهادی (با یک کلیک انتخاب کنید):
+                    </span>
+                    {options.schools.slice(0, 8).map((sch) => {
+                      const isSelected = selectedSchool === sch.name;
+                      return (
+                        <button
+                          key={sch.id || sch.name}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSchool(sch.name);
+                            setCustomSchool(sch.name);
+                            toast.success(`مدرسه «${sch.name}» به عنوان مدرسه اصلی انتخاب شد 👍`);
+                          }}
+                          style={{
+                            fontSize: '0.74rem',
+                            padding: '4px 10px',
+                            borderRadius: '8px',
+                            border: isSelected ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                            background: isSelected ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-surface)',
+                            color: isSelected ? '#10b981' : 'var(--text-primary)',
+                            fontWeight: isSelected ? 800 : 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease-in-out',
+                          }}
+                        >
+                          🏛️ {sch.name} {sch.is_registered ? '✨' : ''}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-
-                <button
-                  type="button"
-                  className={styles.customSchoolToggle}
-                  onClick={() => setIsCustomSchool(!isCustomSchool)}
-                >
-                  {isCustomSchool
-                    ? '📋 انتخاب از لیست مدارس نمونه سامانه'
-                    : '✍️ مدرسه من در لیست نیست؛ ثبت نام مدرسه دلخواه'}
-                </button>
 
                 {/* ── List of All Selected Schools (Chips) ── */}
                 <div style={{ marginTop: '4px' }}>
