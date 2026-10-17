@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
 import Sidebar from '../../components/layout/Sidebar';
 import Header from '../../components/layout/Header';
+import MobileBottomNav from '../../components/layout/MobileBottomNav';
 import MandatoryAnnouncementModal from '../../components/announcements/MandatoryAnnouncementModal';
 import { Toaster } from 'react-hot-toast';
 
@@ -78,6 +79,7 @@ export default function DashboardLayout({ children }) {
           {children}
         </main>
       </div>
+      <MobileBottomNav onOpenMenu={() => setIsMobileMenuOpen(true)} />
     </div>
   );
 }

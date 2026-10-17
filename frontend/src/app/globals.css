@@ -292,6 +292,7 @@ a:hover {
 
   .content-inner {
     padding: var(--space-4) var(--space-3) !important;
+    padding-bottom: 74px !important;
     max-width: 100% !important;
     overflow-x: hidden !important;
   }
@@ -305,6 +306,7 @@ a:hover {
 
   .content-inner {
     padding: 12px 10px !important;
+    padding-bottom: 78px !important;
   }
 }
 
