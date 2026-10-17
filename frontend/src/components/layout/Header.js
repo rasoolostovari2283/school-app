@@ -13,12 +13,17 @@ import {
   HiOutlineXMark,
   HiOutlineDocumentDuplicate,
   HiOutlineBars3,
+  HiOutlineArrowUturnRight,
 } from 'react-icons/hi2';
 import styles from './Header.module.css';
 import toast from 'react-hot-toast';
 
 export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
   const { user } = useAuthStore();
+  const isRealAdmin =
+    user?.original_role === 'admin' ||
+    user?.original_role === 'manager' ||
+    (!user?.original_role && (user?.role === 'admin' || user?.role === 'manager'));
   const [currentTheme, setCurrentTheme] = useState('light');
   const [currentTime, setCurrentTime] = useState('');
   const [currentDate, setCurrentDate] = useState('');
@@ -67,16 +72,28 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
   };
 
   const handleRoleSwitch = (newRole) => {
-    if (user) {
-      useAuthStore.setState({ user: { ...user, role: newRole } });
-      const roleNames = {
-        admin: 'مدیریت مدرسه',
-        teacher: 'دبیر و کادر آموزشی',
-        student: 'دانش‌آموز',
-        parent: 'اولیا',
-      };
-      toast.success(`مشاهده پنل در نقش «${roleNames[newRole] || newRole}» فعال شد`);
+    if (!user) return;
+    if (!isRealAdmin) {
+      toast.error('امکان تغییر نقش برای این حساب کاربری مجاز نمی‌باشد');
+      return;
     }
+    if (newRole !== 'admin' && newRole !== 'teacher') {
+      toast.error('تنها جابجایی بین پنل مدیریت و دبیر امکان‌پذیر است');
+      return;
+    }
+
+    const originalRole = user.original_role || 'admin';
+    const updatedUser = { ...user, role: newRole, original_role: originalRole };
+    useAuthStore.setState({ user: updatedUser });
+    try {
+      localStorage.setItem('cached_user', JSON.stringify(updatedUser));
+    } catch (e) {}
+
+    const roleNames = {
+      admin: 'مدیریت مجتمع',
+      teacher: 'دبیر و کادر آموزشی',
+    };
+    toast.success(`ورود به پنل «${roleNames[newRole] || newRole}» انجام شد ✨`);
   };
 
   const handleGenerateAi = () => {
@@ -167,18 +184,32 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
             <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{currentTime}</span>
           </div>
 
-          {/* Quick Role Switcher (for preview/testing) */}
-          <select
-            className={styles.roleSelect}
-            value={user?.role || 'teacher'}
-            onChange={(e) => handleRoleSwitch(e.target.value)}
-            title="تغییر سریع نقش برای بررسی پنل"
-          >
-            <option value="admin">🏛️ مدیریت</option>
-            <option value="teacher">👨‍🏫 دبیر</option>
-            <option value="student">🎓 دانش‌آموز</option>
-            <option value="parent">👨‍👩‍👦 اولیا</option>
-          </select>
+          {/* Panel Switcher - ONLY for Principal/Admin to view Teacher panel */}
+          {isRealAdmin && (
+            <div className={styles.adminRoleSwitchContainer}>
+              <select
+                className={styles.roleSelect}
+                value={user?.role === 'teacher' ? 'teacher' : 'admin'}
+                onChange={(e) => handleRoleSwitch(e.target.value)}
+                title="تغییر پنل (فقط مجاز بین مدیریت و دبیر)"
+              >
+                <option value="admin">🏛️ پنل مدیر</option>
+                <option value="teacher">👨‍🏫 پنل دبیر</option>
+              </select>
+
+              {user?.role === 'teacher' && (
+                <button
+                  type="button"
+                  onClick={() => handleRoleSwitch('admin')}
+                  className={styles.returnAdminBtn}
+                  title="بازگشت به ستاد مدیریت مدرسه"
+                >
+                  <HiOutlineArrowUturnRight style={{ fontSize: '0.875rem' }} />
+                  <span className={styles.returnAdminBtnText}>بازگشت به مدیر</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Teacher School & Grades Quick Link */}
           {user?.role === 'teacher' && (

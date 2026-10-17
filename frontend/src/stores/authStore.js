@@ -19,6 +19,7 @@ const useAuthStore = create((set, get) => ({
     if (token.startsWith('mock_')) {
       const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
       if (cached) {
+        if (!cached.original_role) cached.original_role = cached.role;
         set({ user: cached, isAuthenticated: true, isLoading: false });
         return;
       }
@@ -27,11 +28,13 @@ const useAuthStore = create((set, get) => ({
     try {
       const { data } = await api.get('/auth/me');
       const user = data.data.user;
+      if (!user.original_role) user.original_role = user.role;
       localStorage.setItem('cached_user', JSON.stringify(user));
       set({ user, isAuthenticated: true, isLoading: false });
     } catch {
       const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
       if (cached) {
+        if (!cached.original_role) cached.original_role = cached.role;
         // Keep user logged in offline
         set({ user: cached, isAuthenticated: true, isLoading: false });
       } else {
@@ -47,6 +50,7 @@ const useAuthStore = create((set, get) => ({
     try {
       const { data } = await api.post('/auth/register', userData);
       const { user, accessToken, refreshToken } = data.data;
+      if (!user.original_role) user.original_role = user.role;
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('refreshToken', refreshToken);
       localStorage.setItem('cached_user', JSON.stringify(user));
@@ -58,6 +62,7 @@ const useAuthStore = create((set, get) => ({
         display_name: userData.display_name,
         username: (userData.display_name || 'user').toLowerCase().replace(/\s+/g, '_'),
         role: userData.role || 'student',
+        original_role: userData.role || 'student',
         phone: userData.phone || null,
         email: userData.email || null,
       };
@@ -104,6 +109,7 @@ const useAuthStore = create((set, get) => ({
         username: 'admin_' + schoolCode.toLowerCase().replace('-', ''),
         display_name: 'مدیریت ' + schoolData.school_name,
         role: 'admin',
+        original_role: 'admin',
         school_id: newSchool.id,
         school_name: newSchool.name,
         school_code: schoolCode,
@@ -185,6 +191,7 @@ const useAuthStore = create((set, get) => ({
         display_name: cleanName,
         username: cleanName.toLowerCase().replace(/\s+/g, '_'),
         role: entryData.role || 'student',
+        original_role: entryData.role || 'student',
         phone: entryData.phone || '',
         student_code: entryData.role === 'student' ? 'STD-40301' : null,
         personnel_code: entryData.role === 'teacher' ? 'EMP-98402' : null,
@@ -226,6 +233,7 @@ const useAuthStore = create((set, get) => ({
           email: 'p_hosseini@parent.ir',
           phone: '09122220001',
           role: 'parent',
+          original_role: 'parent',
           display_name: 'حاج‌محمد حسینی (پدر امیرحسین)',
           student_code: 'STD-40301',
           student_name: 'امیرحسین حسینی',
@@ -242,6 +250,7 @@ const useAuthStore = create((set, get) => ({
           email: 'mirzaei@school.ir',
           phone: '09121110002',
           role: 'teacher',
+          original_role: 'teacher',
           display_name: 'مهندس حسین میرزایی',
           personnel_code: 'EMP-98402',
           department: 'دپارتمان ریاضیات',
@@ -258,6 +267,7 @@ const useAuthStore = create((set, get) => ({
           email: 'principal@school.ir',
           phone: '09121110001',
           role: 'admin',
+          original_role: 'admin',
           display_name: 'دکتر علیرضا تقوی',
           personnel_code: 'EMP-98401',
           department: 'مدیریت و ستاد آموزشی',
@@ -271,6 +281,7 @@ const useAuthStore = create((set, get) => ({
           email: 'hosseini@student.ir',
           phone: '09351110001',
           role: 'student',
+          original_role: 'student',
           display_name: 'امیرحسین حسینی',
           student_code: 'STD-40301',
           department: 'پایه دهم ریاضی - کلاس ۱۰۱',
@@ -437,6 +448,7 @@ const useAuthStore = create((set, get) => ({
       redirect = '/dashboard/';
     }
 
+    mockUser.original_role = mockUser.role;
     localStorage.setItem('accessToken', 'mock_token_' + Date.now());
     localStorage.setItem('cached_user', JSON.stringify(mockUser));
     set({ user: mockUser, isAuthenticated: true, isLoading: false });

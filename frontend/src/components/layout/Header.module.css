@@ -166,6 +166,40 @@
   border-color: rgba(99, 102, 241, 0.4);
 }
 
+.adminRoleSwitchContainer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.returnAdminBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  border-radius: var(--radius-lg);
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .returnAdminBtn {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #f87171;
+}
+
+.returnAdminBtn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
 .teacherSetupBtn {
   display: inline-flex;
   align-items: center;
@@ -316,5 +350,9 @@
     max-width: 95px;
     font-size: 0.75rem;
     padding: 5px 6px;
+  }
+
+  .returnAdminBtnText {
+    display: none;
   }
 }
