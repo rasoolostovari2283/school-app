@@ -32,7 +32,7 @@ const PERIODS = [
 
 export default function SchedulePage() {
   const { user } = useAuthStore();
-  const isTeacher = user?.role === 'teacher';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
 
   const [schedules, setSchedules] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -40,7 +40,7 @@ export default function SchedulePage() {
 
   // Add Period Modal State
   const [showModal, setShowModal] = useState(false);
-  const [formClassId, setFormClassId] = useState('');
+  const [formClassId, setFormClassId] = useState('default_class');
   const [formSubject, setFormSubject] = useState('');
   const [formDay, setFormDay] = useState(0);
   const [formPeriod, setFormPeriod] = useState(1);
@@ -66,9 +66,14 @@ export default function SchedulePage() {
       const res = await api.get('/classes');
       const list = res.data.data.classes || [];
       setClasses(list);
-      if (list.length > 0) setFormClassId(list[0].id);
+      if (list.length > 0) {
+        setFormClassId(list[0].id);
+      } else {
+        setFormClassId('default_class');
+      }
     } catch (err) {
       console.error(err);
+      setFormClassId('default_class');
     }
   };
 
@@ -234,9 +239,13 @@ export default function SchedulePage() {
                   onChange={(e) => setFormClassId(e.target.value)}
                   required
                 >
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.grade})</option>
-                  ))}
+                  {classes.length === 0 ? (
+                    <option value="default_class">کلاس عمومی پیش‌فرض</option>
+                  ) : (
+                    classes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.grade})</option>
+                    ))
+                  )}
                 </select>
               </div>
 

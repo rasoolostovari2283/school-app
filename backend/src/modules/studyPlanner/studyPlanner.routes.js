@@ -12,14 +12,14 @@ router.get('/stats', studyPlannerController.getStats);
 
 // Teacher Lesson & Class Planning routes
 router.get('/teacher-plans', studyPlannerController.getTeacherPlans);
-router.post('/teacher-plans', authorize('teacher'), studyPlannerController.createTeacherPlan);
-router.put('/teacher-plans/:id', authorize('teacher'), studyPlannerController.updateTeacherPlan);
-router.delete('/teacher-plans/:id', authorize('teacher'), studyPlannerController.deleteTeacherPlan);
+router.post('/teacher-plans', authorize('teacher', 'admin', 'manager'), studyPlannerController.createTeacherPlan);
+router.put('/teacher-plans/:id', authorize('teacher', 'admin', 'manager'), studyPlannerController.updateTeacherPlan);
+router.delete('/teacher-plans/:id', authorize('teacher', 'admin', 'manager'), studyPlannerController.deleteTeacherPlan);
 
 // Teacher Curriculum & Content Calendar Documents routes
 router.get('/teacher-documents', studyPlannerController.getTeacherDocuments);
-router.post('/teacher-documents', authorize('teacher'), studyPlannerController.createTeacherDocument);
-router.delete('/teacher-documents/:id', authorize('teacher'), studyPlannerController.deleteTeacherDocument);
+router.post('/teacher-documents', authorize('teacher', 'admin', 'manager'), studyPlannerController.createTeacherDocument);
+router.delete('/teacher-documents/:id', authorize('teacher', 'admin', 'manager'), studyPlannerController.deleteTeacherDocument);
 
 // Student Study Notepad & Personal Planner Notes
 router.get('/notes', studyPlannerController.getNotes);

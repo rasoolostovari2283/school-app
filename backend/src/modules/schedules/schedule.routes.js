@@ -84,7 +84,13 @@ router.post('/', async (req, res, next) => {
     const periodNum = parseInt(period_number, 10);
     const targetTeacherId = teacher_id || req.user.id;
 
-    if (isNaN(dayNum) || isNaN(periodNum) || !class_id || !subject) {
+    let targetClassId = class_id;
+    if (!targetClassId || targetClassId === 'default_class') {
+      const anyClass = await db('classes').first();
+      if (anyClass) targetClassId = anyClass.id;
+    }
+
+    if (isNaN(dayNum) || isNaN(periodNum) || !targetClassId || !subject) {
       return res.status(400).json({ success: false, message: 'اطلاعات زنگ کلاسی ناقص است' });
     }
 
@@ -111,7 +117,7 @@ router.post('/', async (req, res, next) => {
     const classClash = await db('weekly_schedules')
       .join('users as teachers', 'teachers.id', 'weekly_schedules.teacher_id')
       .where({
-        'weekly_schedules.class_id': class_id,
+        'weekly_schedules.class_id': targetClassId,
         'weekly_schedules.day_of_week': dayNum,
         'weekly_schedules.period_number': periodNum,
       })
@@ -150,7 +156,7 @@ router.post('/', async (req, res, next) => {
     const defaultTime = PERIOD_TIMES.find((p) => p.period === periodNum);
     const newEntry = {
       id: uuidv4(),
-      class_id,
+      class_id: targetClassId,
       teacher_id: targetTeacherId,
       subject,
       day_of_week: dayNum,

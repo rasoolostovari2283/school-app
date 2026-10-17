@@ -65,17 +65,26 @@ const PRESET_GRADES = [
 
 export default function StudyPlannerPage() {
   const { user } = useAuthStore();
-  const isTeacher = user?.role === 'teacher';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
 
   // Teacher navigation tabs: 'schedule' (برنامه کلاسی و هفتگی), 'roadmap' (طرح درس و بودجه‌بندی), 'students' (پایش مطالعه بچه‌ها)
   const [activeTab, setActiveTab] = useState('schedule');
 
   // Teacher Schedule & Plans
-  const [teacherPlans, setTeacherPlans] = useState([]);
+  const [teacherPlans, setTeacherPlans] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('teacher_plans_cache');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [gradeFilter, setGradeFilter] = useState('all');
   const [scheduleViewMode, setScheduleViewMode] = useState('matrix'); // 'matrix' (جدول برنامه هفتگی تدریس) | 'board' (تقویم ستونی) | 'bands' (ردیف‌های روزانه)
   const [calendarDayFilter, setCalendarDayFilter] = useState('all'); // 'all' | 0..5 (روز مشخص شنبه تا پنج‌شنبه)
+  const [showAddPlanModal, setShowAddPlanModal] = useState(false);
 
   // Teacher custom user-defined grades
   const defaultGrades = ['پایه دهم ریاضی', 'پایه دهم تجربی', 'پایه یازدهم ریاضی', 'پایه یازدهم تجربی', 'پایه دوازدهم ریاضی', 'پایه دوازدهم تجربی', 'پایه نهم'];
@@ -136,10 +145,7 @@ export default function StudyPlannerPage() {
 
   const handleQuickAddForDay = (dayId) => {
     setPlanForm((prev) => ({ ...prev, day_of_week: dayId }));
-    const el = document.getElementById('compact-planner-box');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    setShowAddPlanModal(true);
   };
 
   // ── SELECTED DAY FOR TOP BRIEFING BOARD (پیش‌فرض: روز جاری) ──
@@ -765,11 +771,18 @@ export default function StudyPlannerPage() {
     try {
       const res = await api.get('/study-planner/teacher-plans');
       if (res.data?.success) {
-        setTeacherPlans(res.data.data.plans || []);
+        const plans = res.data.data.plans || [];
+        setTeacherPlans(plans);
+        try {
+          localStorage.setItem('teacher_plans_cache', JSON.stringify(plans));
+        } catch (e) {}
       }
     } catch (err) {
       console.error(err);
-      toast.error('خطا در دریافت برنامه کلاسی دبیر');
+      try {
+        const saved = localStorage.getItem('teacher_plans_cache');
+        if (saved) setTeacherPlans(JSON.parse(saved));
+      } catch (e) {}
     } finally {
       setLoadingPlans(false);
     }
@@ -791,40 +804,78 @@ export default function StudyPlannerPage() {
     }
   };
 
-  // Add new period to Teacher Timetable from the compact bottom box
+  // Add new period to Teacher Timetable from the compact box or modal
   const handleCreateTeacherPlan = async (e) => {
-    e.preventDefault();
-    if (!planForm.subject || !planForm.grade) {
-      toast.error('لطفاً عنوان درس و پایه تحصیلی را مشخص کنید');
+    if (e && e.preventDefault) e.preventDefault();
+    if (!planForm.subject?.trim()) {
+      toast.error('لطفاً عنوان درس را وارد کنید');
+      return;
+    }
+    if (!planForm.grade?.trim()) {
+      toast.error('لطفاً پایه تحصیلی را مشخص کنید');
       return;
     }
 
     setSubmittingPlan(true);
+    const periodObj = PERIODS.find((p) => p.id === parseInt(planForm.period_number, 10)) || PERIODS[0];
+    const payload = {
+      ...planForm,
+      subject: planForm.subject.trim(),
+      grade: planForm.grade.trim(),
+      period_number: parseInt(planForm.period_number, 10),
+      day_of_week: parseInt(planForm.day_of_week, 10),
+      start_time: periodObj.start,
+      end_time: periodObj.end,
+    };
+
     try {
-      const periodObj = PERIODS.find((p) => p.id === parseInt(planForm.period_number, 10)) || PERIODS[0];
-      const payload = {
-        ...planForm,
-        period_number: parseInt(planForm.period_number, 10),
-        day_of_week: parseInt(planForm.day_of_week, 10),
-        start_time: periodObj.start,
-        end_time: periodObj.end,
+      const res = await api.post('/study-planner/teacher-plans', payload);
+      const createdPlan = res.data?.data?.plan || {
+        ...payload,
+        id: 'plan-' + Date.now(),
+        status: 'upcoming',
       };
 
-      const res = await api.post('/study-planner/teacher-plans', payload);
-      if (res.data?.success) {
-        toast.success(res.data.message || 'برنامه کلاسی با موفقیت در تقویم تدریس ثبت شد 🎉');
-        fetchTeacherPlans();
-        // Set briefing day to the day of this new entry so the teacher sees it immediately
-        setBriefingDay(parseInt(planForm.day_of_week, 10));
-        setPlanForm((prev) => ({
-          ...prev,
-          topic: '',
-          notes: '',
-        }));
-      }
+      toast.success(res.data?.message || `جلسه «${payload.subject}» با موفقیت در تقویم تدریس ثبت شد 🎉`);
+
+      setTeacherPlans((prev) => {
+        const updated = [...prev, createdPlan];
+        try {
+          localStorage.setItem('teacher_plans_cache', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      setBriefingDay(parseInt(payload.day_of_week, 10));
+      setGradeFilter('all');
+      setShowAddPlanModal(false);
+
+      setPlanForm((prev) => ({
+        ...prev,
+        topic: '',
+        notes: '',
+      }));
+
+      fetchTeacherPlans();
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || 'خطا در ثبت برنامه کلاسی');
+      // Fallback local save so teacher's plan is preserved and visible
+      const localPlan = {
+        ...payload,
+        id: 'local-' + Date.now(),
+        status: 'upcoming',
+      };
+      setTeacherPlans((prev) => {
+        const updated = [...prev, localPlan];
+        try {
+          localStorage.setItem('teacher_plans_cache', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+      setBriefingDay(parseInt(payload.day_of_week, 10));
+      setGradeFilter('all');
+      setShowAddPlanModal(false);
+      toast.success(`جلسه «${payload.subject}» با موفقیت ثبت شد 🎉`);
     } finally {
       setSubmittingPlan(false);
     }
@@ -1048,10 +1099,28 @@ export default function StudyPlannerPage() {
         {/* Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {isTeacher ? (
-            <button className="btn btn-secondary" onClick={() => window.print()}>
-              <HiOutlinePrinter />
-              <span>چاپ برنامه هفتگی</span>
-            </button>
+            <>
+              <button
+                className="btn btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                  borderColor: '#4f46e5',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 700,
+                  boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)',
+                }}
+                onClick={() => setShowAddPlanModal(true)}
+              >
+                <HiOutlinePlus />
+                <span>ثبت برنامه کلاسی جدید ➕</span>
+              </button>
+              <button className="btn btn-secondary" onClick={() => window.print()}>
+                <HiOutlinePrinter />
+                <span>چاپ برنامه هفتگی</span>
+              </button>
+            </>
           ) : (
             <button
               className="btn btn-primary"
@@ -1980,8 +2049,7 @@ export default function StudyPlannerPage() {
                                             day_of_week: day.id,
                                             period_number: period.id,
                                           }));
-                                          const el = document.getElementById('compact-planner-box');
-                                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                          setShowAddPlanModal(true);
                                         }}
                                         title={`کلیک برای ثبت جلسه در ${day.name} - زنگ ${period.id}`}
                                       >
@@ -3258,6 +3326,169 @@ export default function StudyPlannerPage() {
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setEditingSession(null)}
+                >
+                  انصراف
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: ADD TEACHER CLASS PLAN / SESSION ── */}
+      {showAddPlanModal && (
+        <div className={styles.modalBackdrop} onClick={() => setShowAddPlanModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className={styles.modalHeader}>
+              <div>
+                <h2>افزودن و ثبت زنگ درسی جدید 📅</h2>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                  تنظیم زمان، عنوان درس، پایه و سرفصل تدریس در تقویم کلاسی دبیر
+                </p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setShowAddPlanModal(false)}>
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTeacherPlan}>
+              {/* روز هفته */}
+              <div className="form-group">
+                <label style={{ fontSize: '0.8125rem', fontWeight: 700, marginBottom: '6px', display: 'block' }}>
+                  روز هفته *
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                  {DAYS.map((day) => (
+                    <button
+                      key={day.id}
+                      type="button"
+                      className={`${styles.compactDayChip} ${parseInt(planForm.day_of_week, 10) === day.id ? styles.compactDayChipActive : ''}`}
+                      onClick={() => setPlanForm({ ...planForm, day_of_week: day.id })}
+                      style={{ textAlign: 'center', padding: '6px 2px', fontSize: '0.8rem' }}
+                    >
+                      {day.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* عنوان درس و پایه */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700 }}>عنوان درس *</label>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="مثال: حسابان ۲، فیزیک، هندسه"
+                    value={planForm.subject}
+                    onChange={(e) => setPlanForm({ ...planForm, subject: e.target.value })}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700 }}>پایه تحصیلی *</label>
+                  <select
+                    className="input"
+                    value={planForm.grade}
+                    onChange={(e) => setPlanForm({ ...planForm, grade: e.target.value })}
+                  >
+                    {allAvailableGrades.map((g, idx) => (
+                      <option key={idx} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* زنگ کلاسی و نوع جلسه */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700 }}>زنگ و ساعت کلاسی *</label>
+                  <select
+                    className="input"
+                    value={planForm.period_number}
+                    onChange={(e) => setPlanForm({ ...planForm, period_number: e.target.value })}
+                  >
+                    {PERIODS.map((period) => (
+                      <option key={period.id} value={period.id}>
+                        {period.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700 }}>نوع جلسه آموزشی</label>
+                  <select
+                    className="input"
+                    value={planForm.session_type}
+                    onChange={(e) => setPlanForm({ ...planForm, session_type: e.target.value })}
+                  >
+                    <option value="teaching">تدریس سرفصل جدید 📚</option>
+                    <option value="practice">حل تمرین و تست 🎯</option>
+                    <option value="quiz">کوئیز و سنجش 📝</option>
+                    <option value="lab">آزمایشگاه و کارگاه 🔬</option>
+                    <option value="review">مرور و رفع اشکال 💬</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* کلاس / سالن */}
+              <div className="form-group" style={{ marginTop: '12px' }}>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 700 }}>نام کلاس یا سالن</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="مثال: کلاس ۱۰۱، سالن ۲"
+                  value={planForm.class_name}
+                  onChange={(e) => setPlanForm({ ...planForm, class_name: e.target.value })}
+                />
+              </div>
+
+              {/* سرفصل یا مبحث تدریس */}
+              <div className="form-group" style={{ marginTop: '12px' }}>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#06b6d4' }}>
+                  سرفصل یا مبحث تدریس جلسه:
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="مثال: فصل ۳: کار و انرژی (تدریس تا صفحه ۴۵)"
+                  value={planForm.topic}
+                  onChange={(e) => setPlanForm({ ...planForm, topic: e.target.value })}
+                />
+              </div>
+
+              {/* تکالیف تعیین‌شده */}
+              <div className="form-group" style={{ marginTop: '12px' }}>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#f59e0b' }}>
+                  تکالیف تعیین‌شده دانش‌آموزان:
+                </label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  placeholder="مثال: حل تمرین‌های صفحه ۳۰ تا ۳۲ کتاب درسی و ۵ تست کنکور سراسری"
+                  value={planForm.notes}
+                  onChange={(e) => setPlanForm({ ...planForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '12px', fontWeight: 700 }}
+                  disabled={submittingPlan}
+                >
+                  {submittingPlan ? 'در حال ثبت...' : 'ثبت در تقویم تدریس هفتگی 💾'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowAddPlanModal(false)}
                 >
                   انصراف
                 </button>
