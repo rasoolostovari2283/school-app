@@ -139,19 +139,41 @@ export default function VideosPage() {
     },
   ];
 
-  // Fetch folders from backend
+  // Fetch folders from backend + localStorage
   const fetchFolders = async () => {
+    let localFolders = [];
+    try {
+      const saved = localStorage.getItem('educonnect_video_folders');
+      if (saved) localFolders = JSON.parse(saved);
+    } catch (e) {}
+
     try {
       const res = await api.get('/videos/folders');
       if (res.data?.success && res.data.data?.folders?.length > 0) {
         const folderList = res.data.data.folders;
+        localFolders.forEach((lf) => {
+          if (!folderList.some((f) => f.name === lf.name)) {
+            folderList.push(lf);
+          }
+        });
         if (!folderList.some((f) => f.name === 'تخته هوشمند')) {
           folderList.push({ name: 'تخته هوشمند', color: '#8b5cf6', count: 0 });
         }
         setFolders(folderList);
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
+        } catch (e) {}
+        return;
       }
     } catch (e) {
       console.warn('Could not fetch custom folders, using defaults:', e);
+    }
+
+    if (localFolders.length > 0) {
+      if (!localFolders.some((f) => f.name === 'تخته هوشمند')) {
+        localFolders.push({ name: 'تخته هوشمند', color: '#8b5cf6', count: 0 });
+      }
+      setFolders(localFolders);
     }
   };
 
@@ -250,30 +272,29 @@ export default function VideosPage() {
       toast.error('لطفاً نام فایل یا پوشه را وارد کنید');
       return;
     }
-    const cleanName = newFolderNameInput.trim();
+    const newFolderObj = { name: cleanName, color: newFolderColorInput || '#6366f1', count: 0 };
+
+    setFolders((prev) => {
+      const updated = prev.some((f) => f.name === cleanName) ? prev : [...prev, newFolderObj];
+      try {
+        localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
 
     try {
-      const res = await api.post('/videos/folders', {
+      await api.post('/videos/folders', {
         name: cleanName,
         color: newFolderColorInput || '#6366f1',
       });
-      if (res.data?.success) {
-        toast.success(`فایل «${cleanName}» ایجاد شد ✨`);
-      }
     } catch (err) {
       console.warn('Backend folder post error:', err);
     }
 
-    setFolders((prev) => {
-      if (prev.some((f) => f.name === cleanName)) return prev;
-      return [...prev, { name: cleanName, color: newFolderColorInput || '#6366f1', count: 0 }];
-    });
-
     setSelectedFolder(cleanName);
     setShowNewFolderModal(false);
     setNewFolderNameInput('');
-    toast.success(`فایل جدید «${cleanName}» آماده شد 📁`);
-    fetchFolders();
+    toast.success(`پوشه جدید «${cleanName}» با موفقیت ایجاد شد 📁`);
   };
 
   // Save new folder inline inside Upload Modal
@@ -361,35 +382,72 @@ export default function VideosPage() {
     }
 
     setIsMovingSubmitting(true);
+
+    // 1. If new folder created, save to state, localStorage, and backend
+    if (isMoveCreatingFolder && inlineMoveNewFolder.trim()) {
+      const newFolderObj = { name: finalFolder, color: '#6366f1', count: 1 };
+      setFolders((prev) => {
+        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      try {
+        await api.post('/videos/folders', {
+          name: finalFolder,
+          color: '#6366f1',
+        });
+      } catch (fErr) {
+        console.warn('Backend folder post warning:', fErr);
+      }
+    }
+
+    // 2. Call backend patch
     try {
       await api.patch(`/videos/${movingVideo.id}/folder`, {
         folder_name: finalFolder,
       });
-      toast.success(`ویدیو با موفقیت به پوشه «${finalFolder}» منتقل شد 📁`);
     } catch (err) {
       console.warn('API move warning:', err);
-      toast.success(`ویدیو به پوشه «${finalFolder}» منتقل شد 📁`);
     } finally {
       setIsMovingSubmitting(false);
     }
 
-    // Update local state
+    // 3. Update local state
     setVideos((prev) =>
-      prev.map((v) => (v.id === movingVideo.id ? { ...v, folder_name: finalFolder } : v))
+      prev.map((v) => (v.id === movingVideo.id || v.title === movingVideo.title ? { ...v, folder_name: finalFolder } : v))
     );
 
-    if (activeMedia?.id === movingVideo.id) {
+    if (activeMedia?.id === movingVideo.id || activeMedia?.title === movingVideo.title) {
       setActiveMedia((prev) => (prev ? { ...prev, folder_name: finalFolder } : null));
     }
 
-    // Ensure folder exists in folders list
-    setFolders((prev) => {
-      if (prev.some((f) => f.name === finalFolder)) return prev;
-      return [...prev, { name: finalFolder, color: '#6366f1', count: 0 }];
-    });
+    // 4. Update whiteboard session in localStorage so the move persists across reloads
+    try {
+      const userKey = user?.id ? `educonnect_recorded_sessions_${user.id}` : null;
+      [userKey, 'educonnect_recorded_sessions'].forEach((k) => {
+        if (!k) return;
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const updated = parsed.map((s) =>
+            s.id === movingVideo.id || s.title === movingVideo.title
+              ? { ...s, folder_name: finalFolder }
+              : s
+          );
+          localStorage.setItem(k, JSON.stringify(updated));
+        }
+      });
+    } catch (e) {
+      console.warn('Could not sync video move to local session storage:', e);
+    }
 
+    toast.success(`ویدیو با موفقیت به پوشه «${finalFolder}» منتقل شد 📁`);
     setMovingVideo(null);
-    fetchFolders();
+    setIsMoveCreatingFolder(false);
+    setInlineMoveNewFolder('');
   };
 
   const handleUploadSubmit = async (e) => {

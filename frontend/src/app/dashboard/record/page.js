@@ -221,33 +221,51 @@ export default function ClassRecordStudioPage() {
     }
   };
 
-  // Save recordings to localStorage on change (namespaced per student)
+  // Save recordings to localStorage on change (namespaced per user & global)
   const saveSessionsToLocal = (sessions) => {
     setRecordedSessions(sessions);
     try {
       const key = getStorageKey();
       localStorage.setItem(key, JSON.stringify(sessions));
-      if (!user?.id) {
-        localStorage.setItem('educonnect_recorded_sessions', JSON.stringify(sessions));
-      }
+      localStorage.setItem('educonnect_recorded_sessions', JSON.stringify(sessions));
     } catch (e) {
       console.warn('LocalStorage limit:', e);
     }
   };
 
-  // Fetch available course & media folders from backend
+  // Fetch available course & media folders from backend + localStorage
   const fetchAvailableFolders = async () => {
+    let localFolders = [];
+    try {
+      const saved = localStorage.getItem('educonnect_video_folders');
+      if (saved) localFolders = JSON.parse(saved);
+    } catch (e) {}
+
     try {
       const res = await api.get('/videos/folders');
       if (res.data?.success && res.data.data?.folders?.length > 0) {
         const list = res.data.data.folders;
+        localFolders.forEach((lf) => {
+          if (!list.some((f) => f.name === lf.name)) list.push(lf);
+        });
         if (!list.some((f) => f.name === 'تخته هوشمند')) {
           list.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
         }
         setAvailableFolders(list);
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(list));
+        } catch (e) {}
+        return;
       }
     } catch (e) {
-      console.warn('Could not fetch folders:', e);
+      console.warn('Could not fetch folders from backend, using local:', e);
+    }
+
+    if (localFolders.length > 0) {
+      if (!localFolders.some((f) => f.name === 'تخته هوشمند')) {
+        localFolders.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
+      }
+      setAvailableFolders(localFolders);
     }
   };
 
@@ -419,28 +437,57 @@ export default function ClassRecordStudioPage() {
       ? newFolderName.trim()
       : targetFolder || 'تخته هوشمند';
 
-    // If new folder created, create on backend
+    // 1. If new folder created, immediately add to availableFolders and localStorage
     if (isCreatingNewFolder && newFolderName.trim()) {
+      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
+      setAvailableFolders((prev) => {
+        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // Also create on backend if accessible
       try {
         await api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' });
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Backend folder creation note:', e);
+      }
     }
 
-    // Update backend video folder if video exists on server
-    try {
-      if (movingSession.id && !movingSession.id.startsWith('wb-')) {
-        await api.patch(`/videos/${movingSession.id}/folder`, { folder_name: finalFolder });
-      }
-    } catch (e) {}
-
-    // Update local state and localStorage
+    // 2. Update local recordedSessions state & storage
     const updated = recordedSessions.map((s) =>
-      s.id === movingSession.id ? { ...s, folder_name: finalFolder } : s
+      s.id === movingSession.id || s.title === movingSession.title ? { ...s, folder_name: finalFolder } : s
     );
     saveSessionsToLocal(updated);
 
+    try {
+      const globalKey = 'educonnect_recorded_sessions';
+      const raw = localStorage.getItem(globalKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const updatedGlobal = parsed.map((s) =>
+          s.id === movingSession.id || s.title === movingSession.title ? { ...s, folder_name: finalFolder } : s
+        );
+        localStorage.setItem(globalKey, JSON.stringify(updatedGlobal));
+      }
+    } catch (e) {}
+
+    // 3. Update backend video folder if video exists on server
+    try {
+      if (movingSession.id) {
+        await api.patch(`/videos/${movingSession.id}/folder`, { folder_name: finalFolder });
+      }
+    } catch (e) {
+      console.warn('Backend patch video folder note:', e);
+    }
+
     toast.success(`ویدیو با موفقیت به پوشه «${finalFolder}» منتقل شد 📁`);
     setMovingSession(null);
+    setIsCreatingNewFolder(false);
+    setNewFolderName('');
+    setTargetFolder(finalFolder);
   };
 
   // ── 2. Canvas Setup & Drawing Engine ──
