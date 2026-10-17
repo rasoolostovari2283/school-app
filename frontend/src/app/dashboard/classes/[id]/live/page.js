@@ -42,6 +42,8 @@ import {
   HiOutlineCloudArrowUp,
   HiOutlinePower,
   HiOutlineTv,
+  HiOutlineBars3,
+  HiOutlineChevronDown,
 } from 'react-icons/hi2';
 import { LuEraser } from 'react-icons/lu';
 import {
@@ -126,6 +128,7 @@ export default function LiveClassroomPage() {
   const [currentColor, setCurrentColor] = useState('#2563eb');
   const [brushSize, setBrushSize] = useState(5);
   const [boardType, setBoardType] = useState('white'); // 'white' | 'grid' | 'blackboard'
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   // Undo / Redo stacks
   const historyRef = useRef([]);
@@ -2879,6 +2882,30 @@ export default function LiveClassroomPage() {
             </div>
           )}
 
+          {/* Prominent Floating Banner to Close Open File/Video and Return to Whiteboard */}
+          {(docType || pdfFileName) && (
+            <div className={styles.floatingMediaCloseHeader}>
+              <div className={styles.floatingMediaInfo}>
+                {docType === 'video' ? (
+                  <HiOutlineFilm size={16} color="#a78bfa" />
+                ) : (
+                  <FaFilePdf size={16} color="#ef4444" />
+                )}
+                <span>
+                  {docType === 'video' ? 'فیلم آموزشی' : 'فایل در حال نمایش'}: <strong>{pdfFileName || 'سند اشتراک‌گذاری شده'}</strong>
+                </span>
+              </div>
+              <button
+                className={styles.floatingMediaCloseAction}
+                onClick={handleCloseDocument}
+                title="بستن فایل و بازگشت به تخته سفید"
+              >
+                <HiOutlineXMark size={16} />
+                <span>بستن و بازگشت به تخته</span>
+              </button>
+            </div>
+          )}
+
           {/* Floating Document & Presentation Bar (if document is open) */}
           {(docType || pdfFileName) && (
             <div className={styles.docNavBar}>
@@ -2981,11 +3008,12 @@ export default function LiveClassroomPage() {
                   <HiOutlineMagnifyingGlassMinus />
                 </button>
                 <button
-                  className={styles.docCloseBtn}
+                  className={styles.docCloseBtnProminent}
                   onClick={handleCloseDocument}
-                  title="برداشتن فایل از روی تخته"
+                  title="بستن فایل و بازگشت به تخته"
                 >
-                  <HiOutlineXMark />
+                  <HiOutlineXMark size={16} />
+                  <span>بستن و بازگشت به تخته</span>
                 </button>
               </div>
             </div>
@@ -3066,7 +3094,7 @@ export default function LiveClassroomPage() {
                 </div>
               )}
 
-              {/* Basic Pen & Highlighter & Eraser */}
+              {/* 1. Essential Tools: Pen & Eraser */}
               <div className={styles.toolGroup}>
                 <button
                   className={`${styles.toolBtn} ${tool === 'pen' ? styles.toolBtnActive : ''}`}
@@ -3074,14 +3102,6 @@ export default function LiveClassroomPage() {
                   title="قلم معمولی"
                 >
                   <HiOutlinePencil />
-                </button>
-
-                <button
-                  className={`${styles.toolBtn} ${tool === 'highlighter' ? styles.toolBtnActive : ''}`}
-                  onClick={() => setTool('highlighter')}
-                  title="ماژیک هایلایتر فسفری"
-                >
-                  <HiOutlinePaintBrush />
                 </button>
 
                 <button
@@ -3095,75 +3115,7 @@ export default function LiveClassroomPage() {
 
               <div className={styles.toolDivider} />
 
-              {/* Geometry & Shape Tools */}
-              <div className={styles.toolGroup}>
-                <button
-                  className={`${styles.toolBtn} ${tool === 'line' ? styles.toolBtnActive : ''}`}
-                  onClick={() => setTool('line')}
-                  title="خط‌کش / خط راست"
-                >
-                  <FaSlash />
-                </button>
-
-                <button
-                  className={`${styles.toolBtn} ${tool === 'arrow' ? styles.toolBtnActive : ''}`}
-                  onClick={() => setTool('arrow')}
-                  title="پیکان / فلش جهت‌دار"
-                >
-                  <FaArrowRight />
-                </button>
-
-                <button
-                  className={`${styles.toolBtn} ${tool === 'rect' ? styles.toolBtnActive : ''}`}
-                  onClick={() => setTool('rect')}
-                  title="مستطیل / کادر"
-                >
-                  <FaRegSquare />
-                </button>
-
-                <button
-                  className={`${styles.toolBtn} ${tool === 'circle' ? styles.toolBtnActive : ''}`}
-                  onClick={() => setTool('circle')}
-                  title="دایره / بیضی"
-                >
-                  <FaRegCircle />
-                </button>
-
-                <button
-                  className={styles.toolBtn}
-                  onClick={handleInsertText}
-                  title="درج متن فارسی روی تخته"
-                >
-                  <FaFont />
-                </button>
-              </div>
-
-              <div className={styles.toolDivider} />
-
-              {/* Brush Sizes */}
-              <div className={styles.brushSizeWrap}>
-                {BRUSH_SIZES.map((b) => (
-                  <button
-                    key={b.size}
-                    className={`${styles.brushSizeBtn} ${brushSize === b.size ? styles.brushSizeBtnActive : ''}`}
-                    onClick={() => setBrushSize(b.size)}
-                    title={`ضخامت قلم: ${b.label}`}
-                  >
-                    <span
-                      className={styles.brushDot}
-                      style={{
-                        width: b.dotSize,
-                        height: b.dotSize,
-                        background: currentColor,
-                      }}
-                    />
-                  </button>
-                ))}
-              </div>
-
-              <div className={styles.toolDivider} />
-
-              {/* Color Palette + Custom Picker */}
+              {/* 2. Color Palette + Custom Picker */}
               <div className={styles.colorPickerWrap}>
                 {PALETTE_COLORS.map((c) => (
                   <div
@@ -3185,102 +3137,238 @@ export default function LiveClassroomPage() {
 
               <div className={styles.toolDivider} />
 
-              {/* Undo / Redo */}
-              <div className={styles.toolGroup}>
+              {/* 3. Dropdown Menu for All Other Features & Tools */}
+              <div className={styles.menuContainer}>
                 <button
-                  className={styles.toolBtn}
-                  onClick={handleUndo}
-                  disabled={!canUndo}
-                  title="بازگردانی (Ctrl+Z)"
-                  style={{ opacity: canUndo ? 1 : 0.4 }}
+                  className={`${styles.menuToggleBtn} ${showToolsMenu ? styles.menuToggleBtnActive : ''}`}
+                  onClick={() => setShowToolsMenu((prev) => !prev)}
+                  title="مشاهده تمام ابزارها و قابلیت‌های تخته"
                 >
-                  <HiOutlineArrowUturnLeft />
+                  <HiOutlineBars3 size={18} />
+                  <span>سایر ابزارها</span>
+                  <HiOutlineChevronDown
+                    size={14}
+                    style={{
+                      transform: showToolsMenu ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s',
+                    }}
+                  />
                 </button>
 
-                <button
-                  className={styles.toolBtn}
-                  onClick={handleRedo}
-                  disabled={!canRedo}
-                  title="انجام مجدد (Ctrl+Y)"
-                  style={{ opacity: canRedo ? 1 : 0.4 }}
-                >
-                  <HiOutlineArrowUturnRight />
-                </button>
-              </div>
+                {showToolsMenu && (
+                  <div className={styles.toolsDropdownMenu}>
+                    {/* Section: Highlighter & Brush Sizes */}
+                    <div className={styles.dropdownSection}>
+                      <span className={styles.dropdownSectionTitle}>قلم و ضخامت</span>
+                      <div className={styles.dropdownRow}>
+                        <button
+                          className={`${styles.menuItemBtn} ${tool === 'highlighter' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => {
+                            setTool('highlighter');
+                            setShowToolsMenu(false);
+                          }}
+                          title="ماژیک هایلایتر فسفری"
+                        >
+                          <HiOutlinePaintBrush size={16} />
+                          <span>هایلایتر</span>
+                        </button>
 
-              {/* Document / Media Loaders (Only for teacher) */}
-              {isTeacher && (
-                <>
-                  <div className={styles.toolDivider} />
-                  <div className={styles.toolGroup}>
-                    <button
-                      className={styles.toolBtn}
-                      onClick={() => docFileInputRef.current?.click()}
-                      title="بارگذاری اسلاید پاورپوینت یا کتابچه PDF روی تخته"
-                      style={{ color: '#60a5fa' }}
-                    >
-                      <FaFilePdf />
-                    </button>
+                        {BRUSH_SIZES.map((b) => (
+                          <button
+                            key={b.size}
+                            className={`${styles.menuItemBtn} ${brushSize === b.size ? styles.menuItemBtnActive : ''}`}
+                            onClick={() => setBrushSize(b.size)}
+                            title={`ضخامت قلم: ${b.label}`}
+                            style={{ padding: '6px 8px' }}
+                          >
+                            <span
+                              style={{
+                                width: b.dotSize,
+                                height: b.dotSize,
+                                borderRadius: '50%',
+                                display: 'inline-block',
+                                background: currentColor,
+                              }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                    <button
-                      className={styles.toolBtn}
-                      onClick={() => imageFileInputRef.current?.click()}
-                      title="بارگذاری کاربرگ و عکس روی تخته"
-                      style={{ color: '#34d399' }}
-                    >
-                      <HiOutlinePhoto />
-                    </button>
+                    {/* Section: Geometric Shapes & Text */}
+                    <div className={styles.dropdownSection}>
+                      <span className={styles.dropdownSectionTitle}>اشکال هندسی و متن</span>
+                      <div className={styles.dropdownRow}>
+                        <button
+                          className={`${styles.menuItemBtn} ${tool === 'line' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => {
+                            setTool('line');
+                            setShowToolsMenu(false);
+                          }}
+                          title="خط‌کش / خط راست"
+                        >
+                          <FaSlash size={12} />
+                          <span>خط</span>
+                        </button>
+                        <button
+                          className={`${styles.menuItemBtn} ${tool === 'arrow' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => {
+                            setTool('arrow');
+                            setShowToolsMenu(false);
+                          }}
+                          title="پیکان / فلش جهت‌دار"
+                        >
+                          <FaArrowRight size={12} />
+                          <span>فلش</span>
+                        </button>
+                        <button
+                          className={`${styles.menuItemBtn} ${tool === 'rect' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => {
+                            setTool('rect');
+                            setShowToolsMenu(false);
+                          }}
+                          title="مستطیل / کادر"
+                        >
+                          <FaRegSquare size={12} />
+                          <span>مستطیل</span>
+                        </button>
+                        <button
+                          className={`${styles.menuItemBtn} ${tool === 'circle' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => {
+                            setTool('circle');
+                            setShowToolsMenu(false);
+                          }}
+                          title="دایره / بیضی"
+                        >
+                          <FaRegCircle size={12} />
+                          <span>دایره</span>
+                        </button>
+                        <button
+                          className={styles.menuItemBtn}
+                          onClick={() => {
+                            handleInsertText();
+                            setShowToolsMenu(false);
+                          }}
+                          title="درج متن فارسی روی تخته"
+                        >
+                          <FaFont size={12} />
+                          <span>متن فارسی</span>
+                        </button>
+                      </div>
+                    </div>
 
-                    <button
-                      className={styles.toolBtn}
-                      onClick={() => videoFileInputRef.current?.click()}
-                      title="بارگذاری و پخش فیلم آموزشی روی تخته"
-                      style={{ color: '#a78bfa' }}
-                    >
-                      <HiOutlineFilm />
-                    </button>
+                    {/* Section: Document / Media Loaders (Only for teacher) */}
+                    {isTeacher && (
+                      <div className={styles.dropdownSection}>
+                        <span className={styles.dropdownSectionTitle}>اشتراک فایل و رسانه</span>
+                        <div className={styles.dropdownRow}>
+                          <button
+                            className={styles.menuItemBtn}
+                            onClick={() => {
+                              docFileInputRef.current?.click();
+                              setShowToolsMenu(false);
+                            }}
+                            title="بارگذاری اسلاید پاورپوینت یا کتابچه PDF"
+                            style={{ color: '#60a5fa' }}
+                          >
+                            <FaFilePdf size={14} />
+                            <span>PDF / پاورپوینت</span>
+                          </button>
+
+                          <button
+                            className={styles.menuItemBtn}
+                            onClick={() => {
+                              imageFileInputRef.current?.click();
+                              setShowToolsMenu(false);
+                            }}
+                            title="بارگذاری کاربرگ و عکس"
+                            style={{ color: '#34d399' }}
+                          >
+                            <HiOutlinePhoto size={15} />
+                            <span>عکس / کاربرگ</span>
+                          </button>
+
+                          <button
+                            className={styles.menuItemBtn}
+                            onClick={() => {
+                              videoFileInputRef.current?.click();
+                              setShowToolsMenu(false);
+                            }}
+                            title="بارگذاری و پخش فیلم آموزشی"
+                            style={{ color: '#a78bfa' }}
+                          >
+                            <HiOutlineFilm size={15} />
+                            <span>فیلم آموزشی</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Section: Board Theme & History */}
+                    <div className={styles.dropdownSection}>
+                      <span className={styles.dropdownSectionTitle}>پس‌زمینه و عملیات</span>
+                      <div className={styles.dropdownRow}>
+                        <button
+                          className={`${styles.menuItemBtn} ${boardType === 'white' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => handleChangeBoardType('white')}
+                          title="تخته سفید"
+                        >
+                          <span>⬜ سفید</span>
+                        </button>
+                        <button
+                          className={`${styles.menuItemBtn} ${boardType === 'grid' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => handleChangeBoardType('grid')}
+                          title="تخته شطرنجی ریاضی"
+                        >
+                          <span>🏁 شطرنجی</span>
+                        </button>
+                        <button
+                          className={`${styles.menuItemBtn} ${boardType === 'blackboard' ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => handleChangeBoardType('blackboard')}
+                          title="تخته سیاه گچی / سبز مدرسه‌ای"
+                        >
+                          <span>🟩 تخته سیاه</span>
+                        </button>
+
+                        <button
+                          className={styles.menuItemBtn}
+                          onClick={handleUndo}
+                          disabled={!canUndo}
+                          style={{ opacity: canUndo ? 1 : 0.4 }}
+                          title="بازگردانی"
+                        >
+                          <HiOutlineArrowUturnLeft size={14} />
+                          <span>Undo</span>
+                        </button>
+
+                        <button
+                          className={styles.menuItemBtn}
+                          onClick={handleRedo}
+                          disabled={!canRedo}
+                          style={{ opacity: canRedo ? 1 : 0.4 }}
+                          title="انجام مجدد"
+                        >
+                          <HiOutlineArrowUturnRight size={14} />
+                          <span>Redo</span>
+                        </button>
+
+                        <button
+                          className={styles.menuItemBtn}
+                          onClick={() => {
+                            handleClearWhiteboard();
+                            setShowToolsMenu(false);
+                          }}
+                          style={{ color: '#ef4444' }}
+                          title="پاک کردن برگه جاری تخته"
+                        >
+                          <HiOutlineTrash size={14} />
+                          <span>پاک کردن برگه</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </>
-              )}
-
-              <div className={styles.toolDivider} />
-
-              {/* Background Theme Switcher */}
-              <div className={styles.toolGroup}>
-                <button
-                  className={`${styles.toolBtn} ${boardType === 'white' ? styles.toolBtnActive : ''}`}
-                  onClick={() => handleChangeBoardType('white')}
-                  title="تخته سفید وایت‌برد"
-                >
-                  ⬜
-                </button>
-                <button
-                  className={`${styles.toolBtn} ${boardType === 'grid' ? styles.toolBtnActive : ''}`}
-                  onClick={() => handleChangeBoardType('grid')}
-                  title="تخته شطرنجی ریاضی"
-                >
-                  🏁
-                </button>
-                <button
-                  className={`${styles.toolBtn} ${boardType === 'blackboard' ? styles.toolBtnActive : ''}`}
-                  onClick={() => handleChangeBoardType('blackboard')}
-                  title="تخته سیاه گچی / سبز مدرسه‌ای"
-                >
-                  🟩
-                </button>
+                )}
               </div>
-
-              <div className={styles.toolDivider} />
-
-              {/* Clear Board */}
-              <button
-                className={styles.toolBtn}
-                onClick={handleClearWhiteboard}
-                title="پاک کردن برگه جاری تخته"
-                style={{ color: '#ef4444' }}
-              >
-                <HiOutlineTrash />
-              </button>
             </div>
           ) : (
             <div className={styles.lockedWhiteboardBar}>

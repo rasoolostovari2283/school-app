@@ -42,6 +42,8 @@ import {
   HiOutlineShare,
   HiOutlinePaperAirplane,
   HiOutlineMagnifyingGlass,
+  HiOutlineBars3,
+  HiOutlineChevronDown,
 } from 'react-icons/hi2';
 import { LuEraser } from 'react-icons/lu';
 import { FaFilePdf, FaFilePowerpoint } from 'react-icons/fa6';
@@ -87,6 +89,7 @@ export default function ClassRecordStudioPage() {
   const [currentColor, setCurrentColor] = useState('#1e293b');
   const [brushSize, setBrushSize] = useState(5);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   // Recording States
   const [recStatus, setRecStatus] = useState('idle'); // 'idle' | 'recording' | 'paused'
@@ -2404,7 +2407,7 @@ export default function ClassRecordStudioPage() {
         <div className={styles.studioWrapper}>
           {/* Top Floating Glass Toolbar */}
           <div className={styles.topToolbar}>
-            {/* Main Tools Group */}
+            {/* 1. Essential Tools: Pen & Eraser */}
             <div className={styles.toolGroup}>
               <button
                 className={`${styles.toolBtn} ${tool === 'pen' ? styles.toolBtnActive : ''}`}
@@ -2412,14 +2415,6 @@ export default function ClassRecordStudioPage() {
                 title="قلم معمولی"
               >
                 <HiOutlinePencil />
-              </button>
-
-              <button
-                className={`${styles.toolBtn} ${tool === 'highlighter' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('highlighter')}
-                title="ماژیک هایلایتر"
-              >
-                <HiOutlinePaintBrush />
               </button>
 
               <button
@@ -2433,100 +2428,7 @@ export default function ClassRecordStudioPage() {
 
             <div className={styles.toolDivider} />
 
-            {/* Geometric Shapes */}
-            <div className={styles.toolGroup}>
-              <button
-                className={`${styles.toolBtn} ${tool === 'line' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('line')}
-                title="خط مستقیم"
-              >
-                <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>╱</span>
-              </button>
-
-              <button
-                className={`${styles.toolBtn} ${tool === 'arrow' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('arrow')}
-                title="فلش جهت‌دار"
-              >
-                <span style={{ fontSize: '1.2rem' }}>➔</span>
-              </button>
-
-              <button
-                className={`${styles.toolBtn} ${tool === 'rect' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('rect')}
-                title="مستطیل"
-              >
-                <span style={{ fontSize: '1.1rem' }}>▭</span>
-              </button>
-
-              <button
-                className={`${styles.toolBtn} ${tool === 'circle' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('circle')}
-                title="دایره / بیضی"
-              >
-                <span style={{ fontSize: '1.1rem' }}>◯</span>
-              </button>
-
-              <button className={styles.toolBtn} onClick={handleInsertText} title="درج متن تایپی">
-                <HiOutlineDocumentText />
-              </button>
-
-              {/* PDF & PowerPoint Document Button */}
-              <button
-                className={styles.toolBtn}
-                onClick={() => docFileInputRef.current?.click()}
-                title="باز کردن فایل PDF یا اسلایدهای پاورپوینت (PowerPoint) روی تخته"
-                style={{ width: 'auto', padding: '0 7px', gap: 4 }}
-              >
-                <FaFilePdf size={15} color="#ef4444" />
-                <FaFilePowerpoint size={15} color="#ea580c" />
-              </button>
-              <input
-                type="file"
-                ref={docFileInputRef}
-                onChange={handlePdfFileSelect}
-                accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                style={{ display: 'none' }}
-              />
-
-              {/* Image / Photo Button */}
-              <button
-                className={styles.toolBtn}
-                onClick={() => imageFileInputRef.current?.click()}
-                title="افزودن عکس / تصویر به تخته"
-                style={{ color: '#10b981' }}
-              >
-                <HiOutlinePhoto size={19} />
-              </button>
-              <input
-                type="file"
-                ref={imageFileInputRef}
-                onChange={handleImageFileSelect}
-                accept="image/*"
-                style={{ display: 'none' }}
-              />
-
-              {/* Educational Video Button */}
-              <button
-                className={styles.toolBtn}
-                onClick={() => videoFileInputRef.current?.click()}
-                title="پخش فیلم آموزشی روی تخته"
-                style={{ color: '#8b5cf6' }}
-              >
-                <HiOutlineFilm size={19} />
-              </button>
-              <input
-                type="file"
-                ref={videoFileInputRef}
-                onChange={handleVideoFileSelect}
-                accept="video/*"
-                style={{ display: 'none' }}
-              />
-            </div>
-
-            <div className={styles.toolDivider} />
-
-            {/* Colors */}
+            {/* 2. Color Palette */}
             <div className={styles.toolGroup}>
               {PALETTE_COLORS.map((c) => (
                 <div
@@ -2541,110 +2443,276 @@ export default function ClassRecordStudioPage() {
 
             <div className={styles.toolDivider} />
 
-            {/* Brush Width Selector */}
-            <div className={styles.widthSelect}>
-              {BRUSH_SIZES.map((b) => (
-                <button
-                  key={b.size}
-                  className={`${styles.widthOption} ${brushSize === b.size ? styles.widthOptionActive : ''}`}
-                  onClick={() => setBrushSize(b.size)}
-                  title={b.label}
-                >
-                  <div
-                    className={styles.widthDot}
-                    style={{ width: b.dotSize, height: b.dotSize, backgroundColor: currentColor }}
-                  />
-                </button>
-              ))}
-            </div>
-
-            <div className={styles.toolDivider} />
-
-            {/* History & Board Style */}
-            <div className={styles.toolGroup}>
-              <button className={styles.toolBtn} onClick={handleUndo} title="بازگردانی (Undo)">
-                <HiOutlineArrowUturnLeft />
-              </button>
-              <button className={styles.toolBtn} onClick={handleRedo} title="انجام مجدد (Redo)">
-                <HiOutlineArrowUturnRight />
-              </button>
+            {/* 3. Dropdown Menu for All Other Whiteboard Capabilities */}
+            <div className={styles.menuContainer}>
               <button
-                className={styles.toolBtn}
-                onClick={() => {
-                  const next = boardType === 'white' ? 'grid' : boardType === 'grid' ? 'blackboard' : 'white';
-                  setBoardType(next);
-                  toast(`نوع تخته: ${next === 'white' ? 'سفید' : next === 'grid' ? 'شطرنجی' : 'تخته سیاه'}`);
-                }}
-                title="تغییر پس‌زمینه تخته"
+                className={`${styles.menuToggleBtn} ${showToolsMenu ? styles.menuToggleBtnActive : ''}`}
+                onClick={() => setShowToolsMenu((prev) => !prev)}
+                title="مشاهده تمام ابزارها و قابلیت‌های تخته"
               >
-                <HiOutlineSquares2X2 />
-              </button>
-              <button className={styles.toolBtn} onClick={handleClearBoard} title="پاک کردن برگه جاری تخته">
-                <HiOutlineTrash />
-              </button>
-            </div>
-
-            <div className={styles.toolDivider} />
-
-            {/* Whiteboard Multi-Page Navigation & PDF Export */}
-            <div className={styles.boardPageNav}>
-              <button
-                className={styles.toolBtn}
-                onClick={handlePrevBoardPage}
-                disabled={boardCurrentPage <= 1}
-                title="برگه قبلی تخته"
-                style={{ width: 28, height: 28, opacity: boardCurrentPage <= 1 ? 0.35 : 1 }}
-              >
-                <HiOutlineChevronRight size={16} />
+                <HiOutlineBars3 size={18} />
+                <span>سایر ابزارها</span>
+                <HiOutlineChevronDown
+                  size={14}
+                  style={{
+                    transform: showToolsMenu ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.2s',
+                  }}
+                />
               </button>
 
-              <span className={styles.boardPageText} title="شماره برگه جاری تخته">
-                {boardCurrentPage} / {boardTotalPages}
-              </span>
+              {showToolsMenu && (
+                <div className={styles.toolsDropdownMenu}>
+                  {/* Section: Highlighter & Brush Size */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>قلم و ضخامت</span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        className={`${styles.menuItemBtn} ${tool === 'highlighter' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('highlighter');
+                          setShowToolsMenu(false);
+                        }}
+                        title="ماژیک هایلایتر"
+                      >
+                        <HiOutlinePaintBrush size={16} />
+                        <span>هایلایتر</span>
+                      </button>
 
-              <button
-                className={styles.toolBtn}
-                onClick={handleNextBoardPage}
-                title={boardCurrentPage < boardTotalPages ? 'برگه بعدی تخته' : 'افزودن برگه جدید'}
-                style={{ width: 28, height: 28 }}
-              >
-                <HiOutlineChevronLeft size={16} />
-              </button>
+                      {BRUSH_SIZES.map((b) => (
+                        <button
+                          key={b.size}
+                          className={`${styles.menuItemBtn} ${brushSize === b.size ? styles.menuItemBtnActive : ''}`}
+                          onClick={() => setBrushSize(b.size)}
+                          title={`ضخامت: ${b.label}`}
+                          style={{ padding: '6px 8px' }}
+                        >
+                          <div
+                            style={{
+                              width: b.dotSize,
+                              height: b.dotSize,
+                              borderRadius: '50%',
+                              backgroundColor: currentColor,
+                            }}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <button
-                className={styles.boardNewPageBtn}
-                onClick={handleAddNewBoardPage}
-                title="افزودن برگه جدید به تخته"
-              >
-                <HiPlus size={14} />
-                <span>برگه جدید</span>
-              </button>
+                  {/* Section: Geometric Shapes & Text */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>اشکال هندسی و متن</span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        className={`${styles.menuItemBtn} ${tool === 'line' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('line');
+                          setShowToolsMenu(false);
+                        }}
+                      >
+                        <span>╱ خط</span>
+                      </button>
+                      <button
+                        className={`${styles.menuItemBtn} ${tool === 'arrow' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('arrow');
+                          setShowToolsMenu(false);
+                        }}
+                      >
+                        <span>➔ فلش</span>
+                      </button>
+                      <button
+                        className={`${styles.menuItemBtn} ${tool === 'rect' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('rect');
+                          setShowToolsMenu(false);
+                        }}
+                      >
+                        <span>▭ مستطیل</span>
+                      </button>
+                      <button
+                        className={`${styles.menuItemBtn} ${tool === 'circle' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('circle');
+                          setShowToolsMenu(false);
+                        }}
+                      >
+                        <span>◯ دایره</span>
+                      </button>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          handleInsertText();
+                          setShowToolsMenu(false);
+                        }}
+                      >
+                        <HiOutlineDocumentText size={15} />
+                        <span>متن تایپی</span>
+                      </button>
+                    </div>
+                  </div>
 
-              {boardTotalPages > 1 && (
-                <button
-                  className={styles.toolBtn}
-                  onClick={handleDeleteBoardPage}
-                  title="حذف برگه جاری"
-                  style={{ width: 26, height: 26, color: '#ef4444' }}
-                >
-                  <HiOutlineTrash size={15} />
-                </button>
+                  {/* Section: Media & Documents */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>بارگذاری فایل و رسانه روی تخته</span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          docFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="PDF و اسلاید پاورپوینت"
+                      >
+                        <FaFilePdf size={14} color="#ef4444" />
+                        <span>PDF / پاورپوینت</span>
+                      </button>
+
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          imageFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="عکس یا کاربرگ"
+                      >
+                        <HiOutlinePhoto size={15} color="#10b981" />
+                        <span>عکس / کاربرگ</span>
+                      </button>
+
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          videoFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="پخش فیلم آموزشی"
+                      >
+                        <HiOutlineFilm size={15} color="#8b5cf6" />
+                        <span>فیلم آموزشی</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section: Board Background & Actions */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>پس‌زمینه تخته و عملیات</span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          const next = boardType === 'white' ? 'grid' : boardType === 'grid' ? 'blackboard' : 'white';
+                          setBoardType(next);
+                          toast(`نوع تخته: ${next === 'white' ? 'سفید' : next === 'grid' ? 'شطرنجی' : 'تخته سیاه'}`);
+                        }}
+                      >
+                        <HiOutlineSquares2X2 size={15} />
+                        <span>{boardType === 'white' ? 'تخته سفید' : boardType === 'grid' ? 'شطرنجی' : 'تخته سیاه'}</span>
+                      </button>
+                      <button className={styles.menuItemBtn} onClick={handleUndo} title="بازگردانی">
+                        <HiOutlineArrowUturnLeft size={15} />
+                        <span>Undo</span>
+                      </button>
+                      <button className={styles.menuItemBtn} onClick={handleRedo} title="انجام مجدد">
+                        <HiOutlineArrowUturnRight size={15} />
+                        <span>Redo</span>
+                      </button>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          handleClearBoard();
+                          setShowToolsMenu(false);
+                        }}
+                        style={{ color: '#ef4444' }}
+                      >
+                        <HiOutlineTrash size={15} />
+                        <span>پاک کردن برگه</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section: Multi-Page Sheets & Export */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>برگه‌های تخته ({boardCurrentPage} از {boardTotalPages})</span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={handlePrevBoardPage}
+                        disabled={boardCurrentPage <= 1}
+                        style={{ opacity: boardCurrentPage <= 1 ? 0.4 : 1 }}
+                      >
+                        <HiOutlineChevronRight size={14} />
+                        <span>برگه قبل</span>
+                      </button>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={handleNextBoardPage}
+                      >
+                        <span>برگه بعد</span>
+                        <HiOutlineChevronLeft size={14} />
+                      </button>
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={handleAddNewBoardPage}
+                        style={{ color: '#6366f1' }}
+                      >
+                        <HiPlus size={14} />
+                        <span>برگه جدید</span>
+                      </button>
+                      {boardTotalPages > 1 && (
+                        <button
+                          className={styles.menuItemBtn}
+                          onClick={handleDeleteBoardPage}
+                          style={{ color: '#ef4444' }}
+                        >
+                          <HiOutlineTrash size={14} />
+                          <span>حذف برگه</span>
+                        </button>
+                      )}
+                      <button
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          handleExportPdf();
+                          setShowToolsMenu(false);
+                        }}
+                        style={{ color: '#10b981', fontWeight: 800 }}
+                      >
+                        <FaFilePdf size={14} />
+                        <span>دانلود جزوه</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
-
-              <button
-                className={styles.boardPdfExportBtn}
-                onClick={handleExportPdf}
-                disabled={isExportingPdf}
-                title="ذخیره و دریافت جزوه (PDF) از تمام صفحات نوشته شده"
-              >
-                <FaFilePdf size={14} color="#ef4444" />
-                <span>{isExportingPdf ? 'در حال ذخیره...' : 'ذخیره جزوه'}</span>
-              </button>
             </div>
+
+            {/* Hidden File Inputs */}
+            <input
+              type="file"
+              ref={docFileInputRef}
+              onChange={handlePdfFileSelect}
+              accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              style={{ display: 'none' }}
+            />
+            <input
+              type="file"
+              ref={imageFileInputRef}
+              onChange={handleImageFileSelect}
+              accept="image/*"
+              style={{ display: 'none' }}
+            />
+            <input
+              type="file"
+              ref={videoFileInputRef}
+              onChange={handleVideoFileSelect}
+              accept="video/*"
+              style={{ display: 'none' }}
+            />
 
             <div className={styles.toolDivider} />
 
-            {/* Exit studio button */}
+            {/* 4. Exit studio button */}
             <button
               className={styles.toolBtn}
               onClick={handleExitStudio}
@@ -2654,6 +2722,30 @@ export default function ClassRecordStudioPage() {
               <HiOutlineXMark size={20} />
             </button>
           </div>
+
+          {/* Prominent Floating Banner to Close Open File/Video and Return to Whiteboard */}
+          {pdfFileName && (
+            <div className={styles.floatingMediaCloseHeader}>
+              <div className={styles.floatingMediaInfo}>
+                {docType === 'video' ? (
+                  <HiOutlineFilm size={16} color="#a78bfa" />
+                ) : (
+                  <FaFilePdf size={16} color="#ef4444" />
+                )}
+                <span>
+                  {docType === 'video' ? 'فیلم آموزشی' : 'فایل باز شده'}: <strong>{pdfFileName}</strong>
+                </span>
+              </div>
+              <button
+                className={styles.floatingMediaCloseAction}
+                onClick={handleClosePdf}
+                title="بستن و بازگشت به تخته سفید"
+              >
+                <HiOutlineXMark size={16} />
+                <span>بستن و بازگشت به تخته</span>
+              </button>
+            </div>
+          )}
 
           {/* Floating Document / Media Controls (Ultra HD Controller) */}
           {pdfFileName && (
@@ -2828,11 +2920,12 @@ export default function ClassRecordStudioPage() {
               </div>
 
               <button
-                className={styles.pdfCloseBtn}
+                className={styles.pdfCloseBtnProminent}
                 onClick={handleClosePdf}
                 title="بستن و برداشتن محتوا از روی تخته"
               >
                 <HiOutlineXMark size={16} />
+                <span>بستن و بازگشت به تخته</span>
               </button>
             </div>
           )}
