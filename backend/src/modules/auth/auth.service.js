@@ -106,9 +106,31 @@ class AuthService {
 
     delete user.password_hash;
     const tokens = this.generateTokens(user.id, user.role);
+
+    // Persist to schools table so it appears in all school dropdowns and login
+    let schoolRecord = await db('schools').where({ name: school_name.trim() }).first();
+    if (!schoolRecord) {
+      try {
+        schoolRecord = await insertAndReturn(db, 'schools', {
+          id: generateId(),
+          name: school_name.trim(),
+          code: school_code,
+          city: city || 'تهران',
+          created_by: user.id,
+        });
+      } catch (err) {
+        schoolRecord = await db('schools').where({ name: school_name.trim() }).first();
+      }
+    }
+
+    if (schoolRecord && schoolRecord.id) {
+      await db('users').where({ id: user.id }).update({ school_id: schoolRecord.id });
+      user.school_id = schoolRecord.id;
+    }
+
     const school = {
-      id: `sch-${Date.now()}`,
-      school_code,
+      id: schoolRecord?.id || `sch-${Date.now()}`,
+      school_code: schoolRecord?.code || school_code,
       name: school_name.trim(),
       level: school_level || 'متوسطه دوم',
       city: city || 'تهران',
@@ -120,10 +142,52 @@ class AuthService {
   }
 
   /**
+   * Public list of all registered and default schools
+   */
+  async getPublicSchoolsList() {
+    let dbSchools = [];
+    try {
+      dbSchools = await db('schools').select('*').orderBy('created_at', 'desc');
+    } catch (e) {
+      dbSchools = [];
+    }
+
+    const defaultSchools = [
+      { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)', code: 'SCH-1001', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+      { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)', code: 'SCH-1002', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+      { id: 'sch-3', name: 'مجتمع آموزشی هوشمند ادیبان', code: 'SCH-1003', city: 'تهران', level: 'مجتمع آموزشی کامل' },
+      { id: 'sch-4', name: 'دبیرستان نمونه دولتی رشد', code: 'SCH-1004', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+      { id: 'sch-5', name: 'دبیرستان ماندگار البرز', code: 'SCH-1005', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+      { id: 'sch-6', name: 'مدرسه هوشمند دانشمند', code: 'SCH-1006', city: 'تهران', level: 'دبستان (ابتدایی)' },
+      { id: 'sch-7', name: 'هنرستان فنی نمونه شهید بهشتی', code: 'SCH-1007', city: 'تهران', level: 'هنرستان فنی و حرفه‌ای' },
+    ];
+
+    const schoolMap = new Map();
+    // Put dbSchools first so user registered schools appear at the top!
+    (dbSchools || []).forEach((s) => {
+      schoolMap.set(s.name, {
+        id: s.id,
+        name: s.name,
+        code: s.code || `SCH-${s.id.slice(-4)}`,
+        city: s.city || 'تهران',
+        level: s.level || 'متوسطه دوم (دبیرستان)',
+        is_registered: true,
+      });
+    });
+    defaultSchools.forEach((s) => {
+      if (!schoolMap.has(s.name)) {
+        schoolMap.set(s.name, s);
+      }
+    });
+
+    return Array.from(schoolMap.values());
+  }
+
+  /**
    * Smart Quick Entry by full name and phone number
    * Generates a unique entry ID / username based on name, or logs in if already registered
    */
-  async quickEntry({ display_name, phone, role = 'student', password = null }) {
+  async quickEntry({ display_name, phone, role = 'student', password = null, school_name = null, school_code = null }) {
     if (!display_name || !display_name.trim()) {
       const error = new Error('نام و نام‌خانوادگی الزامی است');
       error.statusCode = 400;
@@ -144,12 +208,54 @@ class AuthService {
       user = await db('users').where({ display_name: cleanName, role: role || 'student' }).first();
     }
 
+    // Resolve school if provided
+    let matchedSchool = null;
+    if (school_name && school_name.trim()) {
+      const cleanSchoolName = school_name.trim();
+      matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
+      if (!matchedSchool && school_code) {
+        matchedSchool = await db('schools').where({ code: school_code.trim() }).first();
+      }
+      if (!matchedSchool) {
+        try {
+          const randSuffix = Math.floor(1000 + Math.random() * 9000);
+          matchedSchool = await insertAndReturn(db, 'schools', {
+            id: generateId(),
+            name: cleanSchoolName,
+            code: school_code || `SCH-${randSuffix}`,
+            city: 'تهران',
+          });
+        } catch (e) {
+          matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
+        }
+      }
+    }
+
     if (user) {
       // Ensure user has a username
       if (!user.username) {
         const generatedUser = await generateUniqueUsername(db, user.display_name, user.id);
         await db('users').where({ id: user.id }).update({ username: generatedUser });
         user.username = generatedUser;
+      }
+
+      if (matchedSchool) {
+        let settings = {};
+        if (user.settings) {
+          try { settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : user.settings; } catch (e) {}
+        }
+        settings.school_name = matchedSchool.name;
+        settings.school_code = matchedSchool.code;
+        if (role === 'teacher') {
+          settings.schools = Array.from(new Set([matchedSchool.name, ...(settings.schools || [])]));
+        }
+        await db('users').where({ id: user.id }).update({
+          school_id: matchedSchool.id,
+          settings: JSON.stringify(settings),
+        });
+        user.school_id = matchedSchool.id;
+        user.school_name = matchedSchool.name;
+        user.settings = JSON.stringify(settings);
       }
 
       delete user.password_hash;
@@ -172,18 +278,27 @@ class AuthService {
       personnel_code = `EMP-${98400 + (parseInt(count ? count.count : 0, 10) + 1)}`;
     }
 
+    const initialSettings = {
+      school_name: matchedSchool ? matchedSchool.name : null,
+      school_code: matchedSchool ? matchedSchool.code : null,
+      schools: matchedSchool ? [matchedSchool.name] : [],
+    };
+
     const newUser = await insertAndReturn(db, 'users', {
       phone: cleanPhone,
       password_hash,
       display_name: cleanName,
       username: generatedUsername,
       role: role || 'student',
+      school_id: matchedSchool ? matchedSchool.id : null,
       student_code,
       personnel_code,
       locale: 'fa',
       is_verified: true,
+      settings: JSON.stringify(initialSettings),
     });
 
+    newUser.school_name = matchedSchool ? matchedSchool.name : null;
     delete newUser.password_hash;
     const tokens = this.generateTokens(newUser.id, newUser.role);
     return { user: newUser, isNew: true, ...tokens };
@@ -406,7 +521,7 @@ class AuthService {
   }
 
   async getStudentSetupOptions() {
-    const schools = await db('schools').select('*').orderBy('name', 'asc');
+    const schools = await this.getPublicSchoolsList();
 
     const grades = [
       // پیش‌دبستانی
@@ -523,21 +638,7 @@ class AuthService {
   }
 
   async getTeacherSetupOptions(teacherId) {
-    let dbSchools = await db('schools').select('*').orderBy('name', 'asc');
-    const defaultSchools = [
-      { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)' },
-      { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)' },
-      { id: 'sch-3', name: 'مجتمع آموزشی هوشمند ادیبان' },
-      { id: 'sch-4', name: 'دبیرستان نمونه دولتی رشد' },
-      { id: 'sch-5', name: 'دبیرستان ماندگار البرز' },
-      { id: 'sch-6', name: 'مدرسه هوشمند دانشمند' },
-      { id: 'sch-7', name: 'هنرستان فنی نمونه شهید بهشتی' },
-    ];
-
-    const schoolMap = new Map();
-    defaultSchools.forEach((s) => schoolMap.set(s.name, s));
-    (dbSchools || []).forEach((s) => schoolMap.set(s.name, s));
-    const schools = Array.from(schoolMap.values());
+    const schools = await this.getPublicSchoolsList();
 
     const stages = [
       {

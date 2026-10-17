@@ -123,6 +123,48 @@ const useAuthStore = create((set, get) => ({
       return { success: true, school: newSchool, user };
     }
   },
+  // Fetch Registered Schools List
+  fetchSchools: async () => {
+    let apiSchools = [];
+    try {
+      const res = await api.get('/auth/schools');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        apiSchools = res.data.data;
+      }
+    } catch (e) {
+      console.warn('Could not fetch schools from API:', e.message);
+    }
+
+    let localSchools = [];
+    try {
+      localSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
+    } catch (e) {
+      localSchools = [];
+    }
+
+    const schoolMap = new Map();
+    localSchools.forEach((s) => {
+      const cleanName = s.name || s.school_name;
+      if (cleanName) {
+        schoolMap.set(cleanName, {
+          id: s.school_code || s.id || cleanName,
+          name: cleanName,
+          code: s.school_code || s.code || '',
+          city: s.city || 'ایران',
+          level: s.level || s.school_level || 'متوسطه دوم',
+          is_registered: true,
+        });
+      }
+    });
+
+    apiSchools.forEach((s) => {
+      if (s.name && !schoolMap.has(s.name)) {
+        schoolMap.set(s.name, s);
+      }
+    });
+
+    return Array.from(schoolMap.values());
+  },
 
   // Quick Entry (Name + Phone -> Auto-generated ID)
   quickEntry: async (entryData) => {
@@ -137,6 +179,7 @@ const useAuthStore = create((set, get) => ({
     } catch (err) {
       // Offline fallback
       const cleanName = (entryData.display_name || '').trim();
+      const schoolName = entryData.school_name || 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)';
       const mockUser = {
         id: 'usr-' + Date.now(),
         display_name: cleanName,
@@ -145,8 +188,14 @@ const useAuthStore = create((set, get) => ({
         phone: entryData.phone || '',
         student_code: entryData.role === 'student' ? 'STD-40301' : null,
         personnel_code: entryData.role === 'teacher' ? 'EMP-98402' : null,
-        school_name: 'دبیرستان استعدادهای درخشان علامه حلی ۱',
-        school_code: 'SCH-4821',
+        school_name: schoolName,
+        schools: [schoolName],
+        school_code: entryData.school_code || 'SCH-4821',
+        settings: {
+          school_name: schoolName,
+          schools: [schoolName],
+          is_teacher_onboarded: entryData.role === 'teacher' ? true : false,
+        },
       };
       localStorage.setItem('accessToken', 'mock_token_' + Date.now());
       localStorage.setItem('cached_user', JSON.stringify(mockUser));

@@ -118,16 +118,19 @@ export default function TeacherSetupModal({
     try {
       const registered = JSON.parse(localStorage.getItem('registered_schools') || '[]');
       if (Array.isArray(registered) && registered.length > 0) {
-        const extraSchools = registered.map((s) => ({
-          id: s.school_code || s.id,
-          name: `${s.name || s.school_name} (${s.school_code})`,
-          city: s.city || 'ایران',
-          studentsCount: 0,
-        }));
-        const existingNames = new Set((data.schools || []).map((s) => s.name));
-        for (const es of extraSchools) {
-          if (!existingNames.has(es.name)) {
-            data.schools.unshift(es);
+        const existingNames = new Set((data.schools || []).map((s) => (s.name || '').trim()));
+        for (const s of registered) {
+          const cleanName = (s.name || s.school_name || '').trim();
+          if (cleanName && !existingNames.has(cleanName)) {
+            data.schools.unshift({
+              id: s.school_code || s.id || cleanName,
+              name: cleanName,
+              code: s.school_code || s.code || '',
+              city: s.city || 'ایران',
+              studentsCount: 0,
+              is_registered: true,
+            });
+            existingNames.add(cleanName);
           }
         }
       }
@@ -136,8 +139,13 @@ export default function TeacherSetupModal({
     setOptions(data);
 
     // Pre-fill schools (both primary and other schools)
-    const rawSchools = initialData?.schools || data.currentSetup?.schools || [];
-    const currentSchool = initialData?.school_name || data.currentSetup?.school_name || (rawSchools[0] || '');
+    let cachedUser = null;
+    try {
+      cachedUser = JSON.parse(localStorage.getItem('cached_user') || 'null');
+    } catch (e) {}
+
+    const rawSchools = initialData?.schools || data.currentSetup?.schools || cachedUser?.schools || [];
+    const currentSchool = initialData?.school_name || data.currentSetup?.school_name || cachedUser?.school_name || (rawSchools[0] || '');
 
     if (Array.isArray(rawSchools) && rawSchools.length > 1) {
       setAdditionalSchools(rawSchools.slice(1));
@@ -148,8 +156,8 @@ export default function TeacherSetupModal({
       setSelectedSchool(foundSchool.name);
       setIsCustomSchool(false);
     } else if (currentSchool) {
-      setIsCustomSchool(true);
-      setCustomSchool(currentSchool);
+      setSelectedSchool(currentSchool);
+      setIsCustomSchool(false);
     } else if (data.schools && data.schools.length > 0) {
       setSelectedSchool(data.schools[0].name);
     }
@@ -501,7 +509,7 @@ export default function TeacherSetupModal({
                   >
                     {options.schools.map((sch) => (
                       <option key={sch.id || sch.name} value={sch.name}>
-                        🏛️ {sch.name} {sch.city ? `(${sch.city})` : ''}
+                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
                       </option>
                     ))}
                     <option value="CUSTOM">✏️ سایر مدارس (تایپ نام مدرسه جدید / دلخواه...)</option>

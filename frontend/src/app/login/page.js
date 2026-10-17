@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
 import toast, { Toaster } from 'react-hot-toast';
@@ -75,7 +75,7 @@ function previewUsername(displayName) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, quickEntry, parentLogin, registerSchool, demoLogin } = useAuthStore();
+  const { login, quickEntry, parentLogin, registerSchool, demoLogin, fetchSchools } = useAuthStore();
 
   // Demo Selection Modal State
   const [showDemoModal, setShowDemoModal] = useState(false);
@@ -83,6 +83,35 @@ export default function LoginPage() {
   // Tabs: 'smart' (نام و تلفن با تولید آیدی) | 'login' (ورود با آیدی یا شماره) | 'parent' (ورود اولیا با کد) | 'school' (ثبت‌نام مدرسه جدید)
   const [activeTab, setActiveTab] = useState('smart');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Available Schools List for Login Selection
+  const [availableSchools, setAvailableSchools] = useState([]);
+  const [customSchoolName, setCustomSchoolName] = useState('');
+  const [isCustomSchoolSelected, setIsCustomSchoolSelected] = useState(false);
+
+  // Load and merge schools
+  const loadSchools = async () => {
+    try {
+      if (fetchSchools) {
+        const list = await fetchSchools();
+        if (Array.isArray(list) && list.length > 0) {
+          setAvailableSchools(list);
+          setSmartForm((prev) => {
+            if (!prev.school_name && list[0]?.name) {
+              return { ...prev, school_name: list[0].name, school_code: list[0].code || '' };
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load schools:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadSchools();
+  }, []);
 
   // School Registration State
   const [schoolForm, setSchoolForm] = useState({
@@ -102,6 +131,8 @@ export default function LoginPage() {
     phone: '',
     role: 'student',
     password: '',
+    school_name: '',
+    school_code: '',
   });
   const [showSmartPassword, setShowSmartPassword] = useState(false);
 
@@ -163,17 +194,20 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
+      const finalSchoolName = isCustomSchoolSelected ? customSchoolName.trim() : smartForm.school_name;
       const res = await quickEntry({
         display_name: smartForm.display_name.trim(),
         phone: smartForm.phone.trim(),
         role: smartForm.role,
         password: smartForm.password.trim() || undefined,
+        school_name: finalSchoolName || undefined,
+        school_code: isCustomSchoolSelected ? undefined : smartForm.school_code,
       });
 
       const user = res.data.user;
       toast.success(
         res.data.isNew
-          ? `🎉 آیدی اختصاصی شما ساخته شد: @${user.username}`
+          ? `🎉 آیدی اختصاصی شما صادر شد: @${user.username} (مدرسه: ${user.school_name || finalSchoolName || 'ثبت شد'})`
           : `خوش آمدید! ورود با آیدی @${user.username} انجام شد 👋`,
         { duration: 5000 }
       );
@@ -258,6 +292,13 @@ export default function LoginPage() {
       });
 
       setRegisteredSchoolResult(res.school);
+      await loadSchools();
+      setSmartForm((prev) => ({
+        ...prev,
+        school_name: res.school.name,
+        school_code: res.school.school_code,
+      }));
+      setIsCustomSchoolSelected(false);
       toast.success(`مدرسه «${res.school.name}» با موفقیت ثبت شد! کد اختصاصی: ${res.school.school_code} 🎉`, { duration: 6000 });
     } catch (err) {
       toast.error(err.response?.data?.message || 'خطا در ثبت‌نام مدرسه');
@@ -505,6 +546,102 @@ export default function LoginPage() {
                     <span>اولیا</span>
                   </button>
                 </div>
+              </div>
+
+              {/* ── School Selection for Student & Teacher ── */}
+              <div className={styles.inputGroup}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className={styles.inputLabel} htmlFor="smart_school_select">
+                    🏛️ انتخاب مدرسه {smartForm.role === 'teacher' ? 'محل تدریس دبیر' : 'تحصیلی شما'}: *
+                  </label>
+                  {isCustomSchoolSelected && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomSchoolSelected(false)}
+                      style={{ fontSize: '0.78rem', color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 800 }}
+                    >
+                      📋 انتخاب از لیست مدارس
+                    </button>
+                  )}
+                </div>
+
+                {!isCustomSchoolSelected ? (
+                  <select
+                    id="smart_school_select"
+                    className="input"
+                    value={smartForm.school_name}
+                    onChange={(e) => {
+                      if (e.target.value === 'CUSTOM') {
+                        setIsCustomSchoolSelected(true);
+                      } else {
+                        const found = availableSchools.find((s) => s.name === e.target.value);
+                        setSmartForm({
+                          ...smartForm,
+                          school_name: e.target.value,
+                          school_code: found?.code || '',
+                        });
+                      }
+                    }}
+                    style={{ cursor: 'pointer', fontWeight: 700 }}
+                  >
+                    {availableSchools.map((sch) => (
+                      <option key={sch.id || sch.name} value={sch.name}>
+                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
+                      </option>
+                    ))}
+                    <option value="CUSTOM">✏️ سایر مدارس (تایپ نام مدرسه جدید / دلخواه...)</option>
+                  </select>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      id="custom_school_input"
+                      type="text"
+                      className="input"
+                      placeholder="نام کامل مدرسه خود را وارد فرمایید..."
+                      value={customSchoolName}
+                      onChange={(e) => setCustomSchoolName(e.target.value)}
+                      required
+                      autoFocus
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                )}
+
+                {/* Quick Helper for Registered Schools */}
+                {availableSchools.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                      مدارس فعال:
+                    </span>
+                    {availableSchools.slice(0, 4).map((sch) => (
+                      <button
+                        key={sch.code || sch.name}
+                        type="button"
+                        onClick={() => {
+                          setIsCustomSchoolSelected(false);
+                          setSmartForm({
+                            ...smartForm,
+                            school_name: sch.name,
+                            school_code: sch.code || '',
+                          });
+                          toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
+                        }}
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '3px 8px',
+                          borderRadius: '8px',
+                          border: smartForm.school_name === sch.name ? '1.5px solid #4f46e5' : '1px solid rgba(99, 102, 241, 0.25)',
+                          background: smartForm.school_name === sch.name ? 'rgba(79, 70, 229, 0.15)' : 'rgba(99, 102, 241, 0.06)',
+                          color: smartForm.school_name === sch.name ? '#4f46e5' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          fontWeight: smartForm.school_name === sch.name ? 800 : 600,
+                        }}
+                      >
+                        🏛️ {sch.name} {sch.is_registered ? '✨' : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Optional Password with Visibility Toggle */}
@@ -932,17 +1069,74 @@ export default function LoginPage() {
                   <br />• کلاس‌ها را زیرشاخه معلم مربوطه تعریف فرمایید
                 </div>
 
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setRegisteredSchoolResult(null);
-                    router.push('/dashboard/management');
-                  }}
-                  style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 800 }}
-                >
-                  ورود به ستاد تشکیلات و مدیریت مدرسه 🚀
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      fontWeight: 800,
+                      width: '100%',
+                      padding: '12px',
+                    }}
+                    onClick={() => {
+                      const sch = registeredSchoolResult;
+                      setRegisteredSchoolResult(null);
+                      setActiveTab('smart');
+                      setSmartForm((prev) => ({
+                        ...prev,
+                        role: 'teacher',
+                        school_name: sch.name,
+                        school_code: sch.school_code,
+                      }));
+                      setIsCustomSchoolSelected(false);
+                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام خود را وارد فرمایید تا به عنوان دبیر متصل شوید 👨‍🏫`, { duration: 6000 });
+                    }}
+                  >
+                    👨‍🏫 ورود معلمان به عنوان زیرشاخه این مدرسه
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{
+                      fontWeight: 800,
+                      width: '100%',
+                      padding: '11px',
+                    }}
+                    onClick={() => {
+                      const sch = registeredSchoolResult;
+                      setRegisteredSchoolResult(null);
+                      setActiveTab('smart');
+                      setSmartForm((prev) => ({
+                        ...prev,
+                        role: 'student',
+                        school_name: sch.name,
+                        school_code: sch.school_code,
+                      }));
+                      setIsCustomSchoolSelected(false);
+                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام دانش‌آموز را جهت اتصال به این مدرسه وارد فرمایید 🎓`, { duration: 6000 });
+                    }}
+                  >
+                    🎓 ورود دانش‌آموزان به عنوان زیرشاخه این مدرسه
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{
+                      opacity: 0.85,
+                      width: '100%',
+                      marginTop: '4px',
+                    }}
+                    onClick={() => {
+                      setRegisteredSchoolResult(null);
+                      router.push('/dashboard/management');
+                    }}
+                  >
+                    👔 ورود به ستاد مدیریت مدرسه 🚀
+                  </button>
+                </div>
               </div>
             </div>
           )}

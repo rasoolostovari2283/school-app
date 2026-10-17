@@ -237,6 +237,22 @@ class AuthController {
       next(err);
     }
   }
+
+  /**
+   * GET /api/v1/auth/schools
+   * Public list of registered schools for login page and dropdowns
+   */
+  async getPublicSchoolsList(req, res, next) {
+    try {
+      const schools = await authService.getPublicSchoolsList();
+      res.json({
+        success: true,
+        data: schools,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new AuthController();

@@ -122,10 +122,41 @@ export default function StudentSetupModal({ isOpen, onClose, onSuccess, initialD
     setLoading(true);
     try {
       const res = await api.get('/auth/student-setup-options');
-      const data = res.data.data;
+      const data = res.data?.data || { schools: [], grades: [], teachers: [] };
+
+      // Merge locally registered schools if any
+      try {
+        const registered = JSON.parse(localStorage.getItem('registered_schools') || '[]');
+        if (Array.isArray(registered) && registered.length > 0) {
+          const existingNames = new Set((data.schools || []).map((s) => (s.name || '').trim()));
+          for (const s of registered) {
+            const cleanName = (s.name || s.school_name || '').trim();
+            if (cleanName && !existingNames.has(cleanName)) {
+              data.schools.unshift({
+                id: s.school_code || s.id || cleanName,
+                name: cleanName,
+                code: s.school_code || s.code || '',
+                city: s.city || 'ایران',
+                is_registered: true,
+              });
+              existingNames.add(cleanName);
+            }
+          }
+        }
+      } catch (e) {}
+
       setOptions(data);
 
-      if (!selectedSchool && data.schools?.length > 0) {
+      let cachedUser = null;
+      try {
+        cachedUser = JSON.parse(localStorage.getItem('cached_user') || 'null');
+      } catch (e) {}
+
+      const preferredSchool = initialData?.school_name || cachedUser?.school_name;
+      if (preferredSchool) {
+        setSelectedSchool(preferredSchool);
+        setIsCustomSchool(false);
+      } else if (!selectedSchool && data.schools?.length > 0) {
         setSelectedSchool(data.schools[0].name);
       }
     } catch (err) {
@@ -311,8 +342,8 @@ export default function StudentSetupModal({ isOpen, onClose, onSuccess, initialD
                     style={{ fontWeight: 700, padding: '12px' }}
                   >
                     {options.schools.map((sch) => (
-                      <option key={sch.id} value={sch.name}>
-                        🏛️ {sch.name} {sch.city ? `(${sch.city})` : ''}
+                      <option key={sch.id || sch.name} value={sch.name}>
+                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
                       </option>
                     ))}
                     <option value="CUSTOM">✏️ سایر مدارس (تایپ نام مدرسه جدید...)</option>

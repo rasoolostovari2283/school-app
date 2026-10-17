@@ -7,6 +7,7 @@ const localCaptcha = require('../../utils/localCaptcha');
 router.post('/quick-entry', authController.quickEntry);
 router.post('/register', authController.register);
 router.post('/register-school', authController.registerSchool);
+router.get('/schools', authController.getPublicSchoolsList);
 router.post('/login', authController.login);
 router.post('/parent-login', authController.parentLogin);
 router.post('/refresh', authController.refresh);
