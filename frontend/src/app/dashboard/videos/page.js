@@ -147,34 +147,33 @@ export default function VideosPage() {
       if (saved) localFolders = JSON.parse(saved);
     } catch (e) {}
 
+    let folderList = [];
     try {
       const res = await api.get('/videos/folders');
-      if (res.data?.success && res.data.data?.folders?.length > 0) {
-        const folderList = res.data.data.folders;
-        localFolders.forEach((lf) => {
-          if (!folderList.some((f) => f.name === lf.name)) {
-            folderList.push(lf);
-          }
-        });
-        if (!folderList.some((f) => f.name === 'تخته هوشمند')) {
-          folderList.push({ name: 'تخته هوشمند', color: '#8b5cf6', count: 0 });
-        }
-        setFolders(folderList);
-        try {
-          localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
-        } catch (e) {}
-        return;
+      if (res.data?.success && Array.isArray(res.data.data?.folders)) {
+        folderList = res.data.data.folders;
       }
     } catch (e) {
-      console.warn('Could not fetch custom folders, using defaults:', e);
+      console.warn('Could not fetch custom folders from backend:', e);
     }
 
-    if (localFolders.length > 0) {
-      if (!localFolders.some((f) => f.name === 'تخته هوشمند')) {
-        localFolders.push({ name: 'تخته هوشمند', color: '#8b5cf6', count: 0 });
+    localFolders.forEach((lf) => {
+      if (!folderList.some((f) => f.name === lf.name)) {
+        folderList.push(lf);
       }
-      setFolders(localFolders);
+    });
+
+    if (!folderList.some((f) => f.name === 'عمومی')) {
+      folderList.unshift({ name: 'عمومی', color: '#6366f1', count: 0 });
     }
+    if (!folderList.some((f) => f.name === 'تخته هوشمند')) {
+      folderList.push({ name: 'تخته هوشمند', color: '#8b5cf6', count: 0 });
+    }
+
+    setFolders(folderList);
+    try {
+      localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
+    } catch (e) {}
   };
 
   // Fetch videos from backend & merge whiteboard recorded sessions
@@ -272,6 +271,7 @@ export default function VideosPage() {
       toast.error('لطفاً نام فایل یا پوشه را وارد کنید');
       return;
     }
+    const cleanName = newFolderNameInput.trim();
     const newFolderObj = { name: cleanName, color: newFolderColorInput || '#6366f1', count: 0 };
 
     setFolders((prev) => {
@@ -306,7 +306,14 @@ export default function VideosPage() {
     const cleanName = inlineNewFolderName.trim();
 
     if (!folders.some((f) => f.name === cleanName)) {
-      setFolders((prev) => [...prev, { name: cleanName, color: '#6366f1', count: 0 }]);
+      const newFolderObj = { name: cleanName, color: '#6366f1', count: 0 };
+      setFolders((prev) => {
+        const updated = [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
       api.post('/videos/folders', { name: cleanName, color: '#6366f1' }).catch(() => {});
     }
 
@@ -328,7 +335,13 @@ export default function VideosPage() {
         await api.delete(`/videos/folders/${encodeURIComponent(folderName)}`);
       } catch (err) {}
 
-      setFolders((prev) => prev.filter((f) => f.name !== folderName));
+      setFolders((prev) => {
+        const updated = prev.filter((f) => f.name !== folderName);
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
       if (selectedFolder === folderName) {
         setSelectedFolder('all');
       }
@@ -460,6 +473,18 @@ export default function VideosPage() {
     const targetFolder = isCreatingFolderInline && inlineNewFolderName.trim()
       ? inlineNewFolderName.trim()
       : uploadFolder || 'عمومی';
+
+    if (isCreatingFolderInline && inlineNewFolderName.trim()) {
+      const newFolderObj = { name: targetFolder, color: '#6366f1', count: 1 };
+      setFolders((prev) => {
+        const updated = prev.some((f) => f.name === targetFolder) ? prev : [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+      api.post('/videos/folders', { name: targetFolder, color: '#6366f1' }).catch(() => {});
+    }
 
     setIsUploading(true);
     const formData = new FormData();

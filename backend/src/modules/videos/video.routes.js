@@ -150,18 +150,13 @@ router.get('/folders', async (req, res, next) => {
     let customFolders = [];
     try {
       customFolders = await db('video_folders')
-        .where('teacher_id', req.user.id)
-        .orWhereNull('teacher_id')
+        .select('*')
         .orderBy('name', 'asc');
     } catch (e) {}
 
     let videoFolderCounts = [];
     try {
-      let q = db('videos');
-      if (req.user.role === 'teacher') {
-        q = q.where('teacher_id', req.user.id);
-      }
-      videoFolderCounts = await q
+      videoFolderCounts = await db('videos')
         .select('folder_name')
         .count('id as count')
         .groupBy('folder_name');

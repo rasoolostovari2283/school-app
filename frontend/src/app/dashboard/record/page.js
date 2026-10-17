@@ -114,6 +114,11 @@ export default function ClassRecordStudioPage() {
     { name: 'شیمی یازدهم', color: '#ec4899' },
   ]);
 
+  // Save Modal Destination Folder State (پوشه ذخیره‌سازی ویدیو در بخش ویدیوها و رسانه‌ها)
+  const [saveTargetFolder, setSaveTargetFolder] = useState('تخته هوشمند');
+  const [isSaveCreatingFolder, setIsSaveCreatingFolder] = useState(false);
+  const [saveNewFolderName, setSaveNewFolderName] = useState('');
+
   const { user } = useAuthStore();
   const router = useRouter();
 
@@ -241,32 +246,33 @@ export default function ClassRecordStudioPage() {
       if (saved) localFolders = JSON.parse(saved);
     } catch (e) {}
 
+    let folderList = [];
     try {
       const res = await api.get('/videos/folders');
-      if (res.data?.success && res.data.data?.folders?.length > 0) {
-        const list = res.data.data.folders;
-        localFolders.forEach((lf) => {
-          if (!list.some((f) => f.name === lf.name)) list.push(lf);
-        });
-        if (!list.some((f) => f.name === 'تخته هوشمند')) {
-          list.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
-        }
-        setAvailableFolders(list);
-        try {
-          localStorage.setItem('educonnect_video_folders', JSON.stringify(list));
-        } catch (e) {}
-        return;
+      if (res.data?.success && Array.isArray(res.data.data?.folders)) {
+        folderList = res.data.data.folders;
       }
     } catch (e) {
       console.warn('Could not fetch folders from backend, using local:', e);
     }
 
-    if (localFolders.length > 0) {
-      if (!localFolders.some((f) => f.name === 'تخته هوشمند')) {
-        localFolders.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
+    localFolders.forEach((lf) => {
+      if (!folderList.some((f) => f.name === lf.name)) {
+        folderList.push(lf);
       }
-      setAvailableFolders(localFolders);
+    });
+
+    if (!folderList.some((f) => f.name === 'عمومی')) {
+      folderList.unshift({ name: 'عمومی', color: '#6366f1' });
     }
+    if (!folderList.some((f) => f.name === 'تخته هوشمند')) {
+      folderList.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
+    }
+
+    setAvailableFolders(folderList);
+    try {
+      localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
+    } catch (e) {}
   };
 
   // ── Share Video to Messages Handlers ──
@@ -1738,6 +1744,11 @@ export default function ClassRecordStudioPage() {
         const videoUrl = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedVideoUrl(videoUrl);
+        fetchAvailableFolders();
+        const classObj = classesList.find((c) => c.id === selectedClassId);
+        setSaveTargetFolder(classObj?.name || 'تخته هوشمند');
+        setIsSaveCreatingFolder(false);
+        setSaveNewFolderName('');
         setShowSaveModal(true);
 
         // Stop microphone tracks
@@ -1859,7 +1870,22 @@ export default function ClassRecordStudioPage() {
   const handlePublishToArchive = async () => {
     setIsUploading(true);
     const classObj = classesList.find((c) => c.id === selectedClassId);
-    const folderName = classObj?.name || 'تخته هوشمند';
+    const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
+      ? saveNewFolderName.trim()
+      : saveTargetFolder || classObj?.name || 'تخته هوشمند';
+
+    if (isSaveCreatingFolder && saveNewFolderName.trim()) {
+      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
+      setAvailableFolders((prev) => {
+        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+      api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' }).catch(() => {});
+    }
+
     const videoTitle = projectName || 'تدریس تخته هوشمند';
     const sessionDate = new Date().toLocaleDateString('fa-IR');
 
@@ -1889,7 +1915,7 @@ export default function ClassRecordStudioPage() {
       videoUrl: localVideoUrl,
       file_url: localVideoUrl,
       sizeBytes: currentBlob?.size || 0,
-      folder_name: folderName,
+      folder_name: finalFolder,
       category: 'تخته هوشمند',
       is_whiteboard_recording: true,
       created_at: sessionDate,
@@ -1922,7 +1948,7 @@ export default function ClassRecordStudioPage() {
         if (selectedClassId) {
           formData.append('class_id', selectedClassId);
         }
-        formData.append('folder_name', folderName);
+        formData.append('folder_name', finalFolder);
         formData.append('category', 'تخته هوشمند');
         formData.append('duration_seconds', recSeconds);
 
@@ -1971,7 +1997,7 @@ export default function ClassRecordStudioPage() {
       }
     }
 
-    toast.success('ویدیو با موفقیت ذخیره شد و در حال انتقال به بخش ویدیوها... 🎉');
+    toast.success(`ویدیو با موفقیت در پوشه «${finalFolder}» ذخیره شد و در حال انتقال به بخش ویدیوها... 🎉`);
     setShowSaveModal(false);
     setIsStudioOpen(false);
     setIsUploading(false);
@@ -1983,7 +2009,21 @@ export default function ClassRecordStudioPage() {
   // Finish and save locally + auto background upload to videos
   const handleSaveLocallyAndClose = () => {
     const classObj = classesList.find((c) => c.id === selectedClassId);
-    const folderName = classObj?.name || 'تخته هوشمند';
+    const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
+      ? saveNewFolderName.trim()
+      : saveTargetFolder || classObj?.name || 'تخته هوشمند';
+
+    if (isSaveCreatingFolder && saveNewFolderName.trim()) {
+      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
+      setAvailableFolders((prev) => {
+        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
+        try {
+          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+      api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' }).catch(() => {});
+    }
 
     if (recordedBlob) {
       try {
@@ -1993,7 +2033,7 @@ export default function ClassRecordStudioPage() {
         formData.append('title', projectName || 'تدریس تخته هوشمند');
         formData.append('description', `تدریس ضبط شده با تخته هوشمند در تاریخ ${new Date().toLocaleDateString('fa-IR')}`);
         if (selectedClassId) formData.append('class_id', selectedClassId);
-        formData.append('folder_name', folderName);
+        formData.append('folder_name', finalFolder);
         formData.append('category', 'تخته هوشمند');
         formData.append('duration_seconds', recSeconds);
 
@@ -2011,11 +2051,11 @@ export default function ClassRecordStudioPage() {
       classTitle: classObj?.name || 'کلاس عمومی',
       videoUrl: recordedVideoUrl,
       sizeBytes: recordedBlob?.size || 0,
-      folder_name: folderName,
+      folder_name: finalFolder,
       category: 'تخته هوشمند',
     };
     saveSessionsToLocal([newSession, ...recordedSessions]);
-    toast.success('جلسه در بخش ویدیوها و آرشیو ضبط‌های شما ذخیره شد ✅');
+    toast.success(`جلسه در پوشه «${finalFolder}» و بخش ویدیوها ذخیره شد ✅`);
     setShowSaveModal(false);
     setIsStudioOpen(false);
   };
@@ -3157,6 +3197,101 @@ export default function ClassRecordStudioPage() {
                   {recordedBlob ? (recordedBlob.size / (1024 * 1024)).toFixed(2) + ' مگابایت' : '-'}
                 </span>
               </div>
+            </div>
+
+            {/* Folder Selection for Saved Whiteboard Video */}
+            <div
+              style={{
+                background: 'var(--bg-secondary)',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-lg)',
+                marginBottom: 16,
+                border: '1px solid var(--border-color)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}
+              >
+                <label
+                  style={{
+                    fontWeight: 750,
+                    fontSize: '0.875rem',
+                    color: 'var(--text-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <HiOutlineFolder size={18} color="var(--primary-600)" />
+                  <span>پوشه مقصد در بخش ویدیوها و رسانه‌ها:</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSaveCreatingFolder(!isSaveCreatingFolder);
+                    if (!isSaveCreatingFolder) setSaveNewFolderName('');
+                  }}
+                  className="btn btn-xs btn-outline"
+                  style={{ fontSize: '0.75rem', gap: 4 }}
+                >
+                  {isSaveCreatingFolder ? '✕ انتخاب از پوشه‌ها' : '➕ ساخت پوشه جدید...'}
+                </button>
+              </div>
+
+              {!isSaveCreatingFolder ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    className="select"
+                    value={saveTargetFolder}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsSaveCreatingFolder(true);
+                        setSaveNewFolderName('');
+                      } else {
+                        setSaveTargetFolder(e.target.value);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {availableFolders.map((f) => (
+                      <option key={f.name} value={f.name}>
+                        📁 {f.name}
+                      </option>
+                    ))}
+                    <option value="__NEW__">➕ ساخت پوشه یا درس جدید...</option>
+                  </select>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="نام پوشه جدید (مثلاً: ریاضی دهم - فصل ۲)"
+                    value={saveNewFolderName}
+                    onChange={(e) => setSaveNewFolderName(e.target.value)}
+                    autoFocus
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1.5px solid var(--primary-500)',
+                      fontSize: '0.875rem',
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
