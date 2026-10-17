@@ -217,39 +217,44 @@ export default function LiveClassroomPage() {
     if (!mainCanvas || !drawingCanvas) return;
 
     const ctx = mainCanvas.getContext('2d');
-    const width = mainCanvas.width;
-    const height = mainCanvas.height;
+    const dpr = Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 3);
+    const cssWidth = Math.round(mainCanvas.width / dpr);
+    const cssHeight = Math.round(mainCanvas.height / dpr);
+
+    ctx.save();
+    // Scale coordinate matrix by dpr so all operations below use standard CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // A. Draw Board Background
     if (boardType === 'blackboard') {
       ctx.fillStyle = '#1e3a2f';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-      const grad = ctx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, Math.max(width, height) / 1.2);
+      const grad = ctx.createRadialGradient(cssWidth / 2, cssHeight / 2, 50, cssWidth / 2, cssHeight / 2, Math.max(cssWidth, cssHeight) / 1.2);
       grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
       grad.addColorStop(1, 'rgba(0, 0, 0, 0.25)');
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
     } else if (boardType === 'grid') {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
 
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1;
       const gridSize = 28;
       ctx.beginPath();
-      for (let x = gridSize; x < width; x += gridSize) {
+      for (let x = gridSize; x < cssWidth; x += gridSize) {
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.lineTo(x, cssHeight);
       }
-      for (let y = gridSize; y < height; y += gridSize) {
+      for (let y = gridSize; y < cssHeight; y += gridSize) {
         ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+        ctx.lineTo(cssWidth, y);
       }
       ctx.stroke();
     } else {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
     }
 
     ctx.imageSmoothingEnabled = true;
@@ -262,27 +267,28 @@ export default function LiveClassroomPage() {
       const srcH = mediaSource.videoHeight || mediaSource.naturalHeight || mediaSource.height;
 
       if (srcW && srcH) {
+        const isMobile = cssWidth < 768;
         let drawW, drawH;
         if (pdfFitMode === 'fit-width') {
-          const targetW = Math.min(width - 60, Math.max(860, width * 0.75)) * pdfZoom;
+          const targetW = (isMobile ? (cssWidth - 16) : Math.min(cssWidth - 60, Math.max(860, cssWidth * 0.75))) * pdfZoom;
           const scale = targetW / srcW;
           drawW = targetW;
           drawH = srcH * scale;
         } else {
-          const targetH = (height - 140) * pdfZoom;
+          const targetH = (cssHeight - (isMobile ? 90 : 140)) * pdfZoom;
           const scale = targetH / srcH;
           drawW = srcW * scale;
           drawH = targetH;
         }
 
-        const drawX = (width - drawW) / 2;
-        const baseY = pdfFitMode === 'fit-width' ? 70 : (height - drawH) / 2;
+        const drawX = (cssWidth - drawW) / 2;
+        const baseY = pdfFitMode === 'fit-width' ? (isMobile ? 55 : 70) : (cssHeight - drawH) / 2;
         const drawY = baseY + pdfOffsetY;
 
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = 24;
-        ctx.shadowOffsetY = 6;
+        ctx.shadowBlur = isMobile ? 12 : 24;
+        ctx.shadowOffsetY = isMobile ? 3 : 6;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(drawX, drawY, drawW, drawH);
         ctx.restore();
@@ -292,17 +298,19 @@ export default function LiveClassroomPage() {
     }
 
     // C. Draw User & Real-time Strokes from Offscreen Canvas
-    ctx.drawImage(drawingCanvas, 0, 0);
+    ctx.drawImage(drawingCanvas, 0, 0, cssWidth, cssHeight);
+    ctx.restore();
   }, [boardType, pdfZoom, pdfFitMode, pdfOffsetY]);
 
-  // Adjust canvas resolution to parent container
+  // Adjust canvas resolution to parent container with Retina / High-DPI support
   const initCanvases = useCallback(() => {
     const mainCanvas = canvasRef.current;
     if (!mainCanvas) return;
 
     const parent = mainCanvas.parentElement;
-    const width = parent?.clientWidth || window.innerWidth;
-    const height = parent?.clientHeight || window.innerHeight;
+    const cssWidth = parent?.clientWidth || window.innerWidth;
+    const cssHeight = parent?.clientHeight || window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
 
     if (!drawingCanvasRef.current) {
       drawingCanvasRef.current = document.createElement('canvas');
@@ -316,10 +324,14 @@ export default function LiveClassroomPage() {
       } catch (e) {}
     }
 
-    mainCanvas.width = width;
-    mainCanvas.height = height;
-    drawingCanvas.width = width;
-    drawingCanvas.height = height;
+    // High-DPI backing buffer
+    mainCanvas.width = Math.round(cssWidth * dpr);
+    mainCanvas.height = Math.round(cssHeight * dpr);
+    mainCanvas.style.width = `${cssWidth}px`;
+    mainCanvas.style.height = `${cssHeight}px`;
+
+    drawingCanvas.width = cssWidth;
+    drawingCanvas.height = cssHeight;
 
     if (tempImgData) {
       drawingCanvas.getContext('2d').putImageData(tempImgData, 0, 0);
@@ -1726,6 +1738,9 @@ export default function LiveClassroomPage() {
   const renderPdfPage = async (doc, pageNum) => {
     try {
       setIsLoadingPdf(true);
+      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+      const pdfScale = Math.max(2.6, Math.min(3.6, dpr * 1.5));
+
       if (pageCacheRef.current.has(pageNum)) {
         pdfCanvasRef.current = pageCacheRef.current.get(pageNum);
         pdfImageRef.current = null;
@@ -1736,7 +1751,7 @@ export default function LiveClassroomPage() {
       }
 
       const page = await doc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.2 });
+      const viewport = page.getViewport({ scale: pdfScale });
       const offscreen = document.createElement('canvas');
       offscreen.width = viewport.width;
       offscreen.height = viewport.height;

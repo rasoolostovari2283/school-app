@@ -445,49 +445,54 @@ export default function ClassRecordStudioPage() {
 
   // ── 2. Canvas Setup & Drawing Engine ──
 
-  // Redraw background & composite drawings onto main canvas
+  // ── 2.2 Composite Canvas Rendering Engine (Ultra-High DPI & Responsive) ──
   const renderCompositeCanvas = useCallback(() => {
     const mainCanvas = canvasRef.current;
     const drawingCanvas = drawingCanvasRef.current;
     if (!mainCanvas || !drawingCanvas) return;
 
     const ctx = mainCanvas.getContext('2d');
-    const width = mainCanvas.width;
-    const height = mainCanvas.height;
+    const dpr = Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 3);
+    const cssWidth = Math.round(mainCanvas.width / dpr);
+    const cssHeight = Math.round(mainCanvas.height / dpr);
+
+    ctx.save();
+    // Scale coordinate matrix by dpr so all operations below use standard CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Draw Board Background
     if (boardType === 'blackboard') {
       ctx.fillStyle = '#1a2e22';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
 
       // Blackboard subtle chalk grain
-      const grad = ctx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, Math.max(width, height) / 1.2);
+      const grad = ctx.createRadialGradient(cssWidth / 2, cssHeight / 2, 50, cssWidth / 2, cssHeight / 2, Math.max(cssWidth, cssHeight) / 1.2);
       grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
       grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
     } else if (boardType === 'grid') {
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
 
       // Grid lines
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1;
       const gridSize = 32;
       ctx.beginPath();
-      for (let x = gridSize; x < width; x += gridSize) {
+      for (let x = gridSize; x < cssWidth; x += gridSize) {
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.lineTo(x, cssHeight);
       }
-      for (let y = gridSize; y < height; y += gridSize) {
+      for (let y = gridSize; y < cssHeight; y += gridSize) {
         ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+        ctx.lineTo(cssWidth, y);
       }
       ctx.stroke();
     } else {
       // Pure Whiteboard
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
     }
 
     // Set high-quality image smoothing
@@ -501,30 +506,31 @@ export default function ClassRecordStudioPage() {
       const srcH = mediaSource.videoHeight || mediaSource.height;
 
       if (srcW && srcH) {
+        const isMobile = cssWidth < 768;
         let drawW, drawH;
         if (pdfFitMode === 'fit-width') {
-          // Fits comfortable readable width (e.g. 960px or up to 80% screen width)
-          const targetW = Math.min(width - 60, Math.max(920, width * 0.72)) * pdfZoom;
+          // On mobile, use comfortable full-screen readable width so small text is never crushed
+          const targetW = (isMobile ? (cssWidth - 16) : Math.min(cssWidth - 60, Math.max(920, cssWidth * 0.72))) * pdfZoom;
           const scale = targetW / srcW;
           drawW = targetW;
           drawH = srcH * scale;
         } else {
           // Fits height
-          const targetH = (height - 150) * pdfZoom;
+          const targetH = (cssHeight - (isMobile ? 90 : 150)) * pdfZoom;
           const scale = targetH / srcH;
           drawW = srcW * scale;
           drawH = targetH;
         }
 
-        const drawX = (width - drawW) / 2;
-        const baseY = pdfFitMode === 'fit-width' ? 80 : (height - drawH) / 2;
+        const drawX = (cssWidth - drawW) / 2;
+        const baseY = pdfFitMode === 'fit-width' ? (isMobile ? 55 : 80) : (cssHeight - drawH) / 2;
         const drawY = baseY + pdfOffsetY;
 
         // Draw subtle shadow and clean container for media
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
-        ctx.shadowBlur = 28;
-        ctx.shadowOffsetY = 6;
+        ctx.shadowBlur = isMobile ? 12 : 28;
+        ctx.shadowOffsetY = isMobile ? 3 : 6;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(drawX, drawY, drawW, drawH);
         ctx.restore();
@@ -534,16 +540,18 @@ export default function ClassRecordStudioPage() {
     }
 
     // Draw user strokes from offscreen drawingCanvas
-    ctx.drawImage(drawingCanvas, 0, 0);
+    ctx.drawImage(drawingCanvas, 0, 0, cssWidth, cssHeight);
+    ctx.restore();
   }, [boardType, pdfZoom, pdfFitMode, pdfOffsetY]);
 
-  // Adjust canvas size to window/container
+  // Adjust canvas size to window/container with Retina / High-DPI support
   const initCanvases = useCallback(() => {
     const mainCanvas = canvasRef.current;
     if (!mainCanvas) return;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const cssWidth = window.innerWidth;
+    const cssHeight = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
 
     if (!drawingCanvasRef.current) {
       drawingCanvasRef.current = document.createElement('canvas');
@@ -558,10 +566,14 @@ export default function ClassRecordStudioPage() {
       } catch (e) {}
     }
 
-    mainCanvas.width = width;
-    mainCanvas.height = height;
-    drawingCanvas.width = width;
-    drawingCanvas.height = height;
+    // High-DPI backing buffer
+    mainCanvas.width = Math.round(cssWidth * dpr);
+    mainCanvas.height = Math.round(cssHeight * dpr);
+    mainCanvas.style.width = `${cssWidth}px`;
+    mainCanvas.style.height = `${cssHeight}px`;
+
+    drawingCanvas.width = cssWidth;
+    drawingCanvas.height = cssHeight;
 
     if (tempImgData) {
       drawingCanvas.getContext('2d').putImageData(tempImgData, 0, 0);
@@ -916,6 +928,8 @@ export default function ClassRecordStudioPage() {
   const renderPdfPage = async (doc, pageNum) => {
     try {
       setIsLoadingPdf(true);
+      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+      const pdfScale = Math.max(2.6, Math.min(3.6, dpr * 1.5));
 
       // 1. Instant Cache Check (0ms response)
       if (pageCacheRef.current.has(pageNum)) {
@@ -929,7 +943,7 @@ export default function ClassRecordStudioPage() {
           setTimeout(async () => {
             try {
               const nextP = await doc.getPage(pageNum + 1);
-              const vp = nextP.getViewport({ scale: 2.2 });
+              const vp = nextP.getViewport({ scale: pdfScale });
               const c = document.createElement('canvas');
               c.width = vp.width;
               c.height = vp.height;
@@ -946,9 +960,9 @@ export default function ClassRecordStudioPage() {
         return;
       }
 
-      // 2. High-speed 4K UHD Render (2.2x scale is 3x faster than 3.5x with identical visual sharpness)
+      // 2. High-speed 4K UHD Render (DPI-aware scale ensures crisp text on mobile & retina)
       const page = await doc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.2 });
+      const viewport = page.getViewport({ scale: pdfScale });
       const offscreen = document.createElement('canvas');
       offscreen.width = viewport.width;
       offscreen.height = viewport.height;
@@ -977,7 +991,7 @@ export default function ClassRecordStudioPage() {
         setTimeout(async () => {
           try {
             const nextP = await doc.getPage(pageNum + 1);
-            const vp = nextP.getViewport({ scale: 2.2 });
+            const vp = nextP.getViewport({ scale: pdfScale });
             const c = document.createElement('canvas');
             c.width = vp.width;
             c.height = vp.height;
