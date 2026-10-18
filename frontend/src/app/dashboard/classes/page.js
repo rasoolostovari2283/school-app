@@ -58,12 +58,18 @@ export default function ClassesPage() {
         grade: formData.grade?.trim() || (user?.settings?.taught_grades?.[0]) || 'پایه عمومی',
         teacher_name: formData.teacher_name?.trim() || user?.display_name || user?.name || 'دبیر گرامی',
       });
+      if (!cls || !cls.id) {
+        throw new Error('خطا در دریافت شناسه کلاس ایجاد شده');
+      }
       toast.success(`کلاس "${cls.name}" با موفقیت ثبت شد! 🎉`);
       setShowModal(false);
       setFormData({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
-      if (launchLive || launchLiveAfterCreate) {
+      if (launchLive) {
         toast.loading('در حال انتقال به کلاس آنلاین...', { duration: 1500 });
         router.push(`/dashboard/classes/${cls.id}/live`);
+      } else {
+        toast.loading(`در حال ورود به کلاس "${cls.name}"...`, { duration: 1200 });
+        router.push(`/dashboard/classes/${cls.id}`);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'خطا در ثبت کلاس');
@@ -414,16 +420,24 @@ export default function ClassesPage() {
                     gap: '10px',
                     cursor: 'pointer',
                   }}
-                  onClick={() => setLaunchLiveAfterCreate(!launchLiveAfterCreate)}
+                  onClick={() => setLaunchLiveAfterCreate((prev) => !prev)}
                 >
                   <input
                     type="checkbox"
                     id="instantLiveCheck"
                     checked={launchLiveAfterCreate}
-                    onChange={(e) => setLaunchLiveAfterCreate(e.target.checked)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setLaunchLiveAfterCreate(e.target.checked);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                     style={{ width: '18px', height: '18px', accentColor: '#ef4444', cursor: 'pointer' }}
                   />
-                  <label htmlFor="instantLiveCheck" style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', userSelect: 'none' }}>
+                  <label
+                    htmlFor="instantLiveCheck"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', userSelect: 'none' }}
+                  >
                     🔴 پس از ثبت کلاس، بلافاصله وارد محیط کلاس آنلاین شو
                   </label>
                 </div>
@@ -452,12 +466,21 @@ export default function ClassesPage() {
 
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={(e) => handleCreate(e, false)}
                       disabled={isSubmitting}
                       className="btn btn-secondary"
-                      style={{ flex: 1 }}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontWeight: 600,
+                      }}
                     >
-                      {isSubmitting ? 'در حال ثبت...' : 'فقط ثبت کلاس (بدون ورود به لایو)'}
+                      <HiOutlineAcademicCap size={18} />
+                      <span>{isSubmitting ? 'در حال ثبت و ورود...' : 'فقط ثبت کلاس (بدون ورود به لایو)'}</span>
                     </button>
                     <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
                       انصراف
