@@ -91,7 +91,63 @@ class ClassService {
         .orderBy('classes.created_at', 'desc');
 
       if (owned.length > 0) return owned;
-      return db('classes').where({ is_active: true }).orderBy('created_at', 'desc');
+      const allClasses = await db('classes').where({ is_active: true }).orderBy('created_at', 'desc');
+      if (allClasses.length > 0) return allClasses;
+
+      // Auto-initialize standard classes if table is empty
+      const sch = await db('schools').first();
+      const starterClasses = [
+        {
+          id: 'cls-math-101',
+          name: 'کلاس ۱۰۱ - ریاضی و حسابان پیشرفته',
+          subject: 'ریاضیات تخصصی',
+          grade: 'پایه دهم ریاضی',
+          teacher_id: userId,
+          school_id: sch?.id || null,
+          join_code: 'MATH101',
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'cls-phys-102',
+          name: 'کلاس ۱۰۲ - فیزیک و آزمایشگاه',
+          subject: 'فیزیک پایه',
+          grade: 'پایه دهم تجربی',
+          teacher_id: userId,
+          school_id: sch?.id || null,
+          join_code: 'PHYS102',
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      await db('classes').insert(starterClasses);
+
+      const studentUsers = await db('users').where({ role: 'student' }).select('id');
+      for (const sc of starterClasses) {
+        try {
+          await db('class_members').insert({
+            id: `cm-${sc.id}-${userId}`,
+            class_id: sc.id,
+            user_id: userId,
+            role: 'teacher',
+            joined_at: new Date().toISOString(),
+          });
+        } catch (e) {}
+
+        for (const st of studentUsers) {
+          try {
+            await db('class_members').insert({
+              id: `cm-${sc.id}-${st.id}`,
+              class_id: sc.id,
+              user_id: st.id,
+              role: 'student',
+              joined_at: new Date().toISOString(),
+            });
+          } catch (e) {}
+        }
+      }
+
+      return starterClasses;
     }
 
     if (role === 'parent') {

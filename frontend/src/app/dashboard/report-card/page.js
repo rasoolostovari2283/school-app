@@ -26,6 +26,7 @@ import {
   HiOutlinePaperAirplane,
   HiOutlinePhone,
   HiOutlineXCircle,
+  HiOutlineUserPlus,
 } from 'react-icons/hi2';
 import styles from './report-card.module.css';
 
@@ -86,6 +87,21 @@ export default function ReportCardPage() {
   // Add Category Modal State
   const [showCatModal, setShowCatModal] = useState(false);
   const [newCatTitle, setNewCatTitle] = useState('');
+  const [newCatWeight, setNewCatWeight] = useState('1.0');
+  const [newCatMaxScore, setNewCatMaxScore] = useState('20');
+
+  // Add Student to Class Modal State
+  const [showAddStudentModal, setShowAddStudentModal] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState([]);
+  const [loadingRoster, setLoadingRoster] = useState(false);
+  const [selectedStudentToAdd, setSelectedStudentToAdd] = useState('');
+  const [newStudentForm, setNewStudentForm] = useState({
+    display_name: '',
+    student_code: '',
+    phone: '',
+  });
+  const [addStudentMode, setAddStudentMode] = useState('existing'); // 'existing' | 'new'
+  const [isSubmittingStudent, setIsSubmittingStudent] = useState(false);
 
   // Hydration Mount
   useEffect(() => {
@@ -447,24 +463,111 @@ export default function ReportCardPage() {
   // Create Exam Category
   const handleCreateCategory = async (e) => {
     e.preventDefault();
-    if (!newCatTitle.trim()) return;
+    if (!newCatTitle.trim()) {
+      toast.error('لطفاً عنوان آزمون را وارد کنید');
+      return;
+    }
+
+    const targetClass = selectedClassId || (classes.length > 0 ? classes[0].id : null);
+    if (!targetClass) {
+      toast.error('هیچ کلاسی یافت نشد. لطفاً ابتدا کلاس را مشخص کنید.');
+      return;
+    }
 
     try {
       const res = await api.post('/gradebook/categories', {
-        class_id: selectedClassId,
+        class_id: targetClass,
         title: newCatTitle.trim(),
-        weight: 1.0,
+        weight: parseFloat(newCatWeight) || 1.0,
+        max_score: parseFloat(newCatMaxScore) || 20.0,
       });
 
       if (res.data?.success) {
-        toast.success('آزمون جدید با موفقیت به کلاس اضافه شد! 🎉');
+        toast.success(`آزمون جدید «${newCatTitle.trim()}» با موفقیت اضافه شد! 🎉`);
         setShowCatModal(false);
         setNewCatTitle('');
-        fetchClassGradebook(selectedClassId);
+        setNewCatWeight('1.0');
+        setNewCatMaxScore('20');
+        if (!selectedClassId) {
+          setSelectedClassId(targetClass);
+        }
+        await fetchClassGradebook(targetClass);
       }
     } catch (err) {
       console.error('Error creating category:', err);
-      toast.error('خطا در ایجاد آزمون جدید');
+      toast.error(err.response?.data?.message || 'خطا در ایجاد آزمون جدید');
+    }
+  };
+
+  // Open Add Student Modal & Fetch available students
+  const handleOpenAddStudentModal = async () => {
+    const currentClsId = selectedClassId || (classes.length > 0 ? classes[0].id : null);
+    if (!currentClsId) {
+      toast.error('ابتدا یک کلاس را انتخاب نمایید');
+      return;
+    }
+    if (!selectedClassId && currentClsId) {
+      setSelectedClassId(currentClsId);
+    }
+    setShowAddStudentModal(true);
+    setLoadingRoster(true);
+    try {
+      const res = await api.get(`/classes/${currentClsId}/roster`);
+      if (res.data?.success) {
+        setAvailableStudents(res.data.data?.available_students || []);
+      }
+    } catch (err) {
+      console.error('Error fetching roster:', err);
+    } finally {
+      setLoadingRoster(false);
+    }
+  };
+
+  // Submit Add Student to Class
+  const handleAddStudentToClass = async (e) => {
+    e.preventDefault();
+    const currentClsId = selectedClassId || (classes.length > 0 ? classes[0].id : null);
+    if (!currentClsId) {
+      toast.error('کلاس انتخابی نامعتبر است');
+      return;
+    }
+
+    setIsSubmittingStudent(true);
+    try {
+      let payload = {};
+      if (addStudentMode === 'existing') {
+        if (!selectedStudentToAdd) {
+          toast.error('لطفاً یک دانش‌آموز را انتخاب کنید');
+          setIsSubmittingStudent(false);
+          return;
+        }
+        payload = { student_id: selectedStudentToAdd };
+      } else {
+        if (!newStudentForm.display_name.trim()) {
+          toast.error('نام و نام خانوادگی دانش‌آموز الزامی است');
+          setIsSubmittingStudent(false);
+          return;
+        }
+        payload = {
+          display_name: newStudentForm.display_name.trim(),
+          student_code: newStudentForm.student_code.trim(),
+          phone: newStudentForm.phone.trim(),
+        };
+      }
+
+      const res = await api.post(`/classes/${currentClsId}/students`, payload);
+      if (res.data?.success) {
+        toast.success(res.data.message || 'دانش‌آموز با موفقیت به کلاس اضافه شد 🎉');
+        setShowAddStudentModal(false);
+        setSelectedStudentToAdd('');
+        setNewStudentForm({ display_name: '', student_code: '', phone: '' });
+        await fetchClassGradebook(currentClsId);
+      }
+    } catch (err) {
+      console.error('Error adding student to class:', err);
+      toast.error(err.response?.data?.message || 'خطا در افزودن دانش‌آموز');
+    } finally {
+      setIsSubmittingStudent(false);
     }
   };
 
@@ -992,9 +1095,21 @@ export default function ReportCardPage() {
                   className="btn btn-secondary btn-sm"
                   onClick={() => setShowCatModal(true)}
                   type="button"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <HiOutlinePlus />
                   <span>افزودن آزمون جدید</span>
+                </button>
+
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleOpenAddStudentModal}
+                  type="button"
+                  title="افزودن دانش‌آموز به لیست کلاس جهت نمره‌دهی"
+                  style={{ background: '#4f46e5', borderColor: '#4f46e5', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <HiOutlineUserPlus style={{ fontSize: '1.1rem' }} />
+                  <span>افزودن دانش‌آموز به کلاس</span>
                 </button>
 
                 <button
@@ -1231,8 +1346,28 @@ export default function ReportCardPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-tertiary)' }}>
-                      دانش‌آموزی در این کلاس یافت نشد.
+                    <td
+                      colSpan={Math.max(6, (gradebookData?.categories?.length || 0) + 4)}
+                      style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-tertiary)' }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                        <HiOutlineUserGroup style={{ fontSize: '2.5rem', opacity: 0.5, color: '#6366f1' }} />
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                          هنوز دانش‌آموزی در این کلاس ثبت نشده است
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.825rem', color: 'var(--text-secondary)', maxWidth: '420px', lineHeight: 1.5 }}>
+                          برای ثبت و ورود نمرات کلاسی، با کلیک بر روی دکمه زیر می‌توانید دانش‌آموزان مدرسه را به این کلاس اضافه فرمایید.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={handleOpenAddStudentModal}
+                          style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          <HiOutlineUserPlus />
+                          <span>افزودن اولین دانش‌آموز به کلاس</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -1283,7 +1418,7 @@ export default function ReportCardPage() {
           </div>
         )}
 
-        {/* ── Modal: Add Evaluation Category (Without Weight) ── */}
+        {/* ── Modal: Add Evaluation Category ── */}
         {showCatModal && (
           <div className={styles.modalOverlay} onClick={() => setShowCatModal(false)}>
             <div className={styles.modalContent} style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
@@ -1299,8 +1434,17 @@ export default function ReportCardPage() {
 
               <div className={styles.modalBody}>
                 <form onSubmit={handleCreateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ background: 'var(--bg-surface)', padding: '10px 14px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', display: 'block', marginBottom: '2px' }}>
+                      کلاس انتخابی جهت ثبت آزمون:
+                    </span>
+                    <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                      {classes.find((c) => c.id === selectedClassId)?.name || 'کلاس انتخابی'}
+                    </strong>
+                  </div>
+
                   <div className="input-group">
-                    <label className="input-label" htmlFor="cat_title">عنوان آزمون / ارزشیابی</label>
+                    <label className="input-label" htmlFor="cat_title">عنوان آزمون / ارزشیابی *</label>
                     <input
                       id="cat_title"
                       className="input"
@@ -1309,7 +1453,36 @@ export default function ReportCardPage() {
                       value={newCatTitle}
                       onChange={(e) => setNewCatTitle(e.target.value)}
                       required
+                      autoFocus
                     />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div className="input-group">
+                      <label className="input-label" htmlFor="cat_weight">ضریب در معدل</label>
+                      <input
+                        id="cat_weight"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        max="10"
+                        value={newCatWeight}
+                        onChange={(e) => setNewCatWeight(e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label" htmlFor="cat_max">سقف نمره</label>
+                      <input
+                        id="cat_max"
+                        className="input"
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={newCatMaxScore}
+                        onChange={(e) => setNewCatMaxScore(e.target.value)}
+                      />
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
@@ -1318,6 +1491,157 @@ export default function ReportCardPage() {
                     </button>
                     <button type="submit" className="btn btn-primary">
                       افزودن به دفتر نمرات
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Add Student to Class ── */}
+        {showAddStudentModal && (
+          <div className={styles.modalOverlay} onClick={() => setShowAddStudentModal(false)}>
+            <div className={styles.modalContent} style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <HiOutlineUserPlus style={{ fontSize: '1.25rem', color: '#4f46e5' }} />
+                  <h3 style={{ margin: 0, fontWeight: 800 }}>افزودن دانش‌آموز به لیست کلاس</h3>
+                </div>
+                <button
+                  onClick={() => setShowAddStudentModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
+                >
+                  <HiOutlineXMark />
+                </button>
+              </div>
+
+              <div className={styles.modalBody}>
+                {/* Mode Selector Tabs */}
+                <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface)', padding: '4px', borderRadius: 'var(--radius-lg)', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setAddStudentMode('existing')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: 'none',
+                      background: addStudentMode === 'existing' ? '#4f46e5' : 'transparent',
+                      color: addStudentMode === 'existing' ? '#fff' : 'var(--text-secondary)',
+                      fontWeight: 700,
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    انتخاب از دانش‌آموزان مدرسه
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddStudentMode('new')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: 'none',
+                      background: addStudentMode === 'new' ? '#4f46e5' : 'transparent',
+                      color: addStudentMode === 'new' ? '#fff' : 'var(--text-secondary)',
+                      fontWeight: 700,
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    ثبت مشخصات دانش‌آموز جدید
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddStudentToClass} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', fontSize: '0.813rem' }}>
+                    <span style={{ color: 'var(--text-tertiary)' }}>کلاس مقصد: </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {classes.find((c) => c.id === selectedClassId)?.name || 'کلاس انتخابی'}
+                    </strong>
+                  </div>
+
+                  {addStudentMode === 'existing' ? (
+                    <div className="input-group">
+                      <label className="input-label" htmlFor="student_select">
+                        انتخاب دانش‌آموز
+                      </label>
+                      {loadingRoster ? (
+                        <div className="skeleton" style={{ height: '42px', borderRadius: 'var(--radius-md)' }} />
+                      ) : availableStudents.length > 0 ? (
+                        <select
+                          id="student_select"
+                          className="input"
+                          value={selectedStudentToAdd}
+                          onChange={(e) => setSelectedStudentToAdd(e.target.value)}
+                          required
+                        >
+                          <option value="">-- لطفاً یک دانش‌آموز را انتخاب کنید --</option>
+                          {availableStudents.map((st) => (
+                            <option key={st.id} value={st.id}>
+                              {st.display_name} {st.student_code ? `(${st.student_code})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ padding: '12px', background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', borderRadius: 'var(--radius-md)', fontSize: '0.813rem', lineHeight: 1.5 }}>
+                          تمامی دانش‌آموزان ثبت‌شده در مدرسه هم‌اکنون عضو این کلاس هستند یا دانش‌آموز بدون کلاسی یافت نشد. می‌توانید از تب «ثبت مشخصات دانش‌آموز جدید» دانش‌آموز دیگری را ثبت کنید.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="input-group">
+                        <label className="input-label" htmlFor="new_st_name">نام و نام خانوادگی دانش‌آموز *</label>
+                        <input
+                          id="new_st_name"
+                          className="input"
+                          type="text"
+                          placeholder="مثلاً: علی رضایی"
+                          value={newStudentForm.display_name}
+                          onChange={(e) => setNewStudentForm((prev) => ({ ...prev, display_name: e.target.value }))}
+                          required
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label" htmlFor="new_st_code">کد دانش‌آموزی (اختیاری)</label>
+                        <input
+                          id="new_st_code"
+                          className="input"
+                          type="text"
+                          placeholder="مثلاً: STD-40315"
+                          value={newStudentForm.student_code}
+                          onChange={(e) => setNewStudentForm((prev) => ({ ...prev, student_code: e.target.value }))}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label" htmlFor="new_st_phone">شماره تماس (اختیاری)</label>
+                        <input
+                          id="new_st_phone"
+                          className="input"
+                          type="tel"
+                          placeholder="مثلاً: 09123456789"
+                          value={newStudentForm.phone}
+                          onChange={(e) => setNewStudentForm((prev) => ({ ...prev, phone: e.target.value }))}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowAddStudentModal(false)}>
+                      انصراف
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={isSubmittingStudent || (addStudentMode === 'existing' && availableStudents.length === 0)}
+                    >
+                      {isSubmittingStudent ? 'در حال افزودن...' : 'افزودن به دفتر نمرات کلاس'}
                     </button>
                   </div>
                 </form>
