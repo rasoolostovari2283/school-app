@@ -73,28 +73,35 @@ function previewUsername(displayName) {
   return base || 'user';
 }
 
-const TEACHER_LOGIN_GRADES = [
-  'پایه دهم ریاضی',
-  'پایه دهم تجربی',
-  'پایه دهم انسانی',
-  'پایه یازدهم ریاضی',
-  'پایه یازدهم تجربی',
-  'پایه یازدهم انسانی',
-  'پایه دوازدهم ریاضی',
-  'پایه دوازدهم تجربی',
-  'پایه دوازدهم انسانی',
-  'پایه دهم هنرستان',
-  'پایه یازدهم هنرستان',
-  'پایه دوازدهم هنرستان',
-  'پایه دهم کاردانش',
-  'پایه یازدهم کاردانش',
-  'پایه دوازدهم کاردانش',
-  'پایه هفتم',
-  'پایه هشتم',
-  'پایه نهم',
-  'دبستان (ابتدایی)',
-  'کلاس‌های کنکور و المپیاد',
-];
+const TEACHER_STAGES_MAP = {
+  pre_school: {
+    id: 'pre_school',
+    title: 'پیش‌دبستانی (پیش ۱ و پیش ۲)',
+    grades: ['پیش‌دبستانی ۱', 'پیش‌دبستانی ۲'],
+  },
+  elementary: {
+    id: 'elementary',
+    title: 'دبستان (کلاس اول تا ششم)',
+    grades: ['اول دبستان', 'دوم دبستان', 'سوم دبستان', 'چهارم دبستان', 'پنجم دبستان', 'ششم دبستان'],
+  },
+  middle_school: {
+    id: 'middle_school',
+    title: 'متوسطه اول (پایه هفتم تا نهم)',
+    grades: ['پایه هفتم', 'پایه هشتم', 'پایه نهم'],
+  },
+  high_school: {
+    id: 'high_school',
+    title: 'متوسطه دوم (پایه دهم تا دوازدهم)',
+    branches: {
+      'تجربی': ['پایه دهم تجربی', 'پایه یازدهم تجربی', 'پایه دوازدهم تجربی'],
+      'ریاضی': ['پایه دهم ریاضی', 'پایه یازدهم ریاضی', 'پایه دوازدهم ریاضی'],
+      'انسانی': ['پایه دهم انسانی', 'پایه یازدهم انسانی', 'پایه دوازدهم انسانی'],
+      'هنرستان': ['پایه دهم هنرستان', 'پایه یازدهم هنرستان', 'پایه دوازدهم هنرستان'],
+      'کاردانش': ['پایه دهم کاردانش', 'پایه یازدهم کاردانش', 'پایه دوازدهم کاردانش'],
+      'عمومی': ['پایه دهم', 'پایه یازدهم', 'پایه دوازدهم'],
+    },
+  },
+};
 
 const DEFAULT_TEACHER_SUBJECTS = [
   'ریاضیات و حسابان',
@@ -200,6 +207,18 @@ export default function LoginPage() {
   const [smartTeacherGrades, setSmartTeacherGrades] = useState(['پایه دهم ریاضی', 'پایه دهم تجربی']);
   const [smartCustomGrade, setSmartCustomGrade] = useState('');
   const [smartTeacherSubject, setSmartTeacherSubject] = useState('ریاضیات و حسابان');
+  const [selectedTeacherStage, setSelectedTeacherStage] = useState('high_school');
+  const [selectedTeacherBranch, setSelectedTeacherBranch] = useState('تجربی');
+
+  const currentAvailableTeacherGrades = useMemo(() => {
+    if (selectedTeacherStage === 'high_school') {
+      return (
+        TEACHER_STAGES_MAP.high_school.branches[selectedTeacherBranch] ||
+        TEACHER_STAGES_MAP.high_school.branches['تجربی']
+      );
+    }
+    return TEACHER_STAGES_MAP[selectedTeacherStage]?.grades || [];
+  }, [selectedTeacherStage, selectedTeacherBranch]);
 
   const toggleSmartTeacherGrade = (grade) => {
     setSmartTeacherGrades((prev) => {
@@ -820,53 +839,182 @@ export default function LoginPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <label style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>📚</span>
-                      <span>پایه‌هایی که با آن‌ها کلاس دارید (تیک بزنید): *</span>
+                      <span>پایه‌هایی که با آن‌ها کلاس دارید: *</span>
                     </label>
                     <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
                       {smartTeacherGrades.length} پایه انتخاب شده
                     </span>
                   </div>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
-                    پایه‌هایی که تدریس می‌فرمایید را تیک بزنید تا دانش‌آموزان این پایه‌ها به پنل شما متصل شوند:
+                    ابتدا مقطع تدریس را انتخاب کنید و سپس پایه‌های مورد نظر خود را علامت بزنید:
                   </p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
-                    {TEACHER_LOGIN_GRADES.map((grade) => {
-                      const isChecked = smartTeacherGrades.includes(grade);
-                      return (
-                        <label
-                          key={grade}
+                  {/* Stage & Branch Selection (مقطع و شاخه تحصیلی) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: selectedTeacherStage === 'high_school' ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
+                    gap: '10px',
+                    background: 'rgba(99, 102, 241, 0.05)',
+                    padding: '10px 12px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(99, 102, 241, 0.15)',
+                  }}>
+                    {/* Stage Selector */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      <label style={{ fontSize: '0.76rem', fontWeight: 750, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span>🏫</span>
+                        <span>مقطع تدریس:</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={selectedTeacherStage}
+                        onChange={(e) => setSelectedTeacherStage(e.target.value)}
+                        style={{ fontSize: '0.82rem', padding: '7px 10px', cursor: 'pointer', fontWeight: 700 }}
+                      >
+                        <option value="pre_school">🧸 پیش‌دبستانی (پیش ۱ و پیش ۲)</option>
+                        <option value="elementary">🎒 دبستان (کلاس اول تا ششم)</option>
+                        <option value="middle_school">📗 متوسطه اول (پایه هفتم تا نهم)</option>
+                        <option value="high_school">🎓 متوسطه دوم (پایه دهم تا دوازدهم)</option>
+                      </select>
+                    </div>
+
+                    {/* Branch Selector for High School (اگر متوسطه دوم بود) */}
+                    {selectedTeacherStage === 'high_school' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontSize: '0.76rem', fontWeight: 750, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <span>🎯</span>
+                          <span>رشته تحصیلی / شاخه:</span>
+                        </label>
+                        <select
+                          className="input"
+                          value={selectedTeacherBranch}
+                          onChange={(e) => setSelectedTeacherBranch(e.target.value)}
+                          style={{ fontSize: '0.82rem', padding: '7px 10px', cursor: 'pointer', fontWeight: 700 }}
+                        >
+                          <option value="تجربی">🧬 علوم تجربی</option>
+                          <option value="ریاضی">📐 ریاضی و فیزیک</option>
+                          <option value="انسانی">📚 ادبیات و علوم انسانی</option>
+                          <option value="هنرستان">⚙️ هنرستان (فنی و حرفه‌ای)</option>
+                          <option value="کاردانش">🛠️ کاردانش</option>
+                          <option value="عمومی">🌐 دروس عمومی / مشترک</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Available Grades Checkboxes */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      علامت زدن پایه‌های این دوره:
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+                      {currentAvailableTeacherGrades.map((grade) => {
+                        const isChecked = smartTeacherGrades.includes(grade);
+                        return (
+                          <label
+                            key={grade}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 10px',
+                              borderRadius: '10px',
+                              border: isChecked ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                              background: isChecked ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-surface)',
+                              cursor: 'pointer',
+                              fontSize: '0.78rem',
+                              fontWeight: isChecked ? 750 : 600,
+                              color: isChecked ? '#10b981' : 'var(--text-primary)',
+                              transition: 'all 0.15s ease-in-out',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleSmartTeacherGrade(grade)}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                accentColor: '#10b981',
+                                cursor: 'pointer',
+                              }}
+                            />
+                            <span>{grade}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Summary of all selected grades */}
+                  {smartTeacherGrades.length > 0 && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '5px',
+                      background: 'rgba(16, 185, 129, 0.05)',
+                      padding: '8px 10px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(16, 185, 129, 0.2)',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.73rem', color: '#10b981', fontWeight: 750 }}>
+                          ✓ پایه‌های انتخاب‌شده نهایی شما ({smartTeacherGrades.length}):
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSmartTeacherGrades([])}
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '8px 10px',
-                            borderRadius: '10px',
-                            border: isChecked ? '1.5px solid #10b981' : '1px solid var(--border-color)',
-                            background: isChecked ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-surface)',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#ef4444',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
                             cursor: 'pointer',
-                            fontSize: '0.78rem',
-                            fontWeight: isChecked ? 750 : 600,
-                            color: isChecked ? '#10b981' : 'var(--text-primary)',
-                            transition: 'all 0.15s ease-in-out',
                           }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleSmartTeacherGrade(grade)}
+                          پاک کردن همه
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {smartTeacherGrades.map((grade) => (
+                          <span
+                            key={grade}
                             style={{
-                              width: '16px',
-                              height: '16px',
-                              accentColor: '#10b981',
-                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '3px 8px',
+                              borderRadius: '8px',
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              border: '1px solid rgba(16, 185, 129, 0.35)',
+                              color: '#10b981',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
                             }}
-                          />
-                          <span>{grade}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                          >
+                            <span>{grade}</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleSmartTeacherGrade(grade)}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                padding: '0 2px',
+                                lineHeight: 1,
+                              }}
+                              title="حذف این پایه"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Add custom grade for teacher */}
                   <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
