@@ -1477,6 +1477,83 @@ export default function ClassRecordStudioPage() {
     }
   };
 
+  // Universal Client Download Engine (Desktop, Mobile & Android WebView compatible)
+  const triggerDownloadFile = async (data, filename, mimeType = 'application/octet-stream') => {
+    try {
+      let blob;
+      if (data instanceof Blob) {
+        blob = data;
+      } else if (typeof data === 'string' && data.startsWith('blob:')) {
+        try {
+          const res = await fetch(data);
+          blob = await res.blob();
+        } catch (e) {
+          blob = new Blob([data], { type: mimeType });
+        }
+      } else if (typeof data === 'string' && data.startsWith('data:')) {
+        const a = document.createElement('a');
+        a.href = data;
+        a.download = filename;
+        a.target = '_self';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try {
+            document.body.removeChild(a);
+          } catch (e) {}
+        }, 500);
+        return true;
+      } else {
+        blob = new Blob([data], { type: mimeType });
+      }
+
+      // 1. Try Blob URL with anchor click
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.target = '_self';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        } catch (e) {}
+      }, 800);
+      return true;
+    } catch (err) {
+      console.warn('Standard blob download failed, trying FileReader DataURL fallback:', err);
+      // 2. Data URL Fallback (critical for Android WebView & Mobile)
+      try {
+        if (data instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = function () {
+            const a = document.createElement('a');
+            a.href = reader.result;
+            a.download = filename;
+            a.target = '_self';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              try {
+                document.body.removeChild(a);
+              } catch (e) {}
+            }, 500);
+          };
+          reader.readAsDataURL(data);
+          return true;
+        }
+      } catch (err2) {
+        console.error('All download methods failed:', err2);
+      }
+      return false;
+    }
+  };
+
   // Generate & Download Ultra-HD Multi-Page PDF of Whiteboard Pages
   const handleExportPdf = async () => {
     if (isExportingPdf) return;
@@ -1485,17 +1562,25 @@ export default function ClassRecordStudioPage() {
 
     try {
       // 1. Save current active page data first
-      saveCurrentPageData();
+      try {
+        saveCurrentPageData();
+      } catch (saveErr) {
+        console.warn('saveCurrentPageData warning:', saveErr);
+      }
 
-      // 2. Dynamic import of jsPDF for robust client-side generation
-      const { jsPDF } = await import('jspdf');
+      // 2. Safe Dynamic import of jsPDF (handles both default & named exports across all bundlers)
+      const jspdfModule = await import('jspdf');
+      const JsPdfConstructor = jspdfModule.jsPDF || jspdfModule.default;
+      if (!JsPdfConstructor) {
+        throw new Error('کتابخانه ساخت PDF بارگذاری نشد.');
+      }
 
       const mainCanvas = canvasRef.current;
-      const width = mainCanvas?.width || 1920;
-      const height = mainCanvas?.height || 1080;
+      const width = Math.max(800, mainCanvas?.width || 1920);
+      const height = Math.max(600, mainCanvas?.height || 1080);
       const orientation = width >= height ? 'landscape' : 'portrait';
 
-      const doc = new jsPDF({
+      const doc = new JsPdfConstructor({
         orientation,
         unit: 'px',
         format: [width, height],
@@ -1507,13 +1592,15 @@ export default function ClassRecordStudioPage() {
       offscreen.width = width;
       offscreen.height = height;
       const offCtx = offscreen.getContext('2d');
-      offCtx.imageSmoothingEnabled = true;
-      offCtx.imageSmoothingQuality = 'high';
+      if (offCtx) {
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = 'high';
+      }
 
-      const totalP = boardPagesRef.current.length;
+      const totalP = Math.max(1, boardPagesRef.current?.length || 1);
 
       for (let i = 0; i < totalP; i++) {
-        const page = boardPagesRef.current[i];
+        const page = boardPagesRef.current?.[i] || {};
         offCtx.clearRect(0, 0, width, height);
 
         // A. Draw Board Background
@@ -1521,11 +1608,13 @@ export default function ClassRecordStudioPage() {
         if (pageBg === 'blackboard') {
           offCtx.fillStyle = '#1a2e22';
           offCtx.fillRect(0, 0, width, height);
-          const grad = offCtx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, Math.max(width, height) / 1.2);
-          grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
-          grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
-          offCtx.fillStyle = grad;
-          offCtx.fillRect(0, 0, width, height);
+          try {
+            const grad = offCtx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, Math.max(width, height) / 1.2);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+            offCtx.fillStyle = grad;
+            offCtx.fillRect(0, 0, width, height);
+          } catch (e) {}
         } else if (pageBg === 'grid') {
           offCtx.fillStyle = '#ffffff';
           offCtx.fillRect(0, 0, width, height);
@@ -1550,30 +1639,32 @@ export default function ClassRecordStudioPage() {
         // B. Draw underlying media (PDF slide or Image) if opened
         const mediaSource = pdfCanvasRef.current || pdfImageRef.current;
         if (mediaSource) {
-          const srcW = mediaSource.width;
-          const srcH = mediaSource.height;
-          if (srcW && srcH) {
-            let drawW, drawH;
-            if (pdfFitMode === 'fit-width') {
-              const targetW = Math.min(width - 60, Math.max(920, width * 0.72)) * pdfZoom;
-              const scale = targetW / srcW;
-              drawW = targetW;
-              drawH = srcH * scale;
-            } else {
-              const targetH = (height - 150) * pdfZoom;
-              const scale = targetH / srcH;
-              drawW = srcW * scale;
-              drawH = targetH;
-            }
-            const drawX = (width - drawW) / 2;
-            const baseY = pdfFitMode === 'fit-width' ? 80 : (height - drawH) / 2;
-            const drawY = baseY + pdfOffsetY;
+          try {
+            const srcW = mediaSource.width;
+            const srcH = mediaSource.height;
+            if (srcW && srcH) {
+              let drawW, drawH;
+              if (pdfFitMode === 'fit-width') {
+                const targetW = Math.min(width - 60, Math.max(920, width * 0.72)) * (pdfZoom || 1.0);
+                const scale = targetW / srcW;
+                drawW = targetW;
+                drawH = srcH * scale;
+              } else {
+                const targetH = (height - 150) * (pdfZoom || 1.0);
+                const scale = targetH / srcH;
+                drawW = srcW * scale;
+                drawH = targetH;
+              }
+              const drawX = (width - drawW) / 2;
+              const baseY = pdfFitMode === 'fit-width' ? 80 : (height - drawH) / 2;
+              const drawY = baseY + (pdfOffsetY || 0);
 
-            offCtx.save();
-            offCtx.shadowColor = 'rgba(0, 0, 0, 0.22)';
-            offCtx.shadowBlur = 14;
-            offCtx.drawImage(mediaSource, drawX, drawY, drawW, drawH);
-            offCtx.restore();
+              offCtx.save();
+              offCtx.drawImage(mediaSource, drawX, drawY, drawW, drawH);
+              offCtx.restore();
+            }
+          } catch (mediaErr) {
+            console.warn('Could not draw mediaSource onto PDF page:', mediaErr);
           }
         }
 
@@ -1581,49 +1672,102 @@ export default function ClassRecordStudioPage() {
         if (page.drawingDataUrl) {
           await new Promise((resolve) => {
             const img = new Image();
+            const timer = setTimeout(resolve, 1500);
             img.onload = () => {
-              offCtx.drawImage(img, 0, 0);
+              clearTimeout(timer);
+              try {
+                offCtx.drawImage(img, 0, 0);
+              } catch (e) {}
               resolve();
             };
-            img.onerror = () => resolve();
+            img.onerror = () => {
+              clearTimeout(timer);
+              resolve();
+            };
             img.src = page.drawingDataUrl;
           });
         } else if (i === boardCurrentPage - 1 && drawingCanvasRef.current) {
-          offCtx.drawImage(drawingCanvasRef.current, 0, 0);
+          try {
+            offCtx.drawImage(drawingCanvasRef.current, 0, 0);
+          } catch (drawErr) {
+            console.warn('Could not draw current active strokes:', drawErr);
+          }
         }
 
         // D. Discreet Branding & Page Numbering
-        offCtx.save();
-        offCtx.font = 'bold 15px Vazirmatn, Tahoma, sans-serif';
-        offCtx.fillStyle = pageBg === 'blackboard' ? 'rgba(255,255,255,0.7)' : 'rgba(30, 41, 59, 0.65)';
-        const pageLabel = `برگه ${i + 1} از ${totalP}`;
-        offCtx.fillText(pageLabel, 36, height - 24);
+        try {
+          offCtx.save();
+          offCtx.font = 'bold 15px Vazirmatn, Tahoma, sans-serif';
+          offCtx.fillStyle = pageBg === 'blackboard' ? 'rgba(255,255,255,0.7)' : 'rgba(30, 41, 59, 0.65)';
+          const pageLabel = `برگه ${i + 1} از ${totalP}`;
+          offCtx.fillText(pageLabel, 36, height - 24);
 
-        if (projectName) {
-          const titleText = `${projectName} • ${new Date().toLocaleDateString('fa-IR')}`;
-          const textWidth = offCtx.measureText(titleText).width;
-          offCtx.fillText(titleText, width - 36 - textWidth, height - 24);
-        }
-        offCtx.restore();
+          if (projectName) {
+            const titleText = `${projectName} • ${new Date().toLocaleDateString('fa-IR')}`;
+            const textWidth = offCtx.measureText(titleText).width;
+            offCtx.fillText(titleText, width - 36 - textWidth, height - 24);
+          }
+          offCtx.restore();
+        } catch (e) {}
 
         // E. Add page to PDF
-        const imgData = offscreen.toDataURL('image/jpeg', 0.95);
-        if (i > 0) {
-          doc.addPage([width, height], orientation);
+        let imgData = null;
+        try {
+          imgData = offscreen.toDataURL('image/jpeg', 0.92);
+        } catch (taintErr) {
+          console.warn('Canvas toDataURL failed (likely tainted), trying PNG:', taintErr);
+          try {
+            imgData = offscreen.toDataURL('image/png');
+          } catch (e2) {
+            console.error('Canvas export completely failed:', e2);
+          }
         }
-        doc.addImage(imgData, 'JPEG', 0, 0, width, height, undefined, 'FAST');
+
+        if (imgData && imgData !== 'data:,') {
+          if (i > 0) {
+            doc.addPage([width, height], orientation);
+          }
+          doc.addImage(imgData, 'JPEG', 0, 0, width, height, undefined, 'FAST');
+        }
       }
 
-      const cleanName = (projectName || 'جزوه_تخته_هوشمند').replace(/[/\\?%*:|"<>]/g, '-');
-      const fileName = `${cleanName}-${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.pdf`;
-      doc.save(fileName);
+      const cleanName = (projectName || 'جزوه_تخته_هوشمند')
+        .replace(/[/\\?%*:|"<>]/g, '-')
+        .replace(/\s+/g, '_')
+        .trim();
+      const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+      const fileName = `${cleanName}_${dateStr}.pdf`;
+
+      // Multi-channel download (Blob + DataURL + jsPDF doc.save fallback)
+      let downloaded = false;
+      try {
+        const pdfBlob = doc.output('blob');
+        if (pdfBlob && pdfBlob.size > 0) {
+          downloaded = await triggerDownloadFile(pdfBlob, fileName, 'application/pdf');
+        }
+      } catch (blobErr) {
+        console.warn('doc.output(blob) failed:', blobErr);
+      }
+
+      if (!downloaded) {
+        try {
+          doc.save(fileName);
+          downloaded = true;
+        } catch (saveErr) {
+          console.warn('doc.save() failed:', saveErr);
+        }
+      }
 
       toast.dismiss(loadingToast);
-      toast.success(`فایل PDF جزوه با ${totalP} برگه با موفقیت دانلود شد 📄✨`, { duration: 4500 });
+      if (downloaded) {
+        toast.success(`فایل PDF جزوه با ${totalP} برگه با موفقیت دانلود شد 📄✨`, { duration: 4500 });
+      } else {
+        toast.error('خطا در دریافت و ذخیره فایل PDF');
+      }
     } catch (err) {
       console.error('PDF export error:', err);
       toast.dismiss(loadingToast);
-      toast.error('خطا در ایجاد فایل PDF جزوه');
+      toast.error('خطا در ایجاد فایل PDF جزوه: ' + (err.message || 'مشکل در پردازش تصاویر'));
     } finally {
       setIsExportingPdf(false);
     }
@@ -1797,6 +1941,13 @@ export default function ClassRecordStudioPage() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && (recStatus === 'recording' || recStatus === 'paused')) {
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.requestData();
+        }
+      } catch (e) {
+        console.warn('requestData error:', e);
+      }
       mediaRecorderRef.current.stop();
       setRecStatus('idle');
       if (timerIntervalRef.current) {
@@ -1853,17 +2004,59 @@ export default function ClassRecordStudioPage() {
 
   // ── 5. Video Saving & Publishing ──
 
-  // Direct file download
-  const handleDownloadVideo = () => {
-    if (!recordedVideoUrl) return;
-    const a = document.createElement('a');
-    a.href = recordedVideoUrl;
-    const cleanName = (projectName || 'Class-Lesson').replace(/[/\\?%*:|"<>]/g, '-');
-    a.download = `${cleanName}-${new Date().toISOString().slice(0, 10)}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast.success('ویدیو با موفقیت دانلود شد 📥');
+  // Direct file download (Supports Desktop, Mobile & Android WebView)
+  const handleDownloadVideo = async () => {
+    const cleanName = (projectName || 'جلسه_تدریس_تخته_هوشمند')
+      .replace(/[/\\?%*:|"<>]/g, '-')
+      .replace(/\s+/g, '_')
+      .trim();
+    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+    const fileName = `${cleanName}_${dateStr}.webm`;
+
+    const loadingToast = toast.loading('در حال آماده‌سازی فایل ویدیوی کلاس...');
+
+    try {
+      if (recordedBlob && recordedBlob.size > 0) {
+        const ok = await triggerDownloadFile(recordedBlob, fileName, 'video/webm');
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
+        } else {
+          toast.error('خطا در دانلود ویدیو');
+        }
+        return;
+      }
+
+      if (recordedVideoUrl) {
+        const ok = await triggerDownloadFile(recordedVideoUrl, fileName, 'video/webm');
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
+        } else {
+          toast.error('خطا در دانلود ویدیو');
+        }
+        return;
+      }
+
+      if (recordedChunksRef.current && recordedChunksRef.current.length > 0) {
+        const mime = mediaRecorderRef.current?.mimeType || 'video/webm';
+        const fallbackBlob = new Blob(recordedChunksRef.current, { type: mime });
+        setRecordedBlob(fallbackBlob);
+        const ok = await triggerDownloadFile(fallbackBlob, fileName, mime);
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
+          return;
+        }
+      }
+
+      toast.dismiss(loadingToast);
+      toast.error('فایل ویدیوی ضبط شده هنوز آماده نشده یا در دسترس نیست.');
+    } catch (err) {
+      console.error('handleDownloadVideo error:', err);
+      toast.dismiss(loadingToast);
+      toast.error('خطا در دانلود فایل ویدیو');
+    }
   };
 
   // Save to School Video Archive API and Navigate to Videos
@@ -3312,7 +3505,7 @@ export default function ClassRecordStudioPage() {
                   onClick={handleDownloadVideo}
                 >
                   <HiOutlineArrowDownTray size={18} />
-                  <span>دانلود فایل ویدیو</span>
+                  <span>دانلود ویدیو تدریس / کلاس</span>
                 </button>
 
                 <button

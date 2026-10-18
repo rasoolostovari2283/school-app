@@ -2294,8 +2294,83 @@ export default function LiveClassroomPage() {
     }
   };
 
+  const triggerLiveDownloadFile = async (data, filename, mimeType = 'application/octet-stream') => {
+    try {
+      let blob;
+      if (data instanceof Blob) {
+        blob = data;
+      } else if (typeof data === 'string' && data.startsWith('blob:')) {
+        try {
+          const res = await fetch(data);
+          blob = await res.blob();
+        } catch (e) {
+          blob = new Blob([data], { type: mimeType });
+        }
+      } else if (typeof data === 'string' && data.startsWith('data:')) {
+        const a = document.createElement('a');
+        a.href = data;
+        a.download = filename;
+        a.target = '_self';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (e) {}
+        }, 500);
+        return true;
+      } else {
+        blob = new Blob([data], { type: mimeType });
+      }
+
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.target = '_self';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        } catch (e) {}
+      }, 800);
+      return true;
+    } catch (err) {
+      console.warn('Live download error, trying FileReader fallback:', err);
+      try {
+        if (data instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = function () {
+            const a = document.createElement('a');
+            a.href = reader.result;
+            a.download = filename;
+            a.target = '_self';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              try { document.body.removeChild(a); } catch (e) {}
+            }, 500);
+          };
+          reader.readAsDataURL(data);
+          return true;
+        }
+      } catch (err2) {
+        console.error('All live download methods failed:', err2);
+      }
+      return false;
+    }
+  };
+
   const stopRecordingSession = () => {
     if (mediaRecorderRef.current && (recStatus === 'recording' || recStatus === 'paused')) {
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.requestData();
+        }
+      } catch (e) {}
       mediaRecorderRef.current.stop();
       setRecStatus('idle');
       if (recTimerIntervalRef.current) {
@@ -2305,17 +2380,59 @@ export default function LiveClassroomPage() {
     }
   };
 
-  // Download recorded video directly
-  const handleDownloadVideo = () => {
-    if (!recordedVideoUrl) return;
-    const a = document.createElement('a');
-    a.href = recordedVideoUrl;
-    const cleanName = (saveTitle || 'کلاس_آنلاین').replace(/[/\\?%*:|"<>]/g, '-');
-    a.download = `${cleanName}-${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast.success('ویدیو با موفقیت دانلود شد 📥');
+  // Download recorded video directly (Desktop, Mobile & Android WebView compatible)
+  const handleDownloadVideo = async () => {
+    const cleanName = (saveTitle || 'کلاس_آنلاین')
+      .replace(/[/\\?%*:|"<>]/g, '-')
+      .replace(/\s+/g, '_')
+      .trim();
+    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+    const fileName = `${cleanName}_${dateStr}.webm`;
+
+    const loadingToast = toast.loading('در حال آماده‌سازی ویدیوی کلاس...');
+
+    try {
+      if (recordedBlob && recordedBlob.size > 0) {
+        const ok = await triggerLiveDownloadFile(recordedBlob, fileName, 'video/webm');
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیو با موفقیت دانلود شد 📥');
+        } else {
+          toast.error('خطا در دانلود ویدیو');
+        }
+        return;
+      }
+
+      if (recordedVideoUrl) {
+        const ok = await triggerLiveDownloadFile(recordedVideoUrl, fileName, 'video/webm');
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیو با موفقیت دانلود شد 📥');
+        } else {
+          toast.error('خطا در دانلود ویدیو');
+        }
+        return;
+      }
+
+      if (recordedChunksRef.current && recordedChunksRef.current.length > 0) {
+        const mime = mediaRecorderRef.current?.mimeType || 'video/webm';
+        const fallbackBlob = new Blob(recordedChunksRef.current, { type: mime });
+        setRecordedBlob(fallbackBlob);
+        const ok = await triggerLiveDownloadFile(fallbackBlob, fileName, mime);
+        toast.dismiss(loadingToast);
+        if (ok) {
+          toast.success('ویدیو با موفقیت دانلود شد 📥');
+          return;
+        }
+      }
+
+      toast.dismiss(loadingToast);
+      toast.error('فایل ویدیوی کلاس هنوز آماده نشده است.');
+    } catch (err) {
+      console.error('handleDownloadVideo error:', err);
+      toast.dismiss(loadingToast);
+      toast.error('خطا در دانلود فایل ویدیو');
+    }
   };
 
   // Publish / Save to Class Videos Archive
@@ -2365,15 +2482,22 @@ export default function LiveClassroomPage() {
   const handleExportPdfBooklet = async () => {
     const loadingToast = toast.loading('در حال ساخت فایل PDF جزوه تخته...');
     try {
-      saveCurrentBoardPageData();
-      const { jsPDF } = await import('jspdf');
+      try {
+        saveCurrentBoardPageData();
+      } catch (e) {}
+
+      const jspdfModule = await import('jspdf');
+      const JsPdfConstructor = jspdfModule.jsPDF || jspdfModule.default;
+      if (!JsPdfConstructor) {
+        throw new Error('کتابخانه ساخت PDF بارگذاری نشد.');
+      }
 
       const mainCanvas = canvasRef.current;
-      const width = mainCanvas?.width || 1920;
-      const height = mainCanvas?.height || 1080;
+      const width = Math.max(800, mainCanvas?.width || 1920);
+      const height = Math.max(600, mainCanvas?.height || 1080);
       const orientation = width >= height ? 'landscape' : 'portrait';
 
-      const doc = new jsPDF({
+      const doc = new JsPdfConstructor({
         orientation,
         unit: 'px',
         format: [width, height],
@@ -2384,10 +2508,16 @@ export default function LiveClassroomPage() {
       offscreen.width = width;
       offscreen.height = height;
       const offCtx = offscreen.getContext('2d');
+      if (offCtx) {
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = 'high';
+      }
 
-      const pages = boardPagesRef.current;
-      for (let i = 0; i < pages.length; i++) {
-        const p = pages[i];
+      const pages = boardPagesRef.current || [];
+      const totalP = Math.max(1, pages.length);
+
+      for (let i = 0; i < totalP; i++) {
+        const p = pages[i] || {};
         offCtx.clearRect(0, 0, width, height);
 
         // BG
@@ -2397,39 +2527,81 @@ export default function LiveClassroomPage() {
         // Media if open
         const mediaSource = pdfCanvasRef.current || pdfImageRef.current;
         if (mediaSource) {
-          offCtx.drawImage(mediaSource, 40, 40, width - 80, height - 80);
+          try {
+            offCtx.drawImage(mediaSource, 40, 40, width - 80, height - 80);
+          } catch (mErr) {}
         }
 
         // Strokes
         if (p.drawingDataUrl) {
           await new Promise((resolve) => {
             const img = new Image();
+            const timer = setTimeout(resolve, 1500);
             img.onload = () => {
-              offCtx.drawImage(img, 0, 0);
+              clearTimeout(timer);
+              try {
+                offCtx.drawImage(img, 0, 0);
+              } catch (e) {}
               resolve();
             };
-            img.onerror = () => resolve();
+            img.onerror = () => {
+              clearTimeout(timer);
+              resolve();
+            };
             img.src = p.drawingDataUrl;
           });
         }
 
         // Page number
-        offCtx.font = 'bold 16px Vazirmatn, sans-serif';
-        offCtx.fillStyle = '#64748b';
-        offCtx.fillText(`برگه ${i + 1} از ${pages.length} • ${classData?.name || 'کلاس'}`, 40, height - 20);
+        try {
+          offCtx.font = 'bold 16px Vazirmatn, sans-serif';
+          offCtx.fillStyle = '#64748b';
+          offCtx.fillText(`برگه ${i + 1} از ${totalP} • ${classData?.name || 'کلاس'}`, 40, height - 20);
+        } catch (e) {}
 
-        const imgData = offscreen.toDataURL('image/jpeg', 0.92);
-        if (i > 0) doc.addPage([width, height], orientation);
-        doc.addImage(imgData, 'JPEG', 0, 0, width, height, undefined, 'FAST');
+        let imgData = null;
+        try {
+          imgData = offscreen.toDataURL('image/jpeg', 0.92);
+        } catch (taintErr) {
+          try {
+            imgData = offscreen.toDataURL('image/png');
+          } catch (e2) {}
+        }
+
+        if (imgData && imgData !== 'data:,') {
+          if (i > 0) doc.addPage([width, height], orientation);
+          doc.addImage(imgData, 'JPEG', 0, 0, width, height, undefined, 'FAST');
+        }
       }
 
-      doc.save(`جزوه_تخته_${classData?.name || 'کلاس'}.pdf`);
+      const safeClassName = (classData?.name || 'کلاس').replace(/[/\\?%*:|"<>]/g, '_').trim();
+      const fileName = `جزوه_تخته_${safeClassName}.pdf`;
+
+      let downloaded = false;
+      try {
+        const pdfBlob = doc.output('blob');
+        if (pdfBlob && pdfBlob.size > 0) {
+          downloaded = await triggerLiveDownloadFile(pdfBlob, fileName, 'application/pdf');
+        }
+      } catch (blobErr) {}
+
+      if (!downloaded) {
+        try {
+          doc.save(fileName);
+          downloaded = true;
+        } catch (sErr) {}
+      }
+
       toast.dismiss(loadingToast);
-      toast.success('جزوه PDF با موفقیت دانلود شد 📄✨');
+      if (downloaded) {
+        toast.success('جزوه PDF با موفقیت دانلود شد 📄✨');
+      } else {
+        toast.error('خطا در دریافت و ذخیره فایل PDF');
+      }
     } catch (e) {
       console.error('PDF error:', e);
       toast.dismiss(loadingToast);
-      toast.error('خطا در دانلود فایل PDF');
+      toast.error('خطا در دانلود فایل PDF: ' + (e.message || ''));
     }
   };
 
