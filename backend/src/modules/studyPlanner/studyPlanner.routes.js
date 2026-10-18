@@ -5,6 +5,8 @@ const { authenticate, authorize } = require('../../middleware/auth');
 
 router.use(authenticate);
 
+router.get('/', studyPlannerController.getLogs);
+router.post('/', studyPlannerController.createLog);
 router.get('/logs', studyPlannerController.getLogs);
 router.post('/logs', studyPlannerController.createLog);
 router.post('/logs/:id/feedback', authorize('teacher'), studyPlannerController.addAdvisorFeedback);
