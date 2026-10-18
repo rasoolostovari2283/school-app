@@ -40,6 +40,13 @@ export default function ReportCardPage() {
   // Mode: 'management_overview' (کارنامه‌ها و نمرات کل به تفکیک معلمان) | 'class_session' (دفتر کلاسی)
   const [activeModeTab, setActiveModeTab] = useState(isAdmin ? 'management_overview' : 'class_session');
 
+  // Ensure non-admin teachers always stay on class_session mode
+  useEffect(() => {
+    if (!isAdmin) {
+      setActiveModeTab('class_session');
+    }
+  }, [isAdmin]);
+
   // Shared Gradebook Reports State (نتایج و نمرات ارسالی معلمان به مدیریت)
   const [sharedReports, setSharedReports] = useState([]);
   const [teacherFilter, setTeacherFilter] = useState('all');
@@ -583,43 +590,45 @@ export default function ReportCardPage() {
       <div className={styles.container}>
         <Toaster position="top-center" />
 
-        {/* ── Mode Switcher Tabs for Teachers & Management ── */}
-        <div className={styles.modeTabs}>
-          <button
-            type="button"
-            className={`${styles.modeTabBtn} ${activeModeTab === 'management_overview' ? styles.modeTabBtnActive : ''}`}
-            onClick={() => setActiveModeTab('management_overview')}
-          >
-            <div className={styles.modeTabIconBox}>
-              <HiOutlineBuildingOffice2 className={styles.modeTabIcon} />
-            </div>
-            <div className={styles.modeTabContent}>
-              <span className={styles.modeTabTitle}>نمرات کل مدرسه</span>
-              <span className={styles.modeTabSub}>
-                به تفکیک معلمان ({sharedReports.length} کلاس ثبت‌شده)
-              </span>
-            </div>
-          </button>
-          <button
-            type="button"
-            className={`${styles.modeTabBtn} ${activeModeTab === 'class_session' ? styles.modeTabBtnActive : ''}`}
-            onClick={() => setActiveModeTab('class_session')}
-          >
-            <div className={styles.modeTabIconBox}>
-              <HiOutlineAcademicCap className={styles.modeTabIcon} />
-            </div>
-            <div className={styles.modeTabContent}>
-              <span className={styles.modeTabTitle}>ثبت و ورود نمرات کلاسی</span>
-              <span className={styles.modeTabSub}>
-                {classes.find((c) => c.id === selectedClassId)?.name
-                  ? `کلاس: ${classes.find((c) => c.id === selectedClassId).name}`
-                  : 'انتخاب و ورود نمرات کلاس'}
-              </span>
-            </div>
-          </button>
-        </div>
+        {/* ── Mode Switcher Tabs for Teachers & Management (Only for School Management / Admins) ── */}
+        {isAdmin && (
+          <div className={styles.modeTabs}>
+            <button
+              type="button"
+              className={`${styles.modeTabBtn} ${activeModeTab === 'management_overview' ? styles.modeTabBtnActive : ''}`}
+              onClick={() => setActiveModeTab('management_overview')}
+            >
+              <div className={styles.modeTabIconBox}>
+                <HiOutlineBuildingOffice2 className={styles.modeTabIcon} />
+              </div>
+              <div className={styles.modeTabContent}>
+                <span className={styles.modeTabTitle}>نمرات کل مدرسه</span>
+                <span className={styles.modeTabSub}>
+                  به تفکیک معلمان ({sharedReports.length} کلاس ثبت‌شده)
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeTabBtn} ${activeModeTab === 'class_session' ? styles.modeTabBtnActive : ''}`}
+              onClick={() => setActiveModeTab('class_session')}
+            >
+              <div className={styles.modeTabIconBox}>
+                <HiOutlineAcademicCap className={styles.modeTabIcon} />
+              </div>
+              <div className={styles.modeTabContent}>
+                <span className={styles.modeTabTitle}>ثبت و ورود نمرات کلاسی</span>
+                <span className={styles.modeTabSub}>
+                  {classes.find((c) => c.id === selectedClassId)?.name
+                    ? `کلاس: ${classes.find((c) => c.id === selectedClassId).name}`
+                    : 'انتخاب و ورود نمرات کلاس'}
+                </span>
+              </div>
+            </button>
+          </div>
+        )}
 
-        {activeModeTab === 'management_overview' ? (
+        {isAdmin && activeModeTab === 'management_overview' ? (
           /* ══════════════════════════════════════════════════════════════════
              MANAGEMENT OVERVIEW (نمای مدیریت: کارنامه‌ها و نمرات به تفکیک معلمان)
              ══════════════════════════════════════════════════════════════════ */
