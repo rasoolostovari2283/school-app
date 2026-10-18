@@ -524,7 +524,7 @@ export default function DashboardPage() {
           <div className={styles.quickActionGrid}>
             {isTeacher && (
               <>
-                <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(99, 102, 241, 0.4)', background: 'rgba(99, 102, 241, 0.08)' }}>
+                <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
                   <HiOutlineDocumentText style={{ color: '#6366f1' }} />
                   <span style={{ fontWeight: 800, color: 'var(--primary-600)' }}>کارنامه‌ها و ورود نمرات</span>
                 </Link>
@@ -534,8 +534,8 @@ export default function DashboardPage() {
                   className={styles.heroBtn}
                   style={{
                     borderColor: 'rgba(245, 158, 11, 0.45)',
-                    background: 'rgba(245, 158, 11, 0.12)',
-                    color: '#fbbf24',
+                    background: 'rgba(255, 255, 255, 0.9)',
+                    color: '#b45309',
                   }}
                   title="ثبت و ویرایش نام مدرسه و پایه‌های تحصیلی تدریس شما"
                 >
@@ -546,34 +546,34 @@ export default function DashboardPage() {
             )}
 
             {isStudent && (
-              <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.08)' }}>
-                <HiOutlineDocumentText style={{ color: '#10b981' }} />
-                <span style={{ fontWeight: 800, color: '#10b981' }}>کارنامه تحصیلی</span>
+              <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(16, 185, 129, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
+                <HiOutlineDocumentText style={{ color: '#059669' }} />
+                <span style={{ fontWeight: 800, color: '#059669' }}>کارنامه تحصیلی</span>
               </Link>
             )}
 
-            <Link href="/dashboard/record" className={styles.heroBtn} style={{ borderColor: 'rgba(99, 102, 241, 0.4)', background: 'rgba(99, 102, 241, 0.06)' }}>
+            <Link href="/dashboard/record" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
               <span style={{ fontSize: '1.25rem' }}>🖥️</span>
               <span style={{ fontWeight: 800, color: 'var(--primary-600)' }}>ضبط کلاس و تخته</span>
             </Link>
 
             <Link href="/dashboard/attendance" className={styles.heroBtn}>
-              <HiOutlineUserGroup style={{ color: '#34d399' }} />
+              <HiOutlineUserGroup style={{ color: '#059669' }} />
               <span>حضور و غیاب</span>
             </Link>
 
             <Link href="/dashboard/assignments" className={styles.heroBtn}>
-              <HiOutlineClipboardDocumentList style={{ color: '#818cf8' }} />
+              <HiOutlineClipboardDocumentList style={{ color: '#6366f1' }} />
               <span>{isTeacher ? 'تعریف تکلیف' : 'تکالیف من'}</span>
             </Link>
 
             <Link href="/dashboard/quizzes" className={styles.heroBtn}>
-              <HiOutlineQuestionMarkCircle style={{ color: '#fbbf24' }} />
+              <HiOutlineQuestionMarkCircle style={{ color: '#d97706' }} />
               <span>آزمون آنلاین</span>
             </Link>
 
             <Link href="/dashboard/messages" className={styles.heroBtn}>
-              <HiOutlineMegaphone style={{ color: '#f43f5e' }} />
+              <HiOutlineMegaphone style={{ color: '#e11d48' }} />
               <span>پیام امن</span>
             </Link>
           </div>

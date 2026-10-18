@@ -5,17 +5,17 @@
   animation: fadeIn var(--transition-normal);
 }
 
-/* ── Hero Bento Banner (Liquid Glass Hero) ── */
+/* ── Hero Bento Banner (Pale Purple / Soft Lilac Glass) ── */
 .heroBanner {
-  background: linear-gradient(135deg, rgba(30, 27, 75, 0.55) 0%, rgba(15, 23, 42, 0.65) 100%);
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 45%, #e9d5ff 100%);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1.5px solid rgba(168, 85, 247, 0.28);
   border-radius: var(--radius-3xl);
   padding: var(--space-8);
   position: relative;
   overflow: hidden;
-  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75), inset 0 1px 2px rgba(255, 255, 255, 0.25), var(--glow-primary);
+  box-shadow: 0 20px 45px -12px rgba(147, 51, 234, 0.14), 0 4px 16px rgba(0, 0, 0, 0.03), inset 0 1px 2px rgba(255, 255, 255, 0.95);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -30,7 +30,7 @@
   left: -15%;
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.3) 0%, rgba(6, 182, 212, 0.15) 50%, transparent 70%);
+  background: radial-gradient(circle, rgba(192, 132, 252, 0.35) 0%, rgba(216, 180, 254, 0.2) 50%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
   filter: blur(40px);
@@ -46,34 +46,33 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(147, 51, 234, 0.12);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(99, 102, 241, 0.45);
-  color: #c7d2fe;
+  border: 1px solid rgba(147, 51, 234, 0.28);
+  color: #6b21a8;
   font-size: 0.75rem;
   font-weight: 700;
   padding: 4px 14px;
   border-radius: var(--radius-full);
   margin-bottom: var(--space-3);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 
 .heroTitle {
   font-size: 2.125rem;
   font-weight: 900;
-  color: white;
+  color: #1e1b4b;
   margin-bottom: var(--space-2);
   letter-spacing: -0.02em;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
 .teacherNameLink {
-  color: #67e8f9;
+  color: #7c3aed;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-bottom: 2px dashed rgba(103, 232, 249, 0.45);
+  border-bottom: 2px dashed rgba(124, 58, 237, 0.45);
   transition: all 0.2s ease;
   cursor: pointer;
   padding: 0 6px;
@@ -81,16 +80,16 @@
 }
 
 .teacherNameLink:hover {
-  background: rgba(103, 232, 249, 0.15);
-  border-bottom-color: #67e8f9;
-  color: #ffffff;
+  background: rgba(124, 58, 237, 0.12);
+  border-bottom-color: #6d28d9;
+  color: #5b21b6;
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.3);
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.2);
 }
 
 .editBadge {
   font-size: 0.95rem;
-  opacity: 0.6;
+  opacity: 0.7;
   transition: all 0.2s ease;
 }
 
@@ -100,9 +99,10 @@
 }
 
 .heroDesc {
-  color: #cbd5e1;
+  color: #475569;
   font-size: 0.9375rem;
   line-height: 1.6;
+  font-weight: 500;
 }
 
 .heroActions {
@@ -121,11 +121,11 @@
 }
 
 .heroBtn {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
+  border: 1.5px solid rgba(168, 85, 247, 0.22);
+  color: #1e1b4b;
   padding: 11px 16px;
   border-radius: var(--radius-xl);
   font-size: 0.8125rem;
@@ -136,15 +136,68 @@
   cursor: pointer;
   transition: all var(--transition-fast);
   text-decoration: none;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(147, 51, 234, 0.06), inset 0 1px 1px rgba(255, 255, 255, 0.9);
 }
 
 .heroBtn:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: #ffffff;
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(147, 51, 234, 0.48);
+  box-shadow: 0 8px 20px rgba(147, 51, 234, 0.16);
+  color: #6d28d9;
+}
+
+/* ── Dark Theme Overrides for Hero Banner ── */
+[data-theme='dark'] .heroBanner {
+  background: linear-gradient(135deg, rgba(88, 28, 135, 0.4) 0%, rgba(59, 7, 100, 0.55) 50%, rgba(76, 29, 149, 0.45) 100%);
+  border: 1.5px solid rgba(192, 132, 252, 0.35);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75), 0 0 35px rgba(168, 85, 247, 0.18), inset 0 1px 2px rgba(255, 255, 255, 0.15);
+}
+
+[data-theme='dark'] .heroBanner::after {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.35) 0%, rgba(139, 92, 246, 0.2) 50%, transparent 70%);
+}
+
+[data-theme='dark'] .heroBadge {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: rgba(192, 132, 252, 0.4);
+  color: #e9d5ff;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+[data-theme='dark'] .heroTitle {
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='dark'] .teacherNameLink {
+  color: #c084fc;
+  border-bottom-color: rgba(192, 132, 252, 0.5);
+}
+
+[data-theme='dark'] .teacherNameLink:hover {
+  background: rgba(192, 132, 252, 0.2);
+  color: #ffffff;
+  border-bottom-color: #c084fc;
+  box-shadow: 0 4px 14px rgba(168, 85, 247, 0.3);
+}
+
+[data-theme='dark'] .heroDesc {
+  color: #cbd5e1;
+}
+
+[data-theme='dark'] .heroBtn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+[data-theme='dark'] .heroBtn:hover {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: rgba(192, 132, 252, 0.5);
+  color: #ffffff;
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.35), 0 8px 20px rgba(0, 0, 0, 0.4);
-  color: white;
 }
 
 /* ── KPI Metrics Bento Grid ── */
