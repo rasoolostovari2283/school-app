@@ -152,7 +152,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
               aria-label="منوی ناوبری"
               title="باز و بستن منوی سایت"
             >
-              <HiOutlineBars3 />
+              <HiOutlineBars3 style={{ strokeWidth: 2 }} />
             </button>
           )}
 
