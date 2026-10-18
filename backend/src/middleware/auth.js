@@ -75,7 +75,15 @@ const authorize = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const userRole = (req.user.role || '').toLowerCase();
+    const normalizedRoles = roles.map((r) => r.toLowerCase());
+
+    // Expand management and admin aliases
+    if (normalizedRoles.includes('admin') || normalizedRoles.includes('manager')) {
+      normalizedRoles.push('admin', 'manager', 'school_admin', 'principal', 'headmaster');
+    }
+
+    if (!normalizedRoles.includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'شما دسترسی به این بخش ندارید',

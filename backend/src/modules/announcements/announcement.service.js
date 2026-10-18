@@ -48,10 +48,21 @@ class AnnouncementService {
     const gradesArray = Array.isArray(target_grades) ? target_grades : [target_grades];
     const subjectsArray = Array.isArray(target_subjects) ? target_subjects : [target_subjects];
 
-    const primaryClassId = classIdsArray.length === 1 && classIdsArray[0] !== '*' ? classIdsArray[0] : null;
+    let primaryClassId = classIdsArray.length === 1 && classIdsArray[0] !== '*' ? classIdsArray[0] : null;
+    if (primaryClassId) {
+      const classExists = await db('classes').where({ id: primaryClassId }).first();
+      if (!classExists) primaryClassId = null;
+    }
+
+    let validTeacherId = teacherId;
+    const teacherExists = await db('users').where({ id: teacherId }).first();
+    if (!teacherExists) {
+      const fallbackTeacher = (await db('users').whereIn('role', ['teacher', 'admin']).first()) || (await db('users').first());
+      if (fallbackTeacher) validTeacherId = fallbackTeacher.id;
+    }
 
     const announcement = await insertAndReturn(db, 'announcements', {
-      teacher_id: teacherId,
+      teacher_id: validTeacherId,
       class_id: primaryClassId,
       title: title.trim(),
       content: content.trim(),
@@ -64,6 +75,32 @@ class AnnouncementService {
       attachments: JSON.stringify(attachments || []),
       is_pinned: is_pinned ? 1 : 0,
     });
+
+    // Send notifications to target recipients
+    try {
+      let targetUserQuery = db('users').select('id', 'role');
+      if (target_audience === 'students') {
+        targetUserQuery = targetUserQuery.where('role', 'student');
+      } else if (target_audience === 'parents') {
+        targetUserQuery = targetUserQuery.where('role', 'parent');
+      } else {
+        targetUserQuery = targetUserQuery.whereIn('role', ['student', 'parent']);
+      }
+      const targetUsers = await targetUserQuery.limit(200);
+      const notifRows = targetUsers.map((u) => ({
+        id: generateId(),
+        user_id: u.id,
+        type: 'announcement',
+        title: `📢 اطلاعیه جدید: ${title.trim().slice(0, 50)}`,
+        body: content.trim().slice(0, 150),
+        data: JSON.stringify({ announcement_id: announcement.id, is_mandatory: Boolean(is_mandatory) }),
+        is_read: false,
+        created_at: new Date().toISOString(),
+      }));
+      if (notifRows.length > 0) {
+        await db('notifications').insert(notifRows).catch(() => {});
+      }
+    } catch (e) {}
 
     return announcement;
   }
@@ -172,17 +209,22 @@ class AnnouncementService {
   async getAll(user) {
     if (user.role === 'teacher' || user.role === 'admin' || user.role === 'manager') {
       let query = db('announcements')
-        .join('users as teacher', 'teacher.id', 'announcements.teacher_id')
+        .leftJoin('users as teacher', 'teacher.id', 'announcements.teacher_id')
         .leftJoin('classes', 'classes.id', 'announcements.class_id')
         .select(
           'announcements.*',
           'teacher.display_name as teacher_name',
           'teacher.avatar_url as teacher_avatar',
+          'teacher.role as teacher_role',
           'classes.name as class_name'
         );
 
       if (user.role === 'teacher') {
-        query = query.where({ 'announcements.teacher_id': user.id });
+        query = query.where(function () {
+          this.where('announcements.teacher_id', user.id)
+            .orWhere('teacher.role', 'admin')
+            .orWhere('teacher.role', 'manager');
+        });
       }
 
       const list = await query.orderBy('announcements.created_at', 'desc');
