@@ -2216,17 +2216,36 @@ export default function LiveClassroomPage() {
     if (!canvas) return;
 
     try {
-      const stream = canvas.captureStream(30);
-
-      // Audio track from microphone
+      // 1. Explicitly prompt and request microphone permission FIRST
+      let micStream = null;
+      const permToast = toast.loading('در حال اتصال به میکروفون 🎙️...');
       try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000,
+          },
+        });
         micStreamRef.current = micStream;
-        micStream.getAudioTracks().forEach((track) => stream.addTrack(track));
+        toast.dismiss(permToast);
+        toast.success('میکروفون متصل شد 🎙️ صدای کلاس ضبط می‌شود', { duration: 3000 });
       } catch (micErr) {
-        console.warn('Microphone not available:', micErr);
-        toast('میکروفون فعال نشد، ضبط تصویر به تنهایی ادامه می‌یابد', { icon: '🎙️' });
+        toast.dismiss(permToast);
+        console.warn('Microphone permission denied or not available:', micErr);
+        toast.error('دسترسی به میکروفون داده نشد یا میکروفون در دسترس نیست! ویدیو بدون صدا ضبط خواهد شد ⚠️', { duration: 4000 });
       }
+
+      // 2. Capture 30FPS canvas video stream
+      const canvasStream = canvas.captureStream(30);
+
+      // 3. Compose unified stream containing both video and audio tracks
+      const tracks = [...canvasStream.getVideoTracks()];
+      if (micStream && micStream.getAudioTracks().length > 0) {
+        tracks.push(...micStream.getAudioTracks());
+      }
+      const combinedStream = new MediaStream(tracks);
 
       let mimeType = 'video/webm;codecs=vp9,opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -2237,7 +2256,11 @@ export default function LiveClassroomPage() {
       }
 
       recordedChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType,
+        audioBitsPerSecond: 128000,
+        videoBitsPerSecond: 2500000,
+      });
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -2246,7 +2269,8 @@ export default function LiveClassroomPage() {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const mime = mediaRecorder.mimeType || 'video/webm';
+        const blob = new Blob(recordedChunksRef.current, { type: mime });
         const videoUrl = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedVideoUrl(videoUrl);

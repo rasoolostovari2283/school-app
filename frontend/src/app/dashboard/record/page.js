@@ -1850,22 +1850,40 @@ export default function ClassRecordStudioPage() {
     if (!canvas) return;
 
     try {
-      // 1. Capture 30FPS canvas stream
-      const stream = canvas.captureStream(30);
-
-      // 2. Audio track if enabled
+      // 1. Explicitly prompt and request microphone permission FIRST if audio is enabled
+      let micStream = null;
       if (recordAudio) {
+        const permToast = toast.loading('در حال اتصال به میکروفون 🎙️...');
         try {
-          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              sampleRate: 48000,
+            },
+          });
           micStreamRef.current = micStream;
-          micStream.getAudioTracks().forEach((track) => stream.addTrack(track));
+          toast.dismiss(permToast);
+          toast.success('میکروفون با موفقیت متصل شد 🎙️ صدای تدریس شما روی ویدیو ضبط خواهد شد', { duration: 3500 });
         } catch (micErr) {
+          toast.dismiss(permToast);
           console.warn('Microphone permission denied or not available:', micErr);
-          toast('میکروفون در دسترس نبود، ضبط تصویر به تنهایی ادامه می‌یابد', { icon: '🎙️' });
+          toast.error('دسترسی به میکروفون داده نشد یا میکروفون متصل نیست! ویدیو بدون صدا ضبط خواهد شد ⚠️', { duration: 4500 });
         }
       }
 
-      // 3. Supported MIME type
+      // 2. Capture 30FPS canvas video stream
+      const canvasStream = canvas.captureStream(30);
+
+      // 3. Compose unified stream containing both video and audio tracks
+      const tracks = [...canvasStream.getVideoTracks()];
+      if (micStream && micStream.getAudioTracks().length > 0) {
+        tracks.push(...micStream.getAudioTracks());
+      }
+      const combinedStream = new MediaStream(tracks);
+
+      // 4. Determine supported MIME type (prefer Opus for crystal-clear audio recording)
       let mimeType = 'video/webm;codecs=vp9,opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'video/webm;codecs=vp8,opus';
@@ -1875,7 +1893,11 @@ export default function ClassRecordStudioPage() {
       }
 
       recordedChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType,
+        audioBitsPerSecond: 128000,
+        videoBitsPerSecond: 2500000,
+      });
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -1884,7 +1906,8 @@ export default function ClassRecordStudioPage() {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const mime = mediaRecorder.mimeType || 'video/webm';
+        const blob = new Blob(recordedChunksRef.current, { type: mime });
         const videoUrl = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedVideoUrl(videoUrl);
@@ -1895,7 +1918,7 @@ export default function ClassRecordStudioPage() {
         setSaveNewFolderName('');
         setShowSaveModal(true);
 
-        // Stop microphone tracks
+        // Stop microphone tracks cleanly
         if (micStreamRef.current) {
           micStreamRef.current.getTracks().forEach((t) => t.stop());
           micStreamRef.current = null;
