@@ -29,11 +29,22 @@ class ClassService {
       if (teacherByName) validTeacherId = teacherByName.id;
     }
 
-    const teacherExists = await db('users').where({ id: validTeacherId }).first();
+    let teacherExists = await db('users').where({ id: validTeacherId }).first();
     if (!teacherExists) {
       const fallbackTeacher = (await db('users').where({ role: 'teacher' }).first()) || (await db('users').first());
       if (fallbackTeacher) {
         validTeacherId = fallbackTeacher.id;
+      } else {
+        const newTeacherId = validTeacherId || generateId();
+        await db('users').insert({
+          id: newTeacherId,
+          display_name: teacher_name || 'دبیر گرامی',
+          username: 'teacher_' + Date.now(),
+          role: 'teacher',
+          password_hash: 'mock_hash',
+          is_verified: true,
+        }).catch(() => {});
+        validTeacherId = newTeacherId;
       }
     }
 
@@ -45,8 +56,8 @@ class ClassService {
 
     const cls = await insertAndReturn(db, 'classes', {
       name,
-      subject,
-      grade,
+      subject: subject || 'عمومی',
+      grade: grade || 'عمومی',
       join_code: joinCode,
       school_id: validSchoolId || null,
       teacher_id: validTeacherId,

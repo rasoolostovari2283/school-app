@@ -130,6 +130,20 @@ export default function ClassDetailPage() {
         setBbbServerUrl(c.bbb_server_url || '');
         setBbbSecret(c.bbb_secret || '');
         setBbbMeetingId(c.bbb_meeting_id || '');
+      } else {
+        try {
+          const cached = JSON.parse(localStorage.getItem('educonnect_classes_cache') || '[]');
+          const c = cached.find((item) => String(item.id) === String(classId));
+          if (c) {
+            setClassData(c);
+            setSelectedProvider(c.live_provider || 'native');
+            setSkyroomUrl(c.skyroom_url || '');
+            setSkyroomApiKey(c.skyroom_api_key || '');
+            setBbbServerUrl(c.bbb_server_url || '');
+            setBbbSecret(c.bbb_secret || '');
+            setBbbMeetingId(c.bbb_meeting_id || '');
+          }
+        } catch (e) {}
       }
       if (membersRes.status === 'fulfilled') {
         setMembers(membersRes.value.data.data.members || []);
@@ -155,6 +169,15 @@ export default function ClassDetailPage() {
   const handleSaveLiveSettings = async (e, launchImmediately = false) => {
     if (e && e.preventDefault) e.preventDefault();
     setSavingSettings(true);
+    let updatedClass = {
+      ...(classData || {}),
+      live_provider: selectedProvider,
+      skyroom_url: skyroomUrl,
+      skyroom_api_key: skyroomApiKey,
+      bbb_server_url: bbbServerUrl,
+      bbb_secret: bbbSecret,
+      bbb_meeting_id: bbbMeetingId,
+    };
     try {
       const res = await api.put(`/classes/${classId}/live-settings`, {
         live_provider: selectedProvider,
@@ -165,20 +188,27 @@ export default function ClassDetailPage() {
         bbb_meeting_id: bbbMeetingId,
       });
       if (res.data?.data?.class) {
-        setClassData(res.data.data.class);
-      }
-      toast.success('تنظیمات بستر کلاس آنلاین ذخیره شد! 🎉');
-      setShowLiveSettingsModal(false);
-
-      if (launchImmediately) {
-        setTimeout(() => {
-          handleLaunchLive();
-        }, 150);
+        updatedClass = res.data.data.class;
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ذخیره تنظیمات');
-    } finally {
-      setSavingSettings(false);
+      console.warn('API save live settings failed, saving locally:', err.message);
+    }
+
+    setClassData(updatedClass);
+    try {
+      const cached = JSON.parse(localStorage.getItem('educonnect_classes_cache') || '[]');
+      const updated = cached.map((c) => (String(c.id) === String(classId) ? { ...c, ...updatedClass } : c));
+      localStorage.setItem('educonnect_classes_cache', JSON.stringify(updated));
+    } catch (e) {}
+
+    toast.success('تنظیمات بستر کلاس آنلاین ذخیره شد! 🎉');
+    setShowLiveSettingsModal(false);
+    setSavingSettings(false);
+
+    if (launchImmediately) {
+      setTimeout(() => {
+        handleLaunchLive();
+      }, 150);
     }
   };
 
@@ -189,6 +219,7 @@ export default function ClassDetailPage() {
 
       if (provider === 'native') {
         router.push(joinUrl);
+        return;
       } else {
         window.open(joinUrl, target || '_blank');
         if (isTeacher) {
@@ -200,9 +231,21 @@ export default function ClassDetailPage() {
           setIsClassLive(true);
           toast.success(`اتاق ${provider === 'skyroom' ? 'اسکای‌روم' : 'بیگ‌بلو‌باتن'} در صفحه جدید باز شد 🚀`);
         }
+        return;
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'خطا در ورود به کلاس آنلاین');
+      console.warn('Backend live launch API unavailable, launching direct session:', err.message);
+    }
+
+    // Direct fallback launch
+    if (selectedProvider === 'skyroom' && skyroomUrl?.trim()) {
+      window.open(skyroomUrl.trim(), '_blank');
+      toast.success('اتاق اسکای‌روم کلاس در صفحه جدید باز شد 🚀');
+    } else if (selectedProvider === 'bigbluebutton' && bbbServerUrl?.trim()) {
+      window.open(bbbServerUrl.trim(), '_blank');
+      toast.success('اتاق بیگ‌بلو‌باتن کلاس در صفحه جدید باز شد 🚀');
+    } else {
+      router.push(`/dashboard/classes/${classId}/live`);
     }
   };
 

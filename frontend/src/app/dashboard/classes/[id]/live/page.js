@@ -893,10 +893,19 @@ export default function LiveClassroomPage() {
         const res = await api.get(`/classes/${classId}`);
         if (res.data?.data?.class) {
           setClassData(res.data.data.class);
+          return;
         }
       } catch (e) {
-        console.warn('Could not fetch class details:', e);
+        console.warn('Could not fetch class details from API:', e);
       }
+
+      try {
+        const cached = JSON.parse(localStorage.getItem('educonnect_classes_cache') || '[]');
+        const found = cached.find((c) => String(c.id) === String(classId));
+        if (found) {
+          setClassData(found);
+        }
+      } catch (err) {}
     };
     fetchClassDetails();
   }, [classId]);

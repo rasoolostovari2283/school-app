@@ -45,13 +45,19 @@ export default function ClassesPage() {
 
   const handleCreate = async (e, launchLive = false) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!formData.name?.trim()) {
+    const cleanName = formData.name?.trim();
+    if (!cleanName) {
       toast.error('لطفاً نام کلاس را وارد کنید');
       return;
     }
     setIsSubmitting(true);
     try {
-      const cls = await createClass(formData);
+      const cls = await createClass({
+        name: cleanName,
+        subject: formData.subject?.trim() || user?.settings?.subject || user?.job_title || 'عمومی',
+        grade: formData.grade?.trim() || (user?.settings?.taught_grades?.[0]) || 'پایه عمومی',
+        teacher_name: formData.teacher_name?.trim() || user?.display_name || user?.name || 'دبیر گرامی',
+      });
       toast.success(`کلاس "${cls.name}" با موفقیت ثبت شد! 🎉`);
       setShowModal(false);
       setFormData({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
@@ -60,7 +66,7 @@ export default function ClassesPage() {
         router.push(`/dashboard/classes/${cls.id}/live`);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ثبت کلاس');
+      toast.error(err.response?.data?.message || err.message || 'خطا در ثبت کلاس');
     } finally {
       setIsSubmitting(false);
     }
@@ -375,14 +381,13 @@ export default function ClassesPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
-                    <label style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>ماده درسی *</label>
+                    <label style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>ماده درسی</label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="مثلاً: ریاضیات"
+                      placeholder="مثلاً: ریاضیات (پیش‌فرض: عمومی)"
                       value={formData.subject}
                       onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                      required
                     />
                   </div>
                   <div>
