@@ -590,16 +590,32 @@ export default function ReportCardPage() {
             className={`${styles.modeTabBtn} ${activeModeTab === 'management_overview' ? styles.modeTabBtnActive : ''}`}
             onClick={() => setActiveModeTab('management_overview')}
           >
-            <HiOutlineBuildingOffice2 style={{ fontSize: '1.25rem' }} />
-            <span>🏛️ کارنامه‌ها و نمرات کل مدرسه به تفکیک معلمان ({sharedReports.length} کلاس ثبت‌شده)</span>
+            <div className={styles.modeTabIconBox}>
+              <HiOutlineBuildingOffice2 className={styles.modeTabIcon} />
+            </div>
+            <div className={styles.modeTabContent}>
+              <span className={styles.modeTabTitle}>نمرات کل مدرسه</span>
+              <span className={styles.modeTabSub}>
+                به تفکیک معلمان ({sharedReports.length} کلاس ثبت‌شده)
+              </span>
+            </div>
           </button>
           <button
             type="button"
             className={`${styles.modeTabBtn} ${activeModeTab === 'class_session' ? styles.modeTabBtnActive : ''}`}
             onClick={() => setActiveModeTab('class_session')}
           >
-            <HiOutlineAcademicCap style={{ fontSize: '1.25rem' }} />
-            <span>👨‍🏫 ثبت و ورود نمرات کلاسی ({classes.find((c) => c.id === selectedClassId)?.name || 'کلاس انتخابی'})</span>
+            <div className={styles.modeTabIconBox}>
+              <HiOutlineAcademicCap className={styles.modeTabIcon} />
+            </div>
+            <div className={styles.modeTabContent}>
+              <span className={styles.modeTabTitle}>ثبت و ورود نمرات کلاسی</span>
+              <span className={styles.modeTabSub}>
+                {classes.find((c) => c.id === selectedClassId)?.name
+                  ? `کلاس: ${classes.find((c) => c.id === selectedClassId).name}`
+                  : 'انتخاب و ورود نمرات کلاس'}
+              </span>
+            </div>
           </button>
         </div>
 
