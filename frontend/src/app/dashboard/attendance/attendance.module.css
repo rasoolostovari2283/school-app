@@ -89,14 +89,14 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
 
-/* ── Session Creation Box (Teacher View - Pale Purple White) ── */
+/* ── Session Creation Box (Teacher View) ── */
 .creatorCard {
-  background: linear-gradient(135deg, #fdfbff 0%, #f6effd 45%, #f1e6fa 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #faf5ff 50%, #f3e8ff 100%);
   backdrop-filter: var(--glass-blur-heavy);
   -webkit-backdrop-filter: var(--glass-blur-heavy);
   border-radius: var(--radius-3xl);
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  box-shadow: 0 14px 34px -8px rgba(147, 51, 234, 0.12), 0 4px 16px rgba(0, 0, 0, 0.03), inset 0 1px 2px rgba(255, 255, 255, 0.95);
+  border: 1.5px solid rgba(168, 85, 247, 0.25);
+  box-shadow: 0 10px 25px -5px rgba(147, 51, 234, 0.08), 0 4px 10px rgba(0, 0, 0, 0.03);
   padding: var(--space-6) var(--space-8);
   display: flex;
   flex-direction: column;
@@ -107,10 +107,10 @@
 }
 
 [data-theme='dark'] .creatorCard {
-  background: linear-gradient(135deg, rgba(253, 251, 255, 0.97) 0%, rgba(246, 239, 253, 0.94) 50%, rgba(241, 230, 250, 0.96) 100%);
-  border-color: rgba(192, 132, 252, 0.45);
-  box-shadow: 0 16px 36px -8px rgba(168, 85, 247, 0.22), inset 0 1px 2px rgba(255, 255, 255, 0.95);
-  color: #1e1b4b;
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.85) 0%, rgba(46, 16, 101, 0.7) 50%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1.5px solid rgba(192, 132, 252, 0.35);
+  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
 }
 
 .creatorCard::after {
@@ -134,12 +134,16 @@
 
 .creatorTitle {
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 850;
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #2e1065;
+  color: #1e1b4b;
   margin: 0;
+}
+
+[data-theme='dark'] .creatorTitle {
+  color: #ffffff;
 }
 
 .creatorTitleIcon {
@@ -147,17 +151,30 @@
   font-size: 1.35rem;
 }
 
+[data-theme='dark'] .creatorTitleIcon {
+  color: #c084fc;
+}
+
 .creatorDesc {
-  color: #6b21a8;
+  color: #334155;
   font-size: 0.875rem;
   margin-top: 5px;
   line-height: 1.6;
+  font-weight: 500;
+}
+
+[data-theme='dark'] .creatorDesc {
+  color: #e2e8f0;
 }
 
 .durationLabel {
   font-size: 0.875rem;
   font-weight: 700;
-  color: #4c1d95;
+  color: #1e293b;
+}
+
+[data-theme='dark'] .durationLabel {
+  color: #cbd5e1;
 }
 
 .durationPills {
@@ -171,10 +188,10 @@
   padding: 8px 16px;
   border-radius: var(--radius-xl);
   font-size: 0.875rem;
-  font-weight: 600;
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  background: rgba(255, 255, 255, 0.9);
-  color: #4c1d95;
+  font-weight: 700;
+  border: 1.5px solid rgba(168, 85, 247, 0.25);
+  background: rgba(255, 255, 255, 0.95);
+  color: #1e1b4b;
   cursor: pointer;
   transition: all var(--transition-fast);
   display: flex;
@@ -183,18 +200,36 @@
   box-shadow: 0 2px 6px rgba(147, 51, 234, 0.05);
 }
 
+[data-theme='dark'] .durationBtn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
 .durationBtn:hover {
   background: #ffffff;
-  color: #2e1065;
+  color: #6d28d9;
   border-color: rgba(168, 85, 247, 0.5);
   transform: translateY(-1px);
 }
 
+[data-theme='dark'] .durationBtn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(192, 132, 252, 0.5);
+}
+
 .durationBtnActive {
-  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
   color: white !important;
   border-color: #6d28d9 !important;
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35) !important;
+}
+
+[data-theme='dark'] .durationBtnActive {
+  background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%) !important;
+  color: #ffffff !important;
+  border-color: #a855f7 !important;
 }
 
 .badgeDefault {
@@ -219,12 +254,20 @@
 
 .creatorClassInfo {
   font-size: 0.875rem;
-  color: #4c1d95;
+  color: #334155;
   font-weight: 600;
 }
 
+[data-theme='dark'] .creatorClassInfo {
+  color: #cbd5e1;
+}
+
 .creatorClassInfo strong {
-  color: #2e1065;
+  color: #0f172a;
+}
+
+[data-theme='dark'] .creatorClassInfo strong {
+  color: #ffffff;
 }
 
 .creatorStartBtn {
@@ -241,6 +284,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+[data-theme='dark'] .creatorStartBtn {
+  background: linear-gradient(135deg, #9333ea 0%, #6366f1 100%);
+  box-shadow: 0 8px 24px rgba(147, 51, 234, 0.5);
 }
 
 .creatorStartBtn:hover:not(:disabled) {
@@ -960,18 +1008,112 @@
   .header {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 14px;
   }
 
   .title {
     font-size: 1.25rem;
   }
 
+  .classSelectGroup {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 10px;
+    background: var(--bg-card);
+    padding: 14px;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-color);
+  }
+
+  .classSelect {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .classSelectGroup button {
+    width: 100% !important;
+    justify-content: center;
+    padding: 11px 16px;
+    font-weight: 750;
+    font-size: 0.9rem;
+  }
+
+  .modeTabs {
+    flex-direction: column;
+    width: 100%;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .modeTabBtn {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    padding: 11px 14px;
+    font-size: 0.82rem;
+    text-align: center;
+    justify-content: center;
+    line-height: 1.4;
+  }
+
   .creatorCard {
     flex-direction: column;
     align-items: stretch;
-    padding: 14px;
+    padding: 16px 14px;
+    border-radius: var(--radius-2xl);
+    gap: 14px;
+    width: 100%;
+  }
+
+  .creatorHeader {
+    flex-direction: column;
+    align-items: stretch;
     gap: 12px;
+    width: 100%;
+  }
+
+  .creatorTitle {
+    font-size: 1.15rem;
+    line-height: 1.4;
+  }
+
+  .creatorDesc {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .durationPills {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .durationBtn {
+    width: 100%;
+    justify-content: center;
+    padding: 10px 6px;
+    font-size: 0.82rem;
+  }
+
+  .creatorFooter {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .creatorClassInfo {
+    text-align: center;
+    font-size: 0.88rem;
+  }
+
+  .creatorStartBtn {
+    width: 100%;
+    justify-content: center;
+    padding: 13px 18px;
+    font-size: 0.95rem;
   }
 
   .creatorInputs {

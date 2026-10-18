@@ -1272,15 +1272,15 @@ export default function AttendancePage() {
             className={`${styles.modeTabBtn} ${activeModeTab === 'management_overview' ? styles.modeTabBtnActive : ''}`}
             onClick={() => setActiveModeTab('management_overview')}
           >
-            <HiOutlineBuildingOffice2 style={{ fontSize: '1.25rem' }} />
-            <span>🏛️ حضور و غیاب کل مدرسه به تفکیک معلمان ({sharedReports.length} جلسه ثبت‌شده)</span>
+            <HiOutlineBuildingOffice2 style={{ fontSize: '1.25rem', flexShrink: 0 }} />
+            <span>🏛️ حضور و غیاب کل مدرسه ({sharedReports.length} جلسه)</span>
           </button>
           <button
             type="button"
             className={`${styles.modeTabBtn} ${activeModeTab === 'class_session' ? styles.modeTabBtnActive : ''}`}
             onClick={() => setActiveModeTab('class_session')}
           >
-            <HiOutlineAcademicCap style={{ fontSize: '1.25rem' }} />
+            <HiOutlineAcademicCap style={{ fontSize: '1.25rem', flexShrink: 0 }} />
             <span>👨‍🏫 ثبت و مدیریت باکس کلاسی ({selectedClass?.name || 'کلاس انتخابی'})</span>
           </button>
         </div>
