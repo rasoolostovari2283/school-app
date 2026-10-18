@@ -2,9 +2,12 @@ import axios from 'axios';
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
-    const customUrl = localStorage.getItem('server_api_url');
+    const customUrl = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
     if (customUrl) {
-      return customUrl.replace(/\/+$/, '') + (customUrl.includes('/api/v1') ? '' : '/api/v1');
+      let clean = customUrl.replace(/\/+$/, '');
+      if (clean.includes(':3000')) clean = clean.replace(':3000', ':5000');
+      if (clean.includes(':3001')) clean = clean.replace(':3001', ':5000');
+      return clean + (clean.includes('/api/v1') ? '' : '/api/v1');
     }
 
     const host = window.location.hostname;

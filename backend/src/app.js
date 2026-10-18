@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const compression = require('compression');
 
 const config = require('./config');
 const db = require('./config/database');
@@ -51,25 +52,68 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ── Global Middleware ──
+// ── Performance: Gzip/Deflate Compression ──
+app.use(compression({
+  threshold: 1024, // Only compress responses above 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+// ── Security: Helmet HTTP Headers Hardening ──
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  frameguard: false, // Allow mobile app wrapper & localhost iframe preview
+  xssFilter: true,
+  noSniff: true,
+  hidePoweredBy: true,
 }));
+
+// ── Security: Dynamic & Resilient CORS Validation ──
+const allowedOrigins = [
+  config.frontendUrl,
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'capacitor://localhost',
+  'ionic://localhost',
+  'http://localhost',
+];
+
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow LAN IP connections on web/app ports
+    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:(3000|3001|5000))?$/.test(origin)) {
+      return callback(null, true);
+    }
+    callback(null, false);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
 }));
+
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static files for uploads (Hosted locally with 0 external CDN dependency)
-app.use('/uploads', express.static(uploadDir));
+app.use('/uploads', express.static(uploadDir, {
+  maxAge: '7d', // 7 days browser cache for static files
+  etag: true,
+}));
 
-// Rate limiting with domestic IP friendliness
+// Global Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: {
     success: false,
     message: 'تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند دقیقه صبر کنید.',
@@ -77,6 +121,23 @@ const limiter = rateLimit({
   },
 });
 app.use('/api/', limiter);
+
+// Strict Authentication Rate Limiter (Brute-Force & Credential Stuffing Protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // max 30 attempts per 15 min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'تعداد تلاش‌های ورود بیش از حد مجاز است. لطفاً ۱۵ دقیقه دیگر تلاش فرمایید.',
+    messageEn: 'Too many authentication attempts. Please try again in 15 minutes.',
+  },
+});
+app.use('/api/v1/auth/login', authLimiter);
+app.use('/api/v1/auth/quick-entry', authLimiter);
+app.use('/api/v1/auth/register', authLimiter);
+app.use('/api/v1/auth/register-school', authLimiter);
 
 // ── Health & Network Resiliency Check ──
 app.get('/api/health', (req, res) => {
