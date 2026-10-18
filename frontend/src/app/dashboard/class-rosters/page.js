@@ -583,27 +583,202 @@ export default function ClassRostersPage() {
     setSubmitting(false);
   };
 
-  // Export CSV
-  const handleExportCSV = () => {
-    if (!rosterData?.students?.length) {
-      toast.error('دانش‌آموزی برای خروجی گرفتن وجود ندارد');
+  // XML Escaper for safe Excel HTML generation
+  const escapeXml = (unsafe) => {
+    return String(unsafe || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  // Cross-browser & Mobile-safe file downloader
+  const triggerDownload = (filename, content, mimeType) => {
+    try {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } catch (e) {}
+      }, 300);
+    } catch (err) {
+      console.warn('Standard blob download failed, trying data URI fallback:', err);
+      try {
+        const encodedUri = encodeURI(`data:${mimeType},` + content);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e2) {
+        toast.error('خطا در دریافت فایل');
+      }
+    }
+  };
+
+  // Comprehensive Excel Exporter (.xls spreadsheet & .csv)
+  const handleExportExcel = (format = 'excel') => {
+    const studentsToExport = rosterData?.students || [];
+    const currentClass = activeClass || rosterData?.class || classes.find((c) => c.id === selectedClassId);
+
+    if (!studentsToExport.length) {
+      toast.error('هیچ دانش‌آموزی در این کلاس جهت دریافت فایل اکسل وجود ندارد.');
       return;
     }
-    const headers = 'ردیف,نام و نام خانوادگی,کد دانش‌آموزی,رشته و پایه,نام ولی,شماره تماس\n';
-    const rows = rosterData.students.map((s, idx) =>
-      `"${idx + 1}","${s.display_name}","${s.student_code || '-'}","${s.department || '-'}","${s.parent_name || '-'}","${s.phone || s.parent_phone || '-'}"`
-    ).join('\n');
 
-    const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `لیست_کلاسی_${rosterData.class.name}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success('فایل اکسل با موفقیت دانلود شد 📊');
+    const className = currentClass?.name || 'کلاس';
+    const subjectName = currentClass?.subject || 'عمومی';
+    const gradeName = currentClass?.grade || currentClass?.department || '—';
+    const teacherName = user?.display_name || user?.name || currentClass?.teacher_name || 'دبیر محترم';
+    const safeClassName = className.replace(/[/\\?%*:|"<>]/g, '_').trim();
+    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+
+    if (format === 'csv') {
+      // Export as CSV with UTF-8 BOM
+      const BOM = '\uFEFF';
+      const headers = ['ردیف', 'نام و نام خانوادگی', 'کد دانش‌آموزی', 'پایه / رشته', 'نام ولی', 'شماره تماس دانش‌آموز', 'شماره تماس اولیا', 'نام کلاس', 'عنوان درس', 'نام دبیر'];
+      const rows = studentsToExport.map((s, idx) => [
+        idx + 1,
+        s.display_name || '',
+        s.student_code || '',
+        s.department || gradeName,
+        s.parent_name || '',
+        s.phone || '',
+        s.parent_phone || '',
+        className,
+        subjectName,
+        teacherName,
+      ]);
+
+      const csvContent = BOM + [headers, ...rows]
+        .map((row) => row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\r\n');
+
+      triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.csv`, csvContent, 'text/csv;charset=utf-8;');
+      toast.success('فایل CSV با موفقیت دریافت شد 📊');
+      return;
+    }
+
+    // Default: Export as Native MS-Excel XML/HTML Spreadsheet (.xls)
+    // Opens in Microsoft Excel, Google Sheets & WPS Office with RTL, styles, and leading zeros preserved!
+    const tableRows = studentsToExport
+      .map(
+        (s, idx) => `
+      <tr>
+        <td style="text-align: center; font-weight: bold; mso-number-format:'0';">${idx + 1}</td>
+        <td style="font-weight: bold; mso-number-format:'\\@';">${escapeXml(s.display_name || '—')}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.student_code || '—')}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.department || gradeName)}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.parent_name || '—')}</td>
+        <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.phone || '—')}</td>
+        <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.parent_phone || '—')}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(className)}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(subjectName)}</td>
+        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(teacherName)}</td>
+      </tr>`
+      )
+      .join('');
+
+    const excelHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>${escapeXml(safeClassName.slice(0, 31))}</x:Name>
+          <x:WorksheetOptions>
+            <x:DisplayRightToLeft/>
+          </x:WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Tahoma', 'Arial', sans-serif; direction: rtl; }
+    table { border-collapse: collapse; width: 100%; direction: rtl; }
+    th {
+      background-color: #4338ca;
+      color: #ffffff;
+      font-weight: bold;
+      border: 1px solid #312e81;
+      padding: 10px 8px;
+      text-align: center;
+      font-size: 11pt;
+      height: 35px;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      font-size: 10pt;
+      vertical-align: middle;
+      height: 28px;
+    }
+    .header-info-title {
+      background-color: #e0e7ff;
+      font-size: 14pt;
+      font-weight: bold;
+      text-align: center;
+      height: 40px;
+      color: #1e1b4b;
+    }
+    .header-info-sub {
+      background-color: #f8fafc;
+      font-size: 10pt;
+      text-align: right;
+      height: 25px;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="10" class="header-info-title">لیست رسمی دانش‌آموزان - ${escapeXml(className)}</th>
+      </tr>
+      <tr>
+        <td colspan="5" class="header-info-sub"><strong>عنوان درس:</strong> ${escapeXml(subjectName)} | <strong>پایه:</strong> ${escapeXml(gradeName)}</td>
+        <td colspan="5" class="header-info-sub" style="text-align: left;"><strong>دبیر:</strong> ${escapeXml(teacherName)} | <strong>تاریخ خروجی:</strong> ${dateStr}</td>
+      </tr>
+      <tr>
+        <th style="width: 50px;">ردیف</th>
+        <th style="width: 220px;">نام و نام خانوادگی</th>
+        <th style="width: 140px;">کد دانش‌آموزی</th>
+        <th style="width: 130px;">پایه / رشته</th>
+        <th style="width: 170px;">نام ولی</th>
+        <th style="width: 140px;">شماره تماس</th>
+        <th style="width: 140px;">شماره اولیا</th>
+        <th style="width: 180px;">نام کلاس</th>
+        <th style="width: 140px;">عنوان درس</th>
+        <th style="width: 150px;">نام دبیر</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+    triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.xls`, excelHtml, 'application/vnd.ms-excel;charset=utf-8;');
+    toast.success('فایل اکسل با موفقیت دریافت شد 📊');
   };
+
+  // Backwards compatibility alias
+  const handleExportCSV = () => handleExportExcel('csv');
 
   // Filter students
   const filteredStudents = (rosterData?.students || []).filter((s) => {
@@ -803,11 +978,11 @@ export default function ClassRostersPage() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={handleExportCSV}
-            title="دانلود خروجی اکسل"
+            onClick={() => handleExportExcel('excel')}
+            title="دریافت فایل اکسل لیست کلاس (Excel)"
           >
             <HiOutlineArrowDownTray />
-            <span>خروجی اکسل (CSV)</span>
+            <span>دریافت فایل اکسل</span>
           </button>
           <button
             type="button"
