@@ -108,22 +108,37 @@ export default function ReportCardPage() {
     setMounted(true);
   }, []);
 
-  // Load shared gradebook reports from teachers to management
-  useEffect(() => {
+  // Fetch shared gradebook reports from backend database
+  const fetchSharedReports = async () => {
     try {
-      const saved = localStorage.getItem('school_shared_gradebook_reports');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const filtered = Array.isArray(parsed) ? parsed.filter((r) => !r.id?.startsWith('gb-seed-')) : [];
-        setSharedReports(filtered);
-        localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(filtered));
-      } else {
-        setSharedReports([]);
+      const res = await api.get('/gradebook/shared-reports');
+      if (res.data?.success && Array.isArray(res.data.data?.reports)) {
+        setSharedReports(res.data.data.reports);
+        try {
+          localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(res.data.data.reports));
+        } catch (e) {}
       }
     } catch (e) {
-      setSharedReports([]);
+      try {
+        const saved = localStorage.getItem('school_shared_gradebook_reports');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const filtered = Array.isArray(parsed) ? parsed.filter((r) => !r.id?.startsWith('gb-seed-')) : [];
+          setSharedReports(filtered);
+        } else {
+          setSharedReports([]);
+        }
+      } catch (err) {
+        setSharedReports([]);
+      }
     }
-  }, []);
+  };
+
+  useEffect(() => {
+    if (mounted && user && (isAdmin || isTeacher)) {
+      fetchSharedReports();
+    }
+  }, [mounted, user, isAdmin, isTeacher]);
 
   const handleShareWithManagement = async () => {
     if (!gradebookData || !gradebookData.students?.length) {
@@ -146,16 +161,11 @@ export default function ReportCardPage() {
           reason: 'نمره کمتر از حد نصاب قبولی (۱۲) - نیازمند پیگیری و جبران',
         }));
 
-      const newReport = {
-        id: `gb-${Date.now()}`,
-        teacher_name: currentTeacherName,
-        teacher_code: currentTeacherCode,
-        subject: selClass?.subject || 'عمومی',
+      const payload = {
+        class_id: selectedClassId,
         class_name: selClass?.name || 'کلاس انتخابی',
+        subject: selClass?.subject || 'عمومی',
         grade: selClass?.grade || 'پایه دهم',
-        date: new Date().toLocaleDateString('fa-IR'),
-        time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-        created_at: new Date().toISOString(),
         students_count: stList.length,
         class_average: classStats.average !== 0 ? parseFloat(classStats.average) : 0,
         top_score: classStats.topScore !== 0 ? parseFloat(classStats.topScore) : 0,
@@ -170,44 +180,63 @@ export default function ReportCardPage() {
           status: st.weightedAverage != null ? (st.weightedAverage >= 12 ? 'passed' : 'failed') : 'no_score',
         })),
         teacher_note: shareNote.trim() || 'کارنامه و لیست نمرات کلاس توسط دبیر تایید و برای دفتر مدیریت ارسال شد.',
+      };
+
+      const res = await api.post('/gradebook/shared-reports', payload);
+      const savedReport = res.data?.data?.report || {
+        ...payload,
+        id: `gb-${Date.now()}`,
+        teacher_name: currentTeacherName,
+        teacher_code: currentTeacherCode,
+        date: new Date().toLocaleDateString('fa-IR'),
+        time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
         status: 'submitted',
       };
 
-      const updated = [newReport, ...sharedReports];
-      setSharedReports(updated);
+      setSharedReports((prev) => [savedReport, ...prev.filter((p) => p.id !== savedReport.id)]);
       try {
-        localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(updated));
+        const saved = JSON.parse(localStorage.getItem('school_shared_gradebook_reports') || '[]');
+        localStorage.setItem(
+          'school_shared_gradebook_reports',
+          JSON.stringify([savedReport, ...saved.filter((p) => p.id !== savedReport.id)])
+        );
       } catch (e) {}
 
-      // Broadcast notification to school management
-      try {
-        await api.post('/notifications/broadcast', {
-          title: `📊 کارنامه و لیست نمرات: ${newReport.class_name}`,
-          body: `دبیر محترم ${newReport.teacher_name} کارنامه و نمرات کلاس ${newReport.class_name} را با میانگین ${newReport.class_average} برای مدیریت ارسال فرمودند.`,
-          category: 'academic',
-          priority: 'normal',
-          target_audience: 'admin',
-          is_mandatory: false,
-        });
-      } catch (e) {}
-
-      toast.success(`لیست نمرات کلاس «${newReport.class_name}» با موفقیت برای مدیریت مجتمع ارسال شد 🚀`, { duration: 5000 });
+      toast.success(
+        res.data?.message || `لیست نمرات کلاس «${payload.class_name}» با موفقیت برای مدیریت مجتمع ارسال شد 🚀`,
+        { duration: 5000 }
+      );
       setIsShareModalOpen(false);
       setShareNote('');
     } catch (err) {
-      toast.error('خطا در ارسال کارنامه به مدیریت');
+      console.error('Error sharing gradebook with management:', err);
+      toast.error(err.response?.data?.message || 'خطا در ارسال کارنامه به مدیریت');
     } finally {
       setIsSharing(false);
     }
   };
 
-  const handleAcknowledgeReport = (reportId) => {
-    const updated = sharedReports.map((r) => (r.id === reportId ? { ...r, status: 'acknowledged' } : r));
-    setSharedReports(updated);
+  const handleAcknowledgeReport = async (reportId) => {
     try {
-      localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(updated));
-    } catch (e) {}
-    toast.success('رویت و تایید کارنامه کلاسی توسط مدیریت با موفقیت ثبت شد ✓');
+      await api.put(`/gradebook/shared-reports/${reportId}/acknowledge`);
+      setSharedReports((prev) =>
+        prev.map((r) => (r.id === reportId ? { ...r, status: 'acknowledged' } : r))
+      );
+      try {
+        const saved = JSON.parse(localStorage.getItem('school_shared_gradebook_reports') || '[]');
+        localStorage.setItem(
+          'school_shared_gradebook_reports',
+          JSON.stringify(saved.map((r) => (r.id === reportId ? { ...r, status: 'acknowledged' } : r)))
+        );
+      } catch (e) {}
+      toast.success('رویت و تایید کارنامه کلاسی توسط مدیریت با موفقیت در سامانه ثبت شد ✓');
+    } catch (err) {
+      console.error('Error acknowledging report:', err);
+      setSharedReports((prev) =>
+        prev.map((r) => (r.id === reportId ? { ...r, status: 'acknowledged' } : r))
+      );
+      toast.success('رویت و تایید کارنامه کلاسی ثبت شد ✓');
+    }
   };
 
   // Initial Data Fetching

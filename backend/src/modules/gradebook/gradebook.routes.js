@@ -254,6 +254,214 @@ router.post('/scores/batch', async (req, res, next) => {
   }
 });
 
+// Helper to ensure gradebook_shared_reports table exists
+const ensureSharedReportsTable = async () => {
+  const exists = await db.schema.hasTable('gradebook_shared_reports');
+  if (!exists) {
+    await db.schema.createTable('gradebook_shared_reports', (table) => {
+      table.string('id', 64).primary();
+      table.string('class_id', 64).nullable();
+      table.string('teacher_id', 64).nullable();
+      table.string('teacher_name', 255).nullable();
+      table.string('teacher_code', 64).nullable();
+      table.string('class_name', 255).nullable();
+      table.string('subject', 255).nullable();
+      table.string('grade', 100).nullable();
+      table.string('date', 50).nullable();
+      table.string('time', 50).nullable();
+      table.integer('students_count').defaultTo(0);
+      table.float('class_average').defaultTo(0);
+      table.float('top_score').defaultTo(0);
+      table.float('pass_rate').defaultTo(0);
+      table.text('categories').nullable(); // JSON
+      table.text('failing_students').nullable(); // JSON
+      table.text('students').nullable(); // JSON
+      table.text('teacher_note').nullable();
+      table.string('status', 50).defaultTo('submitted'); // 'submitted' | 'acknowledged'
+      table.timestamp('created_at').defaultTo(db.fn.now());
+      table.timestamp('acknowledged_at').nullable();
+    });
+  }
+};
+
+/**
+ * POST /api/v1/gradebook/shared-reports
+ * Teacher shares class gradebook & statistics with school management
+ */
+router.post('/shared-reports', async (req, res, next) => {
+  try {
+    await ensureSharedReportsTable();
+    const {
+      class_id,
+      class_name,
+      subject,
+      grade,
+      students_count,
+      class_average,
+      top_score,
+      pass_rate,
+      categories,
+      failing_students,
+      students,
+      teacher_note,
+    } = req.body;
+
+    const currentTeacherName = req.user?.display_name || 'دبیر محترم';
+    const currentTeacherCode = req.user?.personnel_code || 'TCH-101';
+    const reportId = `gb-${Date.now()}`;
+    const now = new Date();
+
+    const reportRow = {
+      id: reportId,
+      class_id: class_id || null,
+      teacher_id: req.user.id,
+      teacher_name: currentTeacherName,
+      teacher_code: currentTeacherCode,
+      class_name: class_name || 'کلاس انتخابی',
+      subject: subject || 'عمومی',
+      grade: grade || 'پایه دهم',
+      date: now.toLocaleDateString('fa-IR'),
+      time: now.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      students_count: parseInt(students_count, 10) || 0,
+      class_average: parseFloat(class_average) || 0,
+      top_score: parseFloat(top_score) || 0,
+      pass_rate: parseFloat(pass_rate) || 0,
+      categories: typeof categories === 'string' ? categories : JSON.stringify(categories || []),
+      failing_students: typeof failing_students === 'string' ? failing_students : JSON.stringify(failing_students || []),
+      students: typeof students === 'string' ? students : JSON.stringify(students || []),
+      teacher_note: (teacher_note || '').trim() || 'کارنامه و لیست نمرات کلاس توسط دبیر تایید و برای دفتر مدیریت ارسال شد.',
+      status: 'submitted',
+      created_at: now.toISOString(),
+    };
+
+    await db('gradebook_shared_reports').insert(reportRow);
+
+    // Send notifications to school admins and managers
+    const adminUsers = await db('users').whereIn('role', ['admin', 'manager']).select('id');
+    for (const adm of adminUsers) {
+      try {
+        await db('notifications').insert({
+          id: uuidv4(),
+          user_id: adm.id,
+          type: 'academic',
+          title: `📊 کارنامه و لیست نمرات: ${reportRow.class_name}`,
+          body: `دبیر محترم ${reportRow.teacher_name} لیست نمرات کلاس ${reportRow.class_name} را با میانگین ${reportRow.class_average} برای مدیریت ارسال کرد.`,
+          data: JSON.stringify({
+            report_id: reportId,
+            class_id: reportRow.class_id,
+            teacher_name: reportRow.teacher_name,
+            class_name: reportRow.class_name,
+            average: reportRow.class_average,
+            pass_rate: reportRow.pass_rate,
+          }),
+          is_read: false,
+          created_at: now.toISOString(),
+        });
+      } catch (e) {}
+    }
+
+    const parsedReport = {
+      ...reportRow,
+      categories: JSON.parse(reportRow.categories || '[]'),
+      failing_students: JSON.parse(reportRow.failing_students || '[]'),
+      students: JSON.parse(reportRow.students || '[]'),
+    };
+
+    res.status(201).json({
+      success: true,
+      message: `لیست نمرات کلاس «${reportRow.class_name}» با موفقیت برای مدیریت ارسال شد`,
+      data: { report: parsedReport },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/gradebook/shared-reports
+ * Fetches all shared gradebook reports from teachers
+ */
+router.get('/shared-reports', async (req, res, next) => {
+  try {
+    await ensureSharedReportsTable();
+    let query = db('gradebook_shared_reports').orderBy('created_at', 'desc');
+
+    // If regular teacher, show reports they sent or for their classes
+    if (req.user.role === 'teacher') {
+      query = query.where(function () {
+        this.where('teacher_id', req.user.id).orWhere('teacher_code', req.user.personnel_code);
+      });
+    }
+
+    const rows = await query;
+    const reports = rows.map((r) => {
+      let cats = [];
+      let failing = [];
+      let sts = [];
+      try { cats = typeof r.categories === 'string' ? JSON.parse(r.categories) : r.categories; } catch (e) {}
+      try { failing = typeof r.failing_students === 'string' ? JSON.parse(r.failing_students) : r.failing_students; } catch (e) {}
+      try { sts = typeof r.students === 'string' ? JSON.parse(r.students) : r.students; } catch (e) {}
+      return {
+        ...r,
+        categories: cats || [],
+        failing_students: failing || [],
+        students: sts || [],
+      };
+    });
+
+    res.json({
+      success: true,
+      data: { reports },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/v1/gradebook/shared-reports/:id/acknowledge
+ * Management approves / acknowledges a shared gradebook report
+ */
+router.put('/shared-reports/:id/acknowledge', async (req, res, next) => {
+  try {
+    await ensureSharedReportsTable();
+    const { id } = req.params;
+    const report = await db('gradebook_shared_reports').where({ id }).first();
+    if (!report) {
+      return res.status(404).json({ success: false, message: 'گزارش کارنامه یافت نشد' });
+    }
+
+    const now = new Date().toISOString();
+    await db('gradebook_shared_reports').where({ id }).update({
+      status: 'acknowledged',
+      acknowledged_at: now,
+    });
+
+    // Notify the teacher who submitted the report
+    if (report.teacher_id) {
+      try {
+        await db('notifications').insert({
+          id: uuidv4(),
+          user_id: report.teacher_id,
+          type: 'academic',
+          title: `✓ رویت و تایید کارنامه: ${report.class_name}`,
+          body: `مدیریت مدرسه گزارش و کارنامه کلاسی «${report.class_name}» را رویت و مورد تایید قرار داد.`,
+          data: JSON.stringify({ report_id: id }),
+          is_read: false,
+          created_at: now,
+        });
+      } catch (e) {}
+    }
+
+    res.json({
+      success: true,
+      message: 'رویت و تایید کارنامه کلاسی توسط مدیریت با موفقیت ثبت شد ✓',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * GET /api/v1/gradebook/report-card
  * GET /api/v1/gradebook/report-card/:studentId
