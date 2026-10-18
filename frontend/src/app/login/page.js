@@ -710,44 +710,6 @@ export default function LoginPage() {
                   </select>
                 </div>
 
-                {/* Quick Helper for Registered Schools */}
-                {availableSchools.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                      گزینه‌های آماده:
-                    </span>
-                    {availableSchools.slice(0, 7).map((sch) => {
-                      const isSelected = smartForm.school_name === sch.name;
-                      return (
-                        <button
-                          key={sch.code || sch.name}
-                          type="button"
-                          onClick={() => {
-                            setSmartForm({
-                              ...smartForm,
-                              school_name: sch.name,
-                              school_code: sch.code || '',
-                            });
-                            setCustomSchoolName(sch.name);
-                            toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
-                          }}
-                          style={{
-                            fontSize: '0.73rem',
-                            padding: '3px 8px',
-                            borderRadius: '8px',
-                            border: isSelected ? '1.5px solid #4f46e5' : '1px solid rgba(99, 102, 241, 0.25)',
-                            background: isSelected ? 'rgba(79, 70, 229, 0.15)' : 'rgba(99, 102, 241, 0.06)',
-                            color: isSelected ? '#4f46e5' : 'var(--text-secondary)',
-                            cursor: 'pointer',
-                            fontWeight: isSelected ? 800 : 600,
-                          }}
-                        >
-                          🏛️ {sch.name} {sch.is_registered ? '✨' : ''}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
 
               {/* ── Teacher Subject Selection & Typing (درس و تخصص آموزشی دبیر) ── */}
