@@ -280,27 +280,8 @@ export default function ClassDetailPage() {
     }
   };
 
-  // Mock resources for repository tab
-  const classResources = [
-    {
-      title: 'جزوه جامع تدریس فصل سوم (نسخه رنگی)',
-      format: 'PDF',
-      size: '۴.۲ مگابایت',
-      date: '۳ روز پیش',
-    },
-    {
-      title: 'بانک نمونه سوالات امتحانی ترم اول با پاسخنامه تشریحی',
-      format: 'PDF',
-      size: '۸.۵ مگابایت',
-      date: 'هفته گذشته',
-    },
-    {
-      title: 'اسلایدهای کنفرانسی مبحث توابع نمایی',
-      format: 'PPTX',
-      size: '۱۲ مگابایت',
-      date: 'دو هفته پیش',
-    },
-  ];
+  // Resources for repository tab
+  const classResources = [];
 
   if (loading) {
     return (
@@ -668,22 +649,22 @@ export default function ClassDetailPage() {
                         </div>
                       </td>
                       <td>
-                        <span style={{ color: '#10b981', fontWeight: 700 }}>
-                          {[96, 92, 100, 88, 94][idx % 5]}٪
+                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 600 }}>
+                          --
                         </span>
                       </td>
                       <td>
-                        <span>
-                          {[4, 5, 3, 5, 4][idx % 5]} از ۵ تکلیف
+                        <span style={{ color: 'var(--text-tertiary)' }}>
+                          ۰ تکلیف
                         </span>
                       </td>
                       <td>
-                        <strong style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>
-                          {[19.25, 18.5, 20, 16.75, 17.5][idx % 5]}
+                        <strong style={{ fontSize: '1rem', color: 'var(--text-tertiary)' }}>
+                          --
                         </strong>
                       </td>
                       <td>
-                        <span className="badge badge-success">عالی (A+)</span>
+                        <span className="badge badge-secondary">در انتظار ارزیابی</span>
                       </td>
                       <td>
                         <Link href={`/dashboard/messages?user=${m.id}`} className="btn btn-ghost btn-sm" title="ارسال پیام">
@@ -717,39 +698,49 @@ export default function ClassDetailPage() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-            {classResources.map((res, i) => (
-              <div
-                key={i}
-                style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-2xl)',
-                  padding: '20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="badge badge-primary">{res.format}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{res.size}</span>
-                </div>
-
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1.5 }}>{res.title}</h3>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>تاریخ انتشار: {res.date}</span>
-
-                <button
-                  className="btn btn-secondary btn-sm"
-                  style={{ marginTop: 'auto' }}
-                  onClick={() => toast.success(`دانلود فایل "${res.title}" آغاز شد 📥`)}
+          {classResources.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '50px 20px', background: 'var(--bg-card)', borderRadius: 'var(--radius-2xl)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>📁</div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>هنوز منبع یا فایلی برای این کلاس بارگذاری نشده است</h3>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem', marginTop: '6px' }}>
+                می‌توانید جزوات، اسلایدها و نمونه سوالات درسی را از طریق دکمه «بارگذاری فایل جدید» اضافه فرمایید.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+              {classResources.map((res, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-2xl)',
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
                 >
-                  <HiOutlineFolderArrowDown />
-                  <span>دانلود فایل آموزشی</span>
-                </button>
-              </div>
-            ))}
-          </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="badge badge-primary">{res.format}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{res.size}</span>
+                  </div>
+
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1.5 }}>{res.title}</h3>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>تاریخ انتشار: {res.date}</span>
+
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 'auto' }}
+                    onClick={() => toast.success(`دانلود فایل "${res.title}" آغاز شد 📥`)}
+                  >
+                    <HiOutlineFolderArrowDown />
+                    <span>دانلود فایل آموزشی</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

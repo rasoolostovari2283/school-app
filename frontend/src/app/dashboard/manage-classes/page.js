@@ -48,9 +48,9 @@ export default function ManageClassesPage() {
 
   // School Identity
   const [schoolData, setSchoolData] = useState({
-    name: 'مجتمع آموزشی هوشمند علامه حلی',
-    code: 'SCH-4821',
-    principal: 'دکتر تقوی',
+    name: 'مدرسه من',
+    code: 'SCH-1001',
+    principal: '',
   });
 
   // State
@@ -83,9 +83,17 @@ export default function ManageClassesPage() {
 
   // ── 1. Load Data on Mount ──
   useEffect(() => {
-    let currentCode = user?.school_code || 'SCH-4821';
-    let currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-    let principalName = user?.display_name || user?.name || 'دکتر تقوی';
+    const userSettings = (() => {
+      try {
+        return typeof user?.settings === 'string' ? JSON.parse(user.settings) : (user?.settings || {});
+      } catch (e) {
+        return {};
+      }
+    })();
+
+    let currentCode = user?.school_code || userSettings?.school_code || 'SCH-1001';
+    let currentName = user?.school_name || userSettings?.school_name || (userSettings?.schools?.[0]) || 'مدرسه من';
+    let principalName = user?.display_name || user?.name || 'مدیر / دبیر گرامی';
 
     try {
       const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
@@ -105,6 +113,10 @@ export default function ManageClassesPage() {
       principal: principalName,
     });
 
+    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
+    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
+    const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
+
     // 1. Load Teachers from Teacher Database
     let loadedTeachers = [];
     try {
@@ -114,13 +126,17 @@ export default function ManageClassesPage() {
       if (savedTch) loadedTeachers = JSON.parse(savedTch);
     } catch (e) {}
 
-    if (loadedTeachers.length === 0) {
+    loadedTeachers = Array.isArray(loadedTeachers) ? loadedTeachers.filter((t) => !isDummyTeacher(t)) : [];
+
+    if (user && user.role === 'teacher' && loadedTeachers.length === 0) {
       loadedTeachers = [
-        { id: 'tch-101', name: 'مهندس حسین میرزایی', code: 'TCH-101', subject: 'ریاضی و هندسه', phone: '09121110002' },
-        { id: 'tch-102', name: 'دکتر فاطمه صادقی', code: 'TCH-102', subject: 'زیست‌شناسی و ژنتیک', phone: '09121110003' },
-        { id: 'tch-103', name: 'استاد مسعود اکبری', code: 'TCH-103', subject: 'فیزیک', phone: '09121110004' },
-        { id: 'tch-104', name: 'سرکار خانم مهندس جلالی', code: 'TCH-104', subject: 'شیمی', phone: '09121110005' },
-        { id: 'tch-105', name: 'دکتر مهدی رحمانی', code: 'TCH-105', subject: 'مشاوره و هدایت تحصیلی', phone: '09121110006' },
+        {
+          id: user.id || 'tch-current',
+          name: user.display_name || 'دبیر گرامی',
+          code: user.personnel_code || 'TCH-01',
+          subject: user.job_title || userSettings?.subject || 'دبیر تخصصی',
+          phone: user.phone || '',
+        },
       ];
     }
     setTeachers(loadedTeachers);
@@ -132,21 +148,11 @@ export default function ManageClassesPage() {
       if (savedStd) loadedStudents = JSON.parse(savedStd);
     } catch (e) {}
 
-    if (loadedStudents.length === 0) {
-      loadedStudents = [
-        { id: 'std-1', name: 'محمد پارسا رادمنش', code: 'STD-1001', grade: 'پایه دهم', class_name: 'کلاس ۱۰۱ - ریاضی و حسابان', parent_phone: '09123456701' },
-        { id: 'std-2', name: 'علیرضا اسدی', code: 'STD-1002', grade: 'پایه دهم', class_name: 'کلاس ۱۰۲ - شیمی پایه', parent_phone: '09123456702' },
-        { id: 'std-3', name: 'سینا محمدی', code: 'STD-1003', grade: 'پایه دهم', class_name: 'کلاس ۱۰۱ - ریاضی و حسابان', parent_phone: '09123456703' },
-        { id: 'std-4', name: 'امیررضا صادقی', code: 'STD-2001', grade: 'پایه یازدهم', class_name: 'کلاس ۲۰۱ - فیزیک تجربی', parent_phone: '09123456704' },
-        { id: 'std-5', name: 'مهدی کریمی', code: 'STD-2002', grade: 'پایه یازدهم', class_name: 'کلاس ۲۰۲ - هندسه تحلیلی', parent_phone: '09123456705' },
-        { id: 'std-6', name: 'نیما قنبری', code: 'STD-3001', grade: 'پایه دوازدهم', class_name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور', parent_phone: '09123456706' },
-        { id: 'std-7', name: 'آرش حسینی', code: 'STD-3002', grade: 'پایه دوازدهم', class_name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور', parent_phone: '09123456707' },
-      ];
-      try {
-        localStorage.setItem(`mgmt_students_${currentCode}`, JSON.stringify(loadedStudents));
-      } catch (e) {}
-    }
+    loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
     setStudents(loadedStudents);
+    try {
+      localStorage.setItem(`mgmt_students_${currentCode}`, JSON.stringify(loadedStudents));
+    } catch (e) {}
 
     // 3. Load Classes
     let loadedClasses = [];
@@ -157,65 +163,12 @@ export default function ManageClassesPage() {
       if (savedCls) loadedClasses = JSON.parse(savedCls);
     } catch (e) {}
 
-    if (loadedClasses.length === 0) {
-      loadedClasses = [
-        {
-          id: 'cls-1',
-          name: 'کلاس ۱۰۱ - ریاضی و حسابان',
-          grade: 'پایه دهم',
-          major: 'ریاضی و فیزیک',
-          teacher_id: 'tch-101',
-          teacher_name: 'مهندس حسین میرزایی',
-          teacher_code: 'TCH-101',
-          room: 'سالن ۲۰۱',
-        },
-        {
-          id: 'cls-2',
-          name: 'کلاس ۲۰۲ - هندسه تحلیلی',
-          grade: 'پایه یازدهم',
-          major: 'ریاضی و فیزیک',
-          teacher_id: 'tch-101',
-          teacher_name: 'مهندس حسین میرزایی',
-          teacher_code: 'TCH-101',
-          room: 'سالن ۲۰۳',
-        },
-        {
-          id: 'cls-3',
-          name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور',
-          grade: 'پایه دوازدهم',
-          major: 'علوم تجربی',
-          teacher_id: 'tch-102',
-          teacher_name: 'دکتر فاطمه صادقی',
-          teacher_code: 'TCH-102',
-          room: 'آزمایشگاه علوم',
-        },
-        {
-          id: 'cls-4',
-          name: 'کلاس ۲۰۱ - فیزیک تجربی',
-          grade: 'پایه یازدهم',
-          major: 'علوم تجربی',
-          teacher_id: 'tch-103',
-          teacher_name: 'استاد مسعود اکبری',
-          teacher_code: 'TCH-103',
-          room: 'سالن فیزیک',
-        },
-        {
-          id: 'cls-5',
-          name: 'کلاس ۱۰۲ - شیمی پایه',
-          grade: 'پایه دهم',
-          major: 'علوم تجربی',
-          teacher_id: 'tch-104',
-          teacher_name: 'سرکار خانم مهندس جلالی',
-          teacher_code: 'TCH-104',
-          room: 'آزمایشگاه شیمی',
-        },
-      ];
-      try {
-        localStorage.setItem(`mgmt_classes_${currentCode}`, JSON.stringify(loadedClasses));
-        localStorage.setItem('school_classes_database', JSON.stringify(loadedClasses));
-      } catch (e) {}
-    }
+    loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
     setClasses(loadedClasses);
+    try {
+      localStorage.setItem(`mgmt_classes_${currentCode}`, JSON.stringify(loadedClasses));
+      localStorage.setItem('school_classes_database', JSON.stringify(loadedClasses));
+    } catch (e) {}
 
     setLoading(false);
   }, [user]);

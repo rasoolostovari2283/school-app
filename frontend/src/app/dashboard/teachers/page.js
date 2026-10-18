@@ -109,72 +109,32 @@ export default function TeachersDatabasePage() {
     // Load Teachers from persistent storage
     const storageKey = `mgmt_teachers_${currentCode}`;
     const saved = localStorage.getItem(storageKey);
+    let loaded = [];
     if (saved) {
       try {
-        setTeachers(JSON.parse(saved));
+        loaded = JSON.parse(saved);
       } catch (e) {}
-    } else {
-      // Default initial seeds
-      const initialSeed = [
+    }
+    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
+    loaded = Array.isArray(loaded) ? loaded.filter((t) => !isDummyTeacher(t)) : [];
+
+    if (user && user.role === 'teacher' && loaded.length === 0) {
+      loaded = [
         {
-          id: 'tch-101',
-          name: 'مهندس حسین میرزایی',
-          code: 'TCH-101',
-          subject: 'ریاضی و هندسه',
-          phone: '09121110002',
-          personnel_code: '984021',
-          grades: ['پایه دهم', 'پایه یازدهم'],
+          id: user.id || 'tch-current',
+          name: user.display_name || 'دبیر گرامی',
+          code: user.personnel_code || 'TCH-01',
+          subject: user.job_title || 'دبیر تخصصی',
+          phone: user.phone || '',
+          personnel_code: user.personnel_code || '984020',
+          grades: [],
           status: 'active',
-          classes_count: 2,
-        },
-        {
-          id: 'tch-102',
-          name: 'دکتر فاطمه صادقی',
-          code: 'TCH-102',
-          subject: 'زیست‌شناسی و ژنتیک',
-          phone: '09121110003',
-          personnel_code: '984022',
-          grades: ['پایه دهم', 'پایه دوازدهم'],
-          status: 'active',
-          classes_count: 1,
-        },
-        {
-          id: 'tch-103',
-          name: 'استاد مسعود اکبری',
-          code: 'TCH-103',
-          subject: 'فیزیک',
-          phone: '09121110004',
-          personnel_code: '984023',
-          grades: ['پایه یازدهم', 'پایه دوازدهم'],
-          status: 'active',
-          classes_count: 2,
-        },
-        {
-          id: 'tch-104',
-          name: 'سرکار خانم مهندس جلالی',
-          code: 'TCH-104',
-          subject: 'شیمی',
-          phone: '09121110005',
-          personnel_code: '984024',
-          grades: ['پایه دهم', 'پایه یازدهم', 'پایه دوازدهم'],
-          status: 'active',
-          classes_count: 1,
-        },
-        {
-          id: 'tch-105',
-          name: 'دکتر مهدی رحمانی',
-          code: 'TCH-105',
-          subject: 'مشاوره و سلامت روان',
-          phone: '09121110006',
-          personnel_code: '984025',
-          grades: ['پایه دوازدهم'],
-          status: 'active',
-          classes_count: 1,
+          classes_count: 0,
         },
       ];
-      setTeachers(initialSeed);
-      saveTeachersToStorage(initialSeed, currentCode);
     }
+    setTeachers(loaded);
+    saveTeachersToStorage(loaded, currentCode);
 
     setLoading(false);
   }, [user]);

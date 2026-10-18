@@ -256,15 +256,10 @@ export default function MessagesPage() {
       if (savedTch) schoolTeachers = JSON.parse(savedTch);
     } catch (e) {}
 
-    if (schoolTeachers.length === 0) {
-      schoolTeachers = [
-        { id: 'tch-101', name: 'مهندس حسین میرزایی', code: 'TCH-101', subject: 'ریاضی و هندسه', phone: '09121110002', personnel_code: 'EMP-98402', grades: ['پایه دهم', 'پایه یازدهم'] },
-        { id: 'tch-102', name: 'دکتر فاطمه صادقی', code: 'TCH-102', subject: 'زیست‌شناسی و ژنتیک', phone: '09121110003', personnel_code: 'EMP-98403', grades: ['پایه دهم', 'پایه دوازدهم'] },
-        { id: 'tch-103', name: 'استاد مسعود اکبری', code: 'TCH-103', subject: 'فیزیک', phone: '09121110004', personnel_code: 'EMP-98404', grades: ['پایه یازدهم', 'پایه دوازدهم'] },
-        { id: 'tch-104', name: 'سرکار خانم مهندس جلالی', code: 'TCH-104', subject: 'شیمی', phone: '09121110005', personnel_code: 'EMP-98405', grades: ['پایه دهم', 'پایه یازدهم'] },
-        { id: 'tch-105', name: 'دکتر مهدی رحمانی', code: 'TCH-105', subject: 'مشاوره و هدایت تحصیلی', phone: '09121110006', personnel_code: 'EMP-98406', grades: ['پایه دهم', 'پایه یازدهم', 'پایه دوازدهم'] },
-      ];
-    }
+    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
+    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
+
+    schoolTeachers = Array.isArray(schoolTeachers) ? schoolTeachers.filter((t) => !isDummyTeacher(t)) : [];
 
     // 3. Load School Students from School Database
     let schoolStudents = [];
@@ -273,16 +268,7 @@ export default function MessagesPage() {
       if (savedStd) schoolStudents = JSON.parse(savedStd);
     } catch (e) {}
 
-    if (schoolStudents.length === 0) {
-      schoolStudents = [
-        { id: 'std-1', name: 'محمد پارسا رادمنش', code: 'STD-1001', grade: 'پایه دهم', class_name: 'کلاس ۱۰۱ - ریاضی و حسابان', parent_phone: '09123456701' },
-        { id: 'std-2', name: 'علیرضا اسدی', code: 'STD-1002', grade: 'پایه دهم', class_name: 'کلاس ۱۰۲ - شیمی پایه', parent_phone: '09123456702' },
-        { id: 'std-3', name: 'سینا محمدی', code: 'STD-1003', grade: 'پایه دهم', class_name: 'کلاس ۱۰۱ - ریاضی و حسابان', parent_phone: '09123456703' },
-        { id: 'std-4', name: 'امیررضا صادقی', code: 'STD-2001', grade: 'پایه یازدهم', class_name: 'کلاس ۲۰۱ - فیزیک تجربی', parent_phone: '09123456704' },
-        { id: 'std-5', name: 'مهدی کریمی', code: 'STD-2002', grade: 'پایه یازدهم', class_name: 'کلاس ۲۰۱ - فیزیک تجربی', parent_phone: '09123456705' },
-        { id: 'std-6', name: 'علی‌اکبر نجفی', code: 'STD-3001', grade: 'پایه دوازدهم', class_name: 'کلاس ۳۰۱ - کنکور پیشرفته', parent_phone: '09123456706' },
-      ];
-    }
+    schoolStudents = Array.isArray(schoolStudents) ? schoolStudents.filter((s) => !isDummyStudent(s)) : [];
 
     // 4. Merge Teachers Map (School Account + Backend Staff)
     const teachersMap = new Map();

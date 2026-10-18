@@ -85,86 +85,16 @@ export default function AttendancePage() {
     try {
       const saved = localStorage.getItem('school_shared_attendance_reports');
       if (saved) {
-        setSharedReports(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const filtered = Array.isArray(parsed) ? parsed.filter((r) => !r.id?.startsWith('rep-seed-')) : [];
+        setSharedReports(filtered);
+        localStorage.setItem('school_shared_attendance_reports', JSON.stringify(filtered));
       } else {
-        const initialSeed = [
-          {
-            id: 'rep-seed-1',
-            teacher_name: 'مهندس حسین میرزایی',
-            teacher_code: 'TCH-101',
-            subject: 'ریاضی و هندسه',
-            class_name: 'کلاس ۱۰۱ - ریاضی و حسابان',
-            grade: 'پایه دهم',
-            date: new Date().toLocaleDateString('fa-IR'),
-            time: '۰۸:۴۵',
-            created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-            present_count: 22,
-            absent_count: 2,
-            late_count: 1,
-            attendance_percentage: 92,
-            absent_students: [
-              { id: 's-1', name: 'علی کیانی', phone: '09123456703', reason: 'عدم اعلام حضور' },
-              { id: 's-2', name: 'محمدرضا سعیدی', phone: '09123456708', reason: 'تماس ولی: سرماخوردگی' },
-            ],
-            present_students: [
-              { id: 's-3', name: 'محمد پارسا رادمنش', time: '۰۸:۳۲', status: 'present' },
-              { id: 's-4', name: 'سینا محمدی', time: '۰۸:۳۵', status: 'present' },
-            ],
-            teacher_note: 'جلسه حل تمرین فصل اول برگزار شد. دانش‌آموز علی کیانی بدون اطلاع غایب بود، لطفاً با اولیا تماس گرفته شود.',
-            status: 'submitted',
-          },
-          {
-            id: 'rep-seed-2',
-            teacher_name: 'دکتر فاطمه صادقی',
-            teacher_code: 'TCH-102',
-            subject: 'زیست‌شناسی و ژنتیک',
-            class_name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور',
-            grade: 'پایه دوازدهم',
-            date: new Date().toLocaleDateString('fa-IR'),
-            time: '۱۰:۳۰',
-            created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-            present_count: 26,
-            absent_count: 1,
-            late_count: 2,
-            attendance_percentage: 96,
-            absent_students: [
-              { id: 's-5', name: 'امیرحسین حسینی', phone: '09123456711', reason: 'غیبت غیرموجه' },
-            ],
-            present_students: [
-              { id: 's-6', name: 'نیما قنبری', time: '۱۰:۱۶', status: 'present' },
-              { id: 's-7', name: 'آرش حسینی', time: '۱۰:۲۰', status: 'late' },
-            ],
-            teacher_note: 'مبحث ژنتیک مندلی تدریس گردید. مشارکت کلاسی بسیار عالی بود.',
-            status: 'acknowledged',
-          },
-          {
-            id: 'rep-seed-3',
-            teacher_name: 'استاد مسعود اکبری',
-            teacher_code: 'TCH-103',
-            subject: 'فیزیک',
-            class_name: 'کلاس ۲۰۱ - فیزیک تجربی',
-            grade: 'پایه یازدهم',
-            date: new Date(Date.now() - 3600000 * 24).toLocaleDateString('fa-IR'),
-            time: '۱۱:۱۵',
-            created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-            present_count: 24,
-            absent_count: 3,
-            late_count: 0,
-            attendance_percentage: 89,
-            absent_students: [
-              { id: 's-8', name: 'پارسا احمدی', phone: '09123456715', reason: 'غیبت' },
-              { id: 's-9', name: 'مهدی کریمی', phone: '09123456705', reason: 'غیبت' },
-              { id: 's-10', name: 'امیررضا صادقی', phone: '09123456704', reason: 'غیبت' },
-            ],
-            present_students: [],
-            teacher_note: 'کوییز کلاسی فصل الکتریسیته برگزار شد. غایبین باید برای آزمون جبرانی هماهنگ شوند.',
-            status: 'acknowledged',
-          },
-        ];
-        setSharedReports(initialSeed);
-        localStorage.setItem('school_shared_attendance_reports', JSON.stringify(initialSeed));
+        setSharedReports([]);
       }
-    } catch (e) {}
+    } catch (e) {
+      setSharedReports([]);
+    }
   }, []);
 
   const handleShareWithManagement = async () => {

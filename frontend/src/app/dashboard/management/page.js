@@ -121,201 +121,54 @@ export default function ManagementDashboardPage() {
       principal: principalName,
     });
 
+    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
+    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
+    const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
+
     // ── Load Teachers ──
     const teacherStorageKey = `mgmt_teachers_${currentSchoolCode}`;
     const savedTeachers = localStorage.getItem(teacherStorageKey);
+    let loadedTeachers = [];
     if (savedTeachers) {
       try {
-        setTeachers(JSON.parse(savedTeachers));
-      } catch (e) {}
-    } else {
-      const defaultTeachers = [
-        {
-          id: 'tch-101',
-          name: 'مهندس حسین میرزایی',
-          code: 'TCH-101',
-          subject: 'ریاضی و هندسه',
-          phone: '09121110002',
-          grades: ['پایه دهم', 'پایه یازدهم'],
-        },
-        {
-          id: 'tch-102',
-          name: 'دکتر فاطمه صادقی',
-          code: 'TCH-102',
-          subject: 'زیست‌شناسی و ژنتیک',
-          phone: '09121110003',
-          grades: ['پایه دهم', 'پایه دوازدهم'],
-        },
-        {
-          id: 'tch-103',
-          name: 'استاد مسعود اکبری',
-          code: 'TCH-103',
-          subject: 'فیزیک عمومی و اتمی',
-          phone: '09121110004',
-          grades: ['پایه یازدهم', 'پایه دوازدهم'],
-        },
-        {
-          id: 'tch-104',
-          name: 'سرکار خانم مهندس جلالی',
-          code: 'TCH-104',
-          subject: 'شیمی آلی و معدنی',
-          phone: '09121110005',
-          grades: ['پایه دهم', 'پایه یازدهم', 'پایه دوازدهم'],
-        },
-        {
-          id: 'tch-105',
-          name: 'دکتر مهدی رحمانی',
-          code: 'TCH-105',
-          subject: 'مشاوره و هدایت تحصیلی',
-          phone: '09121110006',
-          grades: ['پایه دوازدهم'],
-        },
-      ];
-      setTeachers(defaultTeachers);
-      try {
-        localStorage.setItem(teacherStorageKey, JSON.stringify(defaultTeachers));
+        loadedTeachers = JSON.parse(savedTeachers);
       } catch (e) {}
     }
+    loadedTeachers = Array.isArray(loadedTeachers) ? loadedTeachers.filter((t) => !isDummyTeacher(t)) : [];
+    setTeachers(loadedTeachers);
+    try {
+      localStorage.setItem(teacherStorageKey, JSON.stringify(loadedTeachers));
+    } catch (e) {}
 
     // ── Load Students Grade-by-Grade ──
     const studentStorageKey = `mgmt_students_${currentSchoolCode}`;
     const savedStudents = localStorage.getItem(studentStorageKey);
+    let loadedStudents = [];
     if (savedStudents) {
       try {
-        setStudents(JSON.parse(savedStudents));
-      } catch (e) {}
-    } else {
-      const defaultStudents = [
-        {
-          id: 'std-1',
-          name: 'محمد پارسا رادمنش',
-          code: 'STD-1001',
-          grade: 'پایه دهم',
-          class_name: 'کلاس ۱۰۱ - ریاضی',
-          teacher_name: 'مهندس حسین میرزایی',
-          parent_phone: '09123456701',
-        },
-        {
-          id: 'std-2',
-          name: 'علیرضا اسدی',
-          code: 'STD-1002',
-          grade: 'پایه دهم',
-          class_name: 'کلاس ۱۰۲ - شیمی',
-          teacher_name: 'سرکار خانم مهندس جلالی',
-          parent_phone: '09123456702',
-        },
-        {
-          id: 'std-3',
-          name: 'سینا محمدی',
-          code: 'STD-1003',
-          grade: 'پایه دهم',
-          class_name: 'کلاس ۱۰۱ - ریاضی',
-          teacher_name: 'مهندس حسین میرزایی',
-          parent_phone: '09123456703',
-        },
-        {
-          id: 'std-4',
-          name: 'امیررضا صادقی',
-          code: 'STD-2001',
-          grade: 'پایه یازدهم',
-          class_name: 'کلاس ۲۰۱ - فیزیک پیشرفته',
-          teacher_name: 'استاد مسعود اکبری',
-          parent_phone: '09123456704',
-        },
-        {
-          id: 'std-5',
-          name: 'مهدی کریمی',
-          code: 'STD-2002',
-          grade: 'پایه یازدهم',
-          class_name: 'کلاس ۲۰۲ - هندسه تحلیلی',
-          teacher_name: 'مهندس حسین میرزایی',
-          parent_phone: '09123456705',
-        },
-        {
-          id: 'std-6',
-          name: 'نیما قنبری',
-          code: 'STD-3001',
-          grade: 'پایه دوازدهم',
-          class_name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور',
-          teacher_name: 'دکتر فاطمه صادقی',
-          parent_phone: '09123456706',
-        },
-        {
-          id: 'std-7',
-          name: 'آرش حسینی',
-          code: 'STD-3002',
-          grade: 'پایه دوازدهم',
-          class_name: 'کلاس ۳۰۲ - فیزیک جامع',
-          teacher_name: 'استاد مسعود اکبری',
-          parent_phone: '09123456707',
-        },
-      ];
-      setStudents(defaultStudents);
-      try {
-        localStorage.setItem(studentStorageKey, JSON.stringify(defaultStudents));
+        loadedStudents = JSON.parse(savedStudents);
       } catch (e) {}
     }
+    loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
+    setStudents(loadedStudents);
+    try {
+      localStorage.setItem(studentStorageKey, JSON.stringify(loadedStudents));
+    } catch (e) {}
 
     // ── Load Classes Subordinate to Teachers ──
     const classStorageKey = `mgmt_classes_${currentSchoolCode}`;
     const savedClasses = localStorage.getItem(classStorageKey);
+    let loadedClasses = [];
     if (savedClasses) {
       try {
-        setClassesList(JSON.parse(savedClasses));
-      } catch (e) {}
-    } else {
-      const defaultClasses = [
-        {
-          id: 'cls-1',
-          name: 'کلاس ۱۰۱ - ریاضی و حسابان',
-          grade: 'پایه دهم',
-          teacher_id: 'tch-101',
-          teacher_name: 'مهندس حسین میرزایی',
-          students_count: 24,
-          room: 'سالن ۲۰۱',
-        },
-        {
-          id: 'cls-2',
-          name: 'کلاس ۲۰۲ - هندسه تحلیلی',
-          grade: 'پایه یازدهم',
-          teacher_id: 'tch-101',
-          teacher_name: 'مهندس حسین میرزایی',
-          students_count: 22,
-          room: 'سالن ۲۰۳',
-        },
-        {
-          id: 'cls-3',
-          name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور',
-          grade: 'پایه دوازدهم',
-          teacher_id: 'tch-102',
-          teacher_name: 'دکتر فاطمه صادقی',
-          students_count: 28,
-          room: 'آزمایشگاه علوم',
-        },
-        {
-          id: 'cls-4',
-          name: 'کلاس ۲۰۱ - فیزیک تجربی',
-          grade: 'پایه یازدهم',
-          teacher_id: 'tch-103',
-          teacher_name: 'استاد مسعود اکبری',
-          students_count: 26,
-          room: 'سالن فیزیک',
-        },
-        {
-          id: 'cls-5',
-          name: 'کلاس ۱۰۲ - شیمی پایه',
-          grade: 'پایه دهم',
-          teacher_id: 'tch-104',
-          teacher_name: 'سرکار خانم مهندس جلالی',
-          students_count: 25,
-          room: 'آزمایشگاه شیمی',
-        },
-      ];
-      setClassesList(defaultClasses);
-      try {
-        localStorage.setItem(classStorageKey, JSON.stringify(defaultClasses));
+        loadedClasses = JSON.parse(savedClasses);
       } catch (e) {}
     }
+    loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
+    setClassesList(loadedClasses);
+    try {
+      localStorage.setItem(classStorageKey, JSON.stringify(loadedClasses));
+    } catch (e) {}
 
     // ── Load Directives ──
     const savedDirectives = localStorage.getItem('sent_management_directives');

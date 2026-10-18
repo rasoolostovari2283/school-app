@@ -68,6 +68,55 @@ export default function DashboardPage() {
   const [loadingParent, setLoadingParent] = useState(false);
 
   useEffect(() => {
+    // Purge stale dummy/mock seeds from localStorage so teacher has clean workspace
+    try {
+      const keysToClean = [
+        'school_shared_attendance_reports',
+        'school_shared_gradebook_reports',
+        'school_classes_database',
+        'school_teachers_database',
+      ];
+      keysToClean.forEach((k) => {
+        const val = localStorage.getItem(k);
+        if (val) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter(
+              (item) =>
+                !item.id?.startsWith('rep-seed-') &&
+                !item.id?.startsWith('gb-seed-') &&
+                !['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(item.id) &&
+                !['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(item.id) &&
+                !['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(item.id)
+            );
+            if (cleaned.length !== parsed.length) {
+              localStorage.setItem(k, JSON.stringify(cleaned));
+            }
+          }
+        }
+      });
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('mgmt_classes_') || key.startsWith('mgmt_teachers_') || key.startsWith('mgmt_students_'))) {
+          const val = localStorage.getItem(key);
+          if (val) {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) {
+              const cleaned = parsed.filter(
+                (item) =>
+                  !['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(item.id) &&
+                  !['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(item.id) &&
+                  !['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(item.id)
+              );
+              if (cleaned.length !== parsed.length) {
+                localStorage.setItem(key, JSON.stringify(cleaned));
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
     if (isParent) {
       fetchParentData();
     } else {
@@ -204,32 +253,17 @@ export default function DashboardPage() {
     return 'شب بخیر و آرامش';
   };
 
-  const todayClasses = [
-    {
-      time: '۰۸:۳۰ - ۱۰:۰۰',
-      title: 'ریاضیات یازدهم-الف',
-      subject: 'حسابان و هندسه',
-      status: 'completed',
-      statusLabel: 'برگزار شد ✓',
-      color: '#059669',
-    },
-    {
-      time: '۱۰:۳۰ - ۱۲:۰۰',
-      title: 'فیزیک دهم تجربی',
-      subject: 'قوانین حرکت و کار',
-      status: 'active',
-      statusLabel: 'کلاس بعدی (تا ۲۰ دقیقه دیگر)',
-      color: '#6366f1',
-    },
-    {
-      time: '۱۳:۳۰ - ۱۵:۰۰',
-      title: 'هندسه تحلیلی کنکور',
-      subject: 'مقاطع مخروطی',
-      status: 'upcoming',
-      statusLabel: 'بعدازظهر',
-      color: '#f59e0b',
-    },
-  ];
+  const todayClasses = (classes || []).slice(0, 4).map((cls, idx) => {
+    const defaultTimes = ['۰۸:۰۰ - ۰۹:۳۰', '۰۹:۴۵ - ۱۱:۱۵', '۱۱:۳۰ - ۱۳:۰۰', '۱۳:۳۰ - ۱۵:۰۰'];
+    return {
+      time: cls.time || defaultTimes[idx] || '۰۸:۰۰ - ۰۹:۳۰',
+      title: cls.name,
+      subject: cls.subject || cls.grade || 'کلاس درسی',
+      status: idx === 0 ? 'active' : 'upcoming',
+      statusLabel: idx === 0 ? 'کلاس فعال' : 'جلسه بعد',
+      color: idx === 0 ? '#6366f1' : '#059669',
+    };
+  });
 
   if (isParent) {
     const currentChild = children[0] || {
@@ -514,7 +548,9 @@ export default function DashboardPage() {
 
           <p className={styles.heroDesc}>
             {isTeacher
-              ? 'امروز ۳ جلسه کلاسی فعال دارید. حضور و غیاب دانش‌آموزان را آغاز کنید و تکالیف جدید را بررسی نمایید.'
+              ? (classes.length > 0
+                  ? `شما ${classes.length} کلاس فعال دارید. حضور و غیاب دانش‌آموزان را آغاز کنید و تکالیف را مدیریت نمایید.`
+                  : 'به پنل هوشمند آموزشی ادوکانکت خوش آمدید. کلاس‌ها و برنامه‌های درسی خود را برای شروع تدریس ثبت نمایید.')
               : 'به پنل هوشمند درسی خود خوش آمدید. تکالیف مهلت‌دار و اطلاعیه‌های کلاسی را بررسی کنید.'}
           </p>
         </div>
@@ -752,11 +788,11 @@ export default function DashboardPage() {
               <HiOutlineCheckCircle />
             </div>
             <span className={styles.kpiBadge} style={{ background: '#ecfdf5', color: '#059669' }}>
-              +۳.۲٪ این ماه
+              {classes.length > 0 ? 'ثبت روزانه' : 'در انتظار ثبت'}
             </span>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>۹۴.۸٪</span>
+            <span className={styles.kpiValue}>{classes.length > 0 ? '۱۰۰٪' : '--'}</span>
           </div>
           <span className={styles.kpiLabel}>نرخ حضور و انضباط کلاسی</span>
         </div>
@@ -772,7 +808,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{assignmentStats.pending || 4}</span>
+            <span className={styles.kpiValue}>{assignmentStats.pending || 0}</span>
           </div>
           <span className={styles.kpiLabel}>
             {isTeacher ? 'تکالیف نیازمند تصحیح و نمره' : 'تکالیف در انتظار تحویل'}
@@ -802,11 +838,11 @@ export default function DashboardPage() {
               <HiOutlineArrowTrendingUp />
             </div>
             <span className={styles.kpiBadge} style={{ background: '#fffbeb', color: '#b45309' }}>
-              سطح ممتاز A+
+              {classes.length > 0 ? 'وضعیت کلاسی' : 'در انتظار نمره'}
             </span>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>۱۸.۴</span>
+            <span className={styles.kpiValue}>{classes.length > 0 ? 'آماده نمره‌دهی' : '--'}</span>
           </div>
           <span className={styles.kpiLabel}>میانگین نمرات آزمون‌ها و تکالیف</span>
         </div>
@@ -900,24 +936,41 @@ export default function DashboardPage() {
                 <HiOutlineCalendarDays style={{ color: '#06b6d4' }} />
                 <span>برنامه جلسات امروز</span>
               </h3>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>۳ زنگ</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                {todayClasses.length > 0 ? `${todayClasses.length} زنگ` : 'بدون جلسه'}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {todayClasses.map((item, idx) => (
-                <div key={idx} className={styles.timelineItem}>
-                  <div className={styles.timelineTime}>{item.time}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong style={{ fontSize: '0.875rem', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {item.title}
-                    </strong>
-                    <span style={{ fontSize: '0.75rem', color: item.color, fontWeight: 600 }}>
-                      {item.statusLabel}
-                    </span>
+            {todayClasses.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {todayClasses.map((item, idx) => (
+                  <div key={idx} className={styles.timelineItem}>
+                    <div className={styles.timelineTime}>{item.time}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ fontSize: '0.875rem', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.title}
+                      </strong>
+                      <span style={{ fontSize: '0.75rem', color: item.color, fontWeight: 600 }}>
+                        {item.statusLabel}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '24px 12px', color: 'var(--text-tertiary)' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📅</div>
+                <p style={{ fontSize: '0.875rem', fontWeight: 600, margin: 0, color: 'var(--text-secondary)' }}>
+                  هنوز زنگ کلاسی برای امروز ثبت نشده است
+                </p>
+                <p style={{ fontSize: '0.75rem', marginTop: '4px', marginBottom: '14px' }}>
+                  پس از ثبت کلاس‌ها و برنامه هفتگی، جلسات در این بخش پایش می‌شوند.
+                </p>
+                <Link href="/dashboard/classes" className="btn btn-secondary btn-sm" style={{ fontWeight: 700 }}>
+                  <span>مدیریت و ثبت کلاس‌ها ＋</span>
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* AI Pedagogical Insight Box */}
@@ -927,11 +980,17 @@ export default function DashboardPage() {
               <span>تحلیل یادگیری هوشمند (AI Insight)</span>
             </div>
             <p className={styles.aiInsightText}>
-              براساس تحلیل نتایج آخرین کوییز، دانش‌آموزان در بخش «مسائل تحلیلی» به تمرین تکمیلی نیاز دارند. می‌توانید با یک کلیک یک تمرین تقویتی ۳ سوالی صادر کنید.
+              {classes.length > 0
+                ? 'سیستم هوشمند ادوکانکت آماده تحلیل بازدهی یادگیری، تصحیح خودکار تکالیف و تولید تمرین‌های تقویتی برای کلاس‌های شماست.'
+                : 'پس از ثبت کلاس‌ها و برگزاری اولین آزمون یا تکلیف، گزارش‌های تحلیلی هوشمند یادگیری در این بخش فعال خواهد شد.'}
             </p>
-            <Link href="/dashboard/quizzes" className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start', background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' }}>
+            <Link
+              href={classes.length > 0 ? '/dashboard/quizzes' : '/dashboard/classes'}
+              className="btn btn-primary btn-sm"
+              style={{ alignSelf: 'flex-start', background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' }}
+            >
               <HiOutlineSparkles />
-              <span>تولید تمرین تقویتی هوشمند</span>
+              <span>{classes.length > 0 ? 'تولید تمرین تقویتی هوشمند' : 'ایجاد اولین کلاس'}</span>
             </Link>
           </div>
         </div>

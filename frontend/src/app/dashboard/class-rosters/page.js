@@ -150,15 +150,7 @@ export default function ClassRostersPage() {
       } catch (e) {}
 
       if (pool.length === 0) {
-        pool = [
-          { id: 'std-pool-1', name: 'محمد پارسا رادمنش', code: 'STD-1001', grade: 'پایه دهم', phone: '09123456701' },
-          { id: 'std-pool-2', name: 'علیرضا اسدی', code: 'STD-1002', grade: 'پایه دهم', phone: '09123456702' },
-          { id: 'std-pool-3', name: 'سینا محمدی', code: 'STD-1003', grade: 'پایه دهم', phone: '09123456703' },
-          { id: 'std-pool-4', name: 'امیررضا صادقی', code: 'STD-2001', grade: 'پایه یازدهم', phone: '09123456704' },
-          { id: 'std-pool-5', name: 'مهدی کریمی', code: 'STD-2002', grade: 'پایه یازدهم', phone: '09123456705' },
-          { id: 'std-pool-6', name: 'نیما قنبری', code: 'STD-3001', grade: 'پایه دوازدهم', phone: '09123456706' },
-          { id: 'std-pool-7', name: 'آرش حسینی', code: 'STD-3002', grade: 'پایه دوازدهم', phone: '09123456707' },
-        ];
+        pool = [];
       }
 
       return pool
@@ -216,11 +208,7 @@ export default function ClassRostersPage() {
     } catch (e) {}
 
     const targetClass = classes.find((c) => c.id === classId) || { id: classId, name: 'کلاس انتخابی' };
-    const students = localSavedRoster?.students || [
-      { id: `std-${classId}-1`, display_name: 'محمد پارسا رادمنش', student_code: 'STD-1001', department: targetClass?.grade || 'پایه دهم', phone: '09123456701', parent_name: 'آقای رادمنش', parent_phone: '09123456701' },
-      { id: `std-${classId}-2`, display_name: 'علیرضا اسدی', student_code: 'STD-1002', department: targetClass?.grade || 'پایه دهم', phone: '09123456702', parent_name: 'آقای اسدی', parent_phone: '09123456702' },
-      { id: `std-${classId}-3`, display_name: 'سینا محمدی', student_code: 'STD-1003', department: targetClass?.grade || 'پایه دهم', phone: '09123456703', parent_name: 'خانم محمدی', parent_phone: '09123456703' },
-    ];
+    const students = localSavedRoster?.students || [];
 
     const enrolledIds = new Set(students.map((s) => s.id));
     const enrolledCodes = new Set(students.map((s) => s.student_code).filter(Boolean));

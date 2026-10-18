@@ -90,92 +90,16 @@ export default function ReportCardPage() {
     try {
       const saved = localStorage.getItem('school_shared_gradebook_reports');
       if (saved) {
-        setSharedReports(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const filtered = Array.isArray(parsed) ? parsed.filter((r) => !r.id?.startsWith('gb-seed-')) : [];
+        setSharedReports(filtered);
+        localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(filtered));
       } else {
-        const initialSeed = [
-          {
-            id: 'gb-seed-1',
-            teacher_name: 'مهندس حسین میرزایی',
-            teacher_code: 'TCH-101',
-            subject: 'ریاضی و حسابان',
-            class_name: 'کلاس ۱۰۱ - ریاضی و تجربی',
-            grade: 'پایه دهم',
-            date: new Date().toLocaleDateString('fa-IR'),
-            time: '۰۹:۱۵',
-            created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-            students_count: 24,
-            class_average: 17.85,
-            top_score: 20,
-            pass_rate: 96,
-            categories: ['کوییز اول (تابع)', 'پرسش کلاسی', 'آزمون میان‌ترم', 'فعالیت مستمر'],
-            failing_students: [
-              { id: 'st-f1', name: 'علی کیانی', score: 9.5, reason: 'ضعف در مبحث اتحادها - نیاز به کلاس جبرانی' },
-            ],
-            students: [
-              { id: 'st-1', name: 'محمد پارسا رادمنش', code: 'STD-101', average: 19.75, status: 'passed' },
-              { id: 'st-2', name: 'سینا محمدی', code: 'STD-102', average: 18.5, status: 'passed' },
-              { id: 'st-3', name: 'امیرعلی رضایی', code: 'STD-103', average: 17.0, status: 'passed' },
-              { id: 'st-4', name: 'علی کیانی', code: 'STD-104', average: 9.5, status: 'failed' },
-            ],
-            teacher_note: 'نمرات آزمون میان‌ترم و تکالیف مستمر با موفقیت ثبت شد. درصد قبولی کلاس بسیار مطلوب است. علی کیانی برای جبران نمره به کلاس تقویتی ارجاع داده شود.',
-            status: 'submitted',
-          },
-          {
-            id: 'gb-seed-2',
-            teacher_name: 'دکتر فاطمه صادقی',
-            teacher_code: 'TCH-102',
-            subject: 'زیست‌شناسی و ژنتیک',
-            class_name: 'کلاس ۳۰۱ - زیست‌شناسی کنکور',
-            grade: 'پایه دوازدهم',
-            date: new Date().toLocaleDateString('fa-IR'),
-            time: '۱۱:۴۰',
-            created_at: new Date(Date.now() - 3600000 * 6).toISOString(),
-            students_count: 27,
-            class_average: 18.4,
-            top_score: 20,
-            pass_rate: 100,
-            categories: ['تست ژنتیک فصل اول', 'گزارش آزمایشگاه', 'امتحان تستی ماهانه'],
-            failing_students: [],
-            students: [
-              { id: 'st-5', name: 'نیما قنبری', code: 'STD-301', average: 20, status: 'passed' },
-              { id: 'st-6', name: 'آرش حسینی', code: 'STD-302', average: 19.25, status: 'passed' },
-              { id: 'st-7', name: 'امیرحسین حسینی', code: 'STD-303', average: 16.5, status: 'passed' },
-            ],
-            teacher_note: 'تمام دانش‌آموزان حد نصاب قبولی را کسب کردند و میانگین کلاسی فراتر از انتظار بود.',
-            status: 'acknowledged',
-          },
-          {
-            id: 'gb-seed-3',
-            teacher_name: 'استاد مسعود اکبری',
-            teacher_code: 'TCH-103',
-            subject: 'فیزیک',
-            class_name: 'کلاس ۲۰۱ - فیزیک تجربی',
-            grade: 'پایه یازدهم',
-            date: new Date(Date.now() - 3600000 * 25).toLocaleDateString('fa-IR'),
-            time: '۱۲:۱۰',
-            created_at: new Date(Date.now() - 3600000 * 25).toISOString(),
-            students_count: 26,
-            class_average: 15.6,
-            top_score: 19.5,
-            pass_rate: 88,
-            categories: ['حل مسائل ساکن', 'کوییز جریان الکتریکی', 'نمره مستمر'],
-            failing_students: [
-              { id: 'st-8', name: 'پارسا احمدی', score: 10.25, reason: 'عدم ارائه گزارش‌های آزمایشگاهی' },
-              { id: 'st-9', name: 'مهدی کریمی', score: 11.0, reason: 'افت در مبحث مدارها' },
-            ],
-            students: [
-              { id: 'st-10', name: 'سهراب مرادی', code: 'STD-201', average: 19.5, status: 'passed' },
-              { id: 'st-11', name: 'پارسا احمدی', code: 'STD-202', average: 10.25, status: 'warning' },
-              { id: 'st-12', name: 'مهدی کریمی', code: 'STD-203', average: 11.0, status: 'warning' },
-            ],
-            teacher_note: 'نمرات مستمر آبان‌ماه؛ نیاز به برگزاری یک جلسه مرور فوق‌العاده برای مبحث مدار الکتریکی است.',
-            status: 'acknowledged',
-          },
-        ];
-        setSharedReports(initialSeed);
-        localStorage.setItem('school_shared_gradebook_reports', JSON.stringify(initialSeed));
+        setSharedReports([]);
       }
-    } catch (e) {}
+    } catch (e) {
+      setSharedReports([]);
+    }
   }, []);
 
   const handleShareWithManagement = async () => {
