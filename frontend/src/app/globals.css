@@ -587,3 +587,45 @@ a:hover {
     text-overflow: ellipsis;
   }
 }
+
+/* ── Global Print Styles ── */
+@media print {
+  /* Hide all dashboard application shell elements during printing */
+  aside,
+  header,
+  nav,
+  [class*="sidebar"],
+  [class*="Sidebar"],
+  [class*="Header"],
+  [class*="mobileBottomNav"],
+  [class*="MobileBottomNav"],
+  .no-print,
+  .noPrint,
+  button:not(.allow-print),
+  .btn:not(.allow-print) {
+    display: none !important;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .app-layout,
+  .main-content,
+  .content-inner {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
+

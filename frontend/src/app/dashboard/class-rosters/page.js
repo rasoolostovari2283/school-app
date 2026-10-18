@@ -618,6 +618,155 @@ export default function ClassRostersPage() {
 
   const activeClass = rosterData?.class || classes.find((c) => c.id === selectedClassId);
 
+  // Print Roster Handler - Handles popups and in-page direct print fallback
+  const handlePrintRoster = () => {
+    const studentsToPrint = rosterData?.students || [];
+    if (!selectedClassId || !activeClass) {
+      toast.error('لطفاً ابتدا کلاس مورد نظر را انتخاب نمایید.');
+      return;
+    }
+    if (!studentsToPrint.length) {
+      toast.error('هیچ دانش‌آموزی در این کلاس جهت چاپ ثبت نشده است.');
+      return;
+    }
+
+    try {
+      const printWin = window.open('', '_blank', 'width=950,height=800');
+      if (printWin) {
+        const classTitle = activeClass.name || 'کلاس';
+        const subjectTitle = activeClass.subject || 'عمومی';
+        const gradeTitle = activeClass.grade || activeClass.department || '—';
+        const teacherTitle = user?.display_name || user?.name || activeClass.teacher_name || 'دبیر محترم';
+        const dateStr = new Date().toLocaleDateString('fa-IR');
+
+        const rowsHtml = studentsToPrint
+          .map(
+            (s, idx) => `
+          <tr>
+            <td style="text-align: center; width: 35px; font-weight: bold;">${idx + 1}</td>
+            <td style="font-weight: bold; padding: 6px 8px;">${s.display_name || '—'}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 11px;">${s.student_code || '—'}</td>
+            <td style="text-align: center; font-size: 11px;">${s.department || gradeTitle}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 11px; direction: ltr;">${s.parent_phone || s.phone || '—'}</td>
+            <td style="width: 48px;"></td>
+            <td style="width: 48px;"></td>
+            <td style="width: 48px;"></td>
+            <td style="width: 48px;"></td>
+            <td style="width: 48px;"></td>
+            <td style="width: 80px;"></td>
+          </tr>`
+          )
+          .join('');
+
+        printWin.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+  <meta charset="utf-8">
+  <title>لیست کلاسی - ${classTitle}</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm 10mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: 'Vazirmatn', Tahoma, sans-serif; direction: rtl; margin: 0; padding: 12px; color: #111; background: #fff; font-size: 11.5px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 12px; }
+    .side { width: 160px; font-size: 10px; line-height: 1.6; }
+    .center { text-align: center; flex: 1; }
+    .center h1 { margin: 0 0 4px 0; font-size: 16px; font-weight: 800; color: #000; }
+    .center h2 { margin: 0; font-size: 12px; font-weight: normal; color: #444; }
+    .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border: 1px solid #777; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; background: #fafafa; }
+    .meta-item { display: flex; align-items: center; gap: 4px; }
+    .meta-lbl { font-weight: bold; color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-top: 4px; margin-bottom: 20px; }
+    th, td { border: 1px solid #444; padding: 5px 4px; font-size: 10.5px; }
+    th { background: #f0f2f5 !important; font-weight: 800; text-align: center; }
+    .eval-th { font-size: 9px; width: 48px; }
+    .signatures { display: flex; justify-content: space-around; margin-top: 36px; page-break-inside: avoid; }
+    .sign-box { text-align: center; min-width: 180px; font-size: 11px; font-weight: 700; }
+    .sign-line { width: 150px; border-bottom: 1px dashed #666; margin: 38px auto 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="side">
+      <div>جمهوری اسلامی ایران</div>
+      <div>وزارت آموزش و پرورش</div>
+      <div>سامانه مدیریت هوشمند مدارس</div>
+    </div>
+    <div class="center">
+      <h1>لیست رسمی دانش‌آموزان و دفتر کلاسی</h1>
+      <h2>سال تحصیلی ۱۴۰۴ - ۱۴۰۵</h2>
+    </div>
+    <div class="side" style="text-align: left;">
+      <div>تاریخ چاپ: ${dateStr}</div>
+      <div>تعداد دانش‌آموزان: ${studentsToPrint.length} نفر</div>
+      <div>وضعیت: رسمی و معتبر</div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="meta-item"><span class="meta-lbl">نام کلاس:</span> <span>${classTitle}</span></div>
+    <div class="meta-item"><span class="meta-lbl">عنوان درس:</span> <span>${subjectTitle}</span></div>
+    <div class="meta-item"><span class="meta-lbl">پایه / رشته:</span> <span>${gradeTitle}</span></div>
+    <div class="meta-item"><span class="meta-lbl">دبیر مربوطه:</span> <span>${teacherTitle}</span></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2" style="width: 35px;">ردیف</th>
+        <th rowspan="2">نام و نام خانوادگی دانش‌آموز</th>
+        <th rowspan="2" style="width: 85px;">کد دانش‌آموزی</th>
+        <th rowspan="2" style="width: 80px;">رشته / پایه</th>
+        <th rowspan="2" style="width: 95px;">تماس اولیا</th>
+        <th colspan="5">جلسات ارزیابی و حضور و غیاب</th>
+        <th rowspan="2" style="width: 80px;">ملاحظات</th>
+      </tr>
+      <tr>
+        <th class="eval-th">جلسه ۱</th>
+        <th class="eval-th">جلسه ۲</th>
+        <th class="eval-th">جلسه ۳</th>
+        <th class="eval-th">جلسه ۴</th>
+        <th class="eval-th">جلسه ۵</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+  </table>
+
+  <div class="signatures">
+    <div class="sign-box">
+      <div>امضای دبیر محترم درس</div>
+      <div class="sign-line"></div>
+    </div>
+    <div class="sign-box">
+      <div>مهر و امضای معاونت آموزشی</div>
+      <div class="sign-line"></div>
+    </div>
+    <div class="sign-box">
+      <div>مهر و تایید مدیریت آموزشگاه</div>
+      <div class="sign-line"></div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      window.focus();
+      setTimeout(function() { window.print(); }, 250);
+    };
+  </script>
+</body>
+</html>`);
+        printWin.document.close();
+        return;
+      }
+    } catch (popupErr) {
+      console.warn('Popup blocked, falling back to direct in-page print:', popupErr);
+    }
+
+    // Direct in-page print fallback
+    window.print();
+  };
+
   return (
     <div className={styles.container}>
       {/* Header */}
@@ -645,8 +794,8 @@ export default function ClassRostersPage() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => window.print()}
-            title="چاپ فرم کاغذی لیست کلاس"
+            onClick={handlePrintRoster}
+            title="چاپ فرم کاغذی استاندارد لیست کلاس"
           >
             <HiOutlinePrinter />
             <span>چاپ لیست</span>
@@ -1354,6 +1503,88 @@ export default function ClassRostersPage() {
           </div>
         </div>
       )}
+
+      {/* Standalone Printable Roster Sheet for Direct Print & In-page Fallback */}
+      <div className={styles.printableRosterSheet}>
+        <div className={styles.printHeader}>
+          <div className={styles.printHeaderRight}>
+            <div>جمهوری اسلامی ایران</div>
+            <div>وزارت آموزش و پرورش</div>
+            <div>سامانه مدیریت هوشمند مدارس</div>
+          </div>
+          <div className={styles.printHeaderCenter}>
+            <h2>لیست رسمی کلاسی و دفتر ارزیابی دانش‌آموزان</h2>
+            <h3>سال تحصیلی ۱۴۰۴ - ۱۴۰۵</h3>
+          </div>
+          <div className={styles.printHeaderLeft}>
+            <div>تاریخ چاپ: {new Date().toLocaleDateString('fa-IR')}</div>
+            <div>تعداد دانش‌آموزان: {(rosterData?.students || []).length} نفر</div>
+            <div>وضعیت: رسمی و معتبر</div>
+          </div>
+        </div>
+
+        <div className={styles.printMetaBar}>
+          <div><strong>نام کلاس:</strong> {activeClass?.name || '—'}</div>
+          <div><strong>عنوان درس:</strong> {activeClass?.subject || 'عمومی'}</div>
+          <div><strong>پایه / رشته:</strong> {activeClass?.grade || activeClass?.department || '—'}</div>
+          <div><strong>دبیر مربوطه:</strong> {user?.display_name || user?.name || activeClass?.teacher_name || 'دبیر محترم'}</div>
+        </div>
+
+        <table className={styles.printTable}>
+          <thead>
+            <tr>
+              <th rowSpan={2} style={{ width: '35px' }}>ردیف</th>
+              <th rowSpan={2}>نام و نام خانوادگی دانش‌آموز</th>
+              <th rowSpan={2} style={{ width: '85px' }}>کد دانش‌آموزی</th>
+              <th rowSpan={2} style={{ width: '75px' }}>رشته / پایه</th>
+              <th rowSpan={2} style={{ width: '95px' }}>تماس اولیا</th>
+              <th colSpan={5}>جلسات ارزیابی و حضور و غیاب</th>
+              <th rowSpan={2} style={{ width: '80px' }}>ملاحظات</th>
+            </tr>
+            <tr>
+              <th style={{ width: '45px', fontSize: '8pt' }}>جلسه ۱</th>
+              <th style={{ width: '45px', fontSize: '8pt' }}>جلسه ۲</th>
+              <th style={{ width: '45px', fontSize: '8pt' }}>جلسه ۳</th>
+              <th style={{ width: '45px', fontSize: '8pt' }}>جلسه ۴</th>
+              <th style={{ width: '45px', fontSize: '8pt' }}>جلسه ۵</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(rosterData?.students || []).map((student, idx) => (
+              <tr key={student.id || idx}>
+                <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{idx + 1}</td>
+                <td style={{ fontWeight: 700 }}>{student.display_name}</td>
+                <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{student.student_code || '—'}</td>
+                <td style={{ textAlign: 'center' }}>{student.department || activeClass?.grade || '—'}</td>
+                <td style={{ textAlign: 'center', direction: 'ltr', fontSize: '8.5pt' }}>
+                  {student.parent_phone || student.phone || '—'}
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className={styles.printSignatures}>
+          <div className={styles.printSignBox}>
+            <div>امضای دبیر محترم درس</div>
+            <div className={styles.printSignLine}></div>
+          </div>
+          <div className={styles.printSignBox}>
+            <div>مهر و امضای معاونت آموزشی</div>
+            <div className={styles.printSignLine}></div>
+          </div>
+          <div className={styles.printSignBox}>
+            <div>مهر و تایید مدیریت آموزشگاه</div>
+            <div className={styles.printSignLine}></div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
