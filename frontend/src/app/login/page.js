@@ -797,38 +797,6 @@ export default function LoginPage() {
                     </select>
                   </div>
 
-                  {/* Quick Chips for Subjects */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                      گزینه‌های آماده:
-                    </span>
-                    {DEFAULT_TEACHER_SUBJECTS.slice(0, 10).map((sub) => {
-                      const isCurrent = smartTeacherSubject === sub;
-                      return (
-                        <button
-                          key={sub}
-                          type="button"
-                          onClick={() => {
-                            setSmartTeacherSubject(sub);
-                            toast.success(`درس «${sub}» انتخاب شد 👍`);
-                          }}
-                          style={{
-                            fontSize: '0.73rem',
-                            padding: '3px 8px',
-                            borderRadius: '8px',
-                            border: isCurrent ? '1.5px solid #10b981' : '1px solid var(--border-color)',
-                            background: isCurrent ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-surface)',
-                            color: isCurrent ? '#10b981' : 'var(--text-primary)',
-                            fontWeight: isCurrent ? 800 : 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease-in-out',
-                          }}
-                        >
-                          📚 {sub}
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
               )}
 
