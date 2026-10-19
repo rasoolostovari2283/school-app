@@ -1258,7 +1258,8 @@ export default function ReportCardPage() {
           <div className="skeleton" style={{ height: 320, borderRadius: 'var(--radius-2xl)' }} />
         ) : (
           <div className={styles.matrixWrapper}>
-            <table className={styles.matrixTable}>
+            {/* Desktop Table View */}
+            <table className={`${styles.matrixTable} ${styles.desktopMatrixTable}`}>
               <thead>
                 <tr>
                   <th style={{ width: '40px', textAlign: 'center' }}>ردیف</th>
@@ -1413,6 +1414,141 @@ export default function ReportCardPage() {
                 )}
               </tbody>
             </table>
+
+            {/* Mobile Card-Based Roster View (100% width, No Horizontal Scrolling) */}
+            <div className={styles.mobileCardsList}>
+              {filteredStudents.length > 0 ? (
+                filteredStudents.map((st, idx) => {
+                  const avg = st.weightedAverage;
+                  const isPassed = avg != null && avg >= 12;
+
+                  return (
+                    <div key={st.id} className={styles.studentCardMobile}>
+                      {/* Top Row: Index, Avatar, Name & Code, Status */}
+                      <div className={styles.studentCardTopRow}>
+                        <div className={styles.studentCardMeta}>
+                          <span className={styles.studentCardIdx}>#{idx + 1}</span>
+                          <div className={styles.studentAvatar}>
+                            {st.display_name.charAt(0)}
+                          </div>
+                          <div className={styles.studentMetaCol}>
+                            <span className={styles.studentName}>{st.display_name}</span>
+                            <span className={styles.studentCode}>{st.student_code || 'STD-40301'}</span>
+                          </div>
+                        </div>
+
+                        <div className={styles.studentCardStatus}>
+                          {avg != null ? (
+                            isPassed ? (
+                              <span className={styles.badgePassedMobile}>
+                                <HiOutlineCheckCircle /> قبول
+                              </span>
+                            ) : (
+                              <span className={styles.badgeFailedMobile}>
+                                <HiOutlineExclamationCircle /> نیاز به تلاش
+                              </span>
+                            )
+                          ) : (
+                            <span className={styles.badgeUnknownMobile}>نامشخص</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Middle Section: Categories Score Inputs */}
+                      {gradebookData?.categories?.length > 0 && (
+                        <div className={styles.studentCardScoresSection}>
+                          <span className={styles.studentCardScoresTitle}>نمرات کلاسی:</span>
+                          <div className={styles.studentCardScoresGrid}>
+                            {gradebookData.categories.map((cat) => {
+                              const cellKey = `${st.id}_${cat.id}`;
+                              const cellVal = cellValues[cellKey] ?? '';
+                              const isSaving = savingCells[cellKey];
+                              const isSaved = savedCells[cellKey];
+                              const hasError = !!cellErrors[cellKey];
+
+                              return (
+                                <div key={cat.id} className={styles.mobileScoreItem}>
+                                  <span className={styles.mobileScoreLabel}>{cat.title}</span>
+                                  <div className={styles.scoreInputWrapper}>
+                                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        dir="ltr"
+                                        className={`${styles.scoreInput} ${hasError ? styles.scoreInputError : ''} ${isSaved ? styles.scoreInputSuccess : ''}`}
+                                        value={cellVal}
+                                        placeholder="—"
+                                        onChange={(e) => handleCellChange(st.id, cat.id, e.target.value)}
+                                        onBlur={() => handleSaveCell(st.id, cat.id)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') e.target.blur();
+                                        }}
+                                      />
+                                      {isSaving && (
+                                        <span className={styles.cellSavingIndicator} title="در حال ذخیره...">⏳</span>
+                                      )}
+                                      {isSaved && !isSaving && (
+                                        <span className={styles.cellSavedIndicator} title="ذخیره شد ✓">✓</span>
+                                      )}
+                                    </div>
+                                    {hasError && (
+                                      <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>
+                                        {cellErrors[cellKey]}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Bottom Row: Average and View Report Button */}
+                      <div className={styles.studentCardBottomRow}>
+                        <div className={styles.mobileAvgBox}>
+                          <span className={styles.mobileAvgLabel}>معدل:</span>
+                          <span
+                            className={styles.weightedScoreCell}
+                            style={{
+                              color: avg >= 18 ? '#34d399' : (avg >= 15 ? '#60a5fa' : (avg >= 12 ? '#fbbf24' : '#f87171')),
+                              fontSize: '1rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            {avg != null ? avg : '—'}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          className={styles.viewReportBtnMobile}
+                          onClick={() => handleOpenPreviewModal(st)}
+                          title="مشاهده کارنامه رسمی و معدل کل این دانش‌آموز"
+                        >
+                          <HiOutlineEye />
+                          <span>مشاهده کارنامه</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className={styles.mobileEmptyState}>
+                  <HiOutlineUserGroup style={{ fontSize: '2.5rem', opacity: 0.5, color: '#6366f1' }} />
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>هنوز دانش‌آموزی در این کلاس ثبت نشده است</div>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleOpenAddStudentModal}
+                    style={{ marginTop: '6px' }}
+                  >
+                    <HiOutlineUserPlus />
+                    <span>افزودن دانش‌آموز</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
