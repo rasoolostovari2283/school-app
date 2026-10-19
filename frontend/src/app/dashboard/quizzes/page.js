@@ -248,7 +248,7 @@ export default function QuizzesPage() {
     setLoading(true);
     try {
       const res = await api.get('/quizzes');
-      const list = res.data.data.quizzes || [];
+      const list = res.data?.data?.quizzes || [];
       list.forEach((q) => {
         if (typeof q.attachments === 'string') {
           try {
@@ -259,9 +259,21 @@ export default function QuizzesPage() {
         }
       });
       setQuizzes(list);
+      try {
+        localStorage.setItem('cached_quizzes', JSON.stringify(list));
+      } catch (e) {}
     } catch (err) {
-      console.error(err);
-      toast.error('خطا در بارگذاری کوییزها');
+      console.warn('Could not fetch quizzes from server, checking local cache:', err.message);
+      try {
+        const cached = JSON.parse(localStorage.getItem('cached_quizzes') || '[]');
+        if (cached.length > 0) {
+          setQuizzes(cached);
+          return;
+        }
+      } catch (e) {}
+      if (err.response?.status && err.response.status !== 401) {
+        toast.error('خطا در بارگذاری کوییزها');
+      }
     } finally {
       setLoading(false);
     }

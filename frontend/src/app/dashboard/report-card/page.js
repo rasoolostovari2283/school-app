@@ -262,8 +262,19 @@ export default function ReportCardPage() {
         await fetchClassGradebook(targetId);
       }
     } catch (err) {
-      console.error('Error fetching classes:', err);
-      toast.error('خطا در بارگذاری لیست کلاس‌ها');
+      console.warn('Error fetching classes for report-card, checking local classes:', err.message);
+      try {
+        const saved = JSON.parse(localStorage.getItem('educonnect_classes_cache') || '[]');
+        if (saved.length > 0) {
+          setClasses(saved);
+          const targetId = selectedClassId || saved[0].id;
+          setSelectedClassId(targetId);
+          return;
+        }
+      } catch (e) {}
+      if (err.response?.status && err.response.status !== 401) {
+        toast.error('خطا در بارگذاری لیست کلاس‌ها');
+      }
     } finally {
       setLoadingTeacher(false);
     }

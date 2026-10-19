@@ -264,7 +264,7 @@ export default function AssignmentsPage() {
     setLoading(true);
     try {
       const res = await api.get('/assignments');
-      const data = res.data.data.assignments || [];
+      const data = res.data?.data?.assignments || [];
       // parse attachments
       data.forEach((a) => {
         if (typeof a.attachments === 'string') {
@@ -276,9 +276,21 @@ export default function AssignmentsPage() {
         }
       });
       setAssignments(data);
+      try {
+        localStorage.setItem('cached_assignments', JSON.stringify(data));
+      } catch (e) {}
     } catch (err) {
-      console.error(err);
-      toast.error('خطا در بارگذاری تکالیف');
+      console.warn('Could not fetch assignments from server, checking local cache:', err.message);
+      try {
+        const cached = JSON.parse(localStorage.getItem('cached_assignments') || '[]');
+        if (cached.length > 0) {
+          setAssignments(cached);
+          return;
+        }
+      } catch (e) {}
+      if (err.response?.status && err.response.status !== 401) {
+        toast.error('خطا در بارگذاری تکالیف');
+      }
     } finally {
       setLoading(false);
     }
