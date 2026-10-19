@@ -172,7 +172,8 @@
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 9999px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-  z-index: 15;
+  z-index: 150;
+  overflow: visible;
 }
 
 .toolBtn {
@@ -1687,21 +1688,24 @@
 
 .toolsDropdownMenu {
   position: absolute;
-  top: calc(100% + 10px);
+  bottom: calc(100% + 14px);
+  top: auto;
   right: 0;
-  width: 320px;
-  max-width: 90vw;
+  width: 360px;
+  max-width: 92vw;
+  max-height: 75vh;
+  overflow-y: auto;
   background: rgba(15, 23, 42, 0.98);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 20px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  z-index: 250;
+  gap: 14px;
+  z-index: 1000;
   animation: fadeIn 0.15s ease-out;
   direction: rtl;
 }
@@ -1709,15 +1713,25 @@
 .dropdownSection {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dropdownSection:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .dropdownSectionTitle {
-  font-size: 0.725rem;
+  font-size: 0.775rem;
   font-weight: 800;
-  color: #94a3b8;
+  color: #cbd5e1;
   letter-spacing: 0.02em;
   padding-right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .dropdownRow {
@@ -1731,12 +1745,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 7px 11px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   color: #f1f5f9;
-  font-size: 0.775rem;
+  font-size: 0.785rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1746,6 +1760,7 @@
   background: rgba(255, 255, 255, 0.14);
   border-color: #818cf8;
   color: #c7d2fe;
+  transform: translateY(-1px);
 }
 
 .menuItemBtnActive {

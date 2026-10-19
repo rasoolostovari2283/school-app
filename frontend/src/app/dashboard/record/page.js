@@ -162,6 +162,7 @@ export default function ClassRecordStudioPage() {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const pageCacheRef = useRef(new Map());
+  const toolsMenuRef = useRef(null);
 
   // Whiteboard Multi-Page & PDF Export States & Refs
   const [boardCurrentPage, setBoardCurrentPage] = useState(1);
@@ -204,6 +205,22 @@ export default function ClassRecordStudioPage() {
     // Fetch folders for whiteboard video categorization
     fetchAvailableFolders();
   }, [user?.id]);
+
+  // Close tools dropdown menu when clicking outside
+  useEffect(() => {
+    if (!showToolsMenu) return;
+    const handleOutsideClick = (e) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target)) {
+        setShowToolsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showToolsMenu]);
 
   const getStorageKey = useCallback(() => {
     return user?.id ? `educonnect_recorded_sessions_${user.id}` : 'educonnect_recorded_sessions';
@@ -841,6 +858,13 @@ export default function ClassRecordStudioPage() {
         const cy = Math.min(startY, curY) + ry;
         mCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
         mCtx.stroke();
+      } else if (tool === 'triangle') {
+        mCtx.beginPath();
+        mCtx.moveTo((startX + curX) / 2, startY);
+        mCtx.lineTo(startX, curY);
+        mCtx.lineTo(curX, curY);
+        mCtx.closePath();
+        mCtx.stroke();
       }
       mCtx.restore();
     }
@@ -855,7 +879,7 @@ export default function ClassRecordStudioPage() {
     const dCtx = dCanvas.getContext('2d');
 
     // If shape, commit permanently to offscreen drawingCanvas
-    if (['line', 'arrow', 'rect', 'circle'].includes(tool)) {
+    if (['line', 'arrow', 'rect', 'circle', 'triangle'].includes(tool)) {
       const coords = getCanvasCoords(e);
       const startX = startPosRef.current.x;
       const startY = startPosRef.current.y;
@@ -895,6 +919,13 @@ export default function ClassRecordStudioPage() {
         const cx = Math.min(startX, curX) + rx;
         const cy = Math.min(startY, curY) + ry;
         dCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+        dCtx.stroke();
+      } else if (tool === 'triangle') {
+        dCtx.beginPath();
+        dCtx.moveTo((startX + curX) / 2, startY);
+        dCtx.lineTo(startX, curY);
+        dCtx.lineTo(curX, curY);
+        dCtx.closePath();
         dCtx.stroke();
       }
       dCtx.restore();
@@ -2748,7 +2779,7 @@ export default function ClassRecordStudioPage() {
         <div className={styles.studioWrapper}>
           {/* Top Floating Glass Toolbar */}
           <div className={styles.topToolbar}>
-            {/* 1. Essential Tools: Pen & Eraser */}
+            {/* 1. Essential Tools: Pen, Eraser, and Active Shape indicator */}
             <div className={styles.toolGroup}>
               <button
                 className={`${styles.toolBtn} ${tool === 'pen' ? styles.toolBtnActive : ''}`}
@@ -2765,6 +2796,24 @@ export default function ClassRecordStudioPage() {
               >
                 <LuEraser size={21} />
               </button>
+
+              {['line', 'arrow', 'rect', 'circle', 'triangle'].includes(tool) && (
+                <button
+                  className={`${styles.toolBtn} ${styles.toolBtnActive}`}
+                  onClick={() => {
+                    setTool('pen');
+                    toast('به قلم معمولی بازگشتید ✏️', { duration: 1500 });
+                  }}
+                  title="ابزار هندسی فعال است. کلیک کنید تا به قلم معمولی برگردید"
+                  style={{ background: '#6366f1', color: '#fff', fontSize: '1.05rem', fontWeight: 900 }}
+                >
+                  {tool === 'line' && '╱'}
+                  {tool === 'arrow' && '➔'}
+                  {tool === 'rect' && '▭'}
+                  {tool === 'circle' && '◯'}
+                  {tool === 'triangle' && '△'}
+                </button>
+              )}
             </div>
 
             <div className={styles.toolDivider} />
@@ -2785,10 +2834,13 @@ export default function ClassRecordStudioPage() {
             <div className={styles.toolDivider} />
 
             {/* 3. Dropdown Menu for All Other Whiteboard Capabilities */}
-            <div className={styles.menuContainer}>
+            <div className={styles.menuContainer} ref={toolsMenuRef}>
               <button
                 className={`${styles.menuToggleBtn} ${showToolsMenu ? styles.menuToggleBtnActive : ''}`}
-                onClick={() => setShowToolsMenu((prev) => !prev)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowToolsMenu((prev) => !prev);
+                }}
                 title="مشاهده تمام ابزارها و قابلیت‌های تخته"
               >
                 <HiOutlineBars3 size={18} />
@@ -2804,15 +2856,153 @@ export default function ClassRecordStudioPage() {
 
               {showToolsMenu && (
                 <div className={styles.toolsDropdownMenu}>
-                  {/* Section: Highlighter & Brush Size */}
+                  {/* Section 1: بارگذاری فایل و رسانه */}
                   <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>قلم و ضخامت</span>
+                    <span className={styles.dropdownSectionTitle}>
+                      <span>📁</span>
+                      <span>باز کردن فایل و رسانه روی تخته</span>
+                    </span>
                     <div className={styles.dropdownRow}>
                       <button
+                        type="button"
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          docFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="باز کردن کتاب، جزوه PDF یا ارائه پاورپوینت"
+                        style={{ color: '#ef4444', fontWeight: 800 }}
+                      >
+                        <FaFilePdf size={15} />
+                        <span>PDF / پاورپوینت</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          imageFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="باز کردن عکس، کاربرگ آموزشی یا برگه امتحانی"
+                        style={{ color: '#10b981', fontWeight: 800 }}
+                      >
+                        <HiOutlinePhoto size={16} />
+                        <span>عکس / کاربرگ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          videoFileInputRef.current?.click();
+                          setShowToolsMenu(false);
+                        }}
+                        title="پخش و یادداشت روی فیلم آموزشی"
+                        style={{ color: '#8b5cf6', fontWeight: 800 }}
+                      >
+                        <HiOutlineFilm size={16} />
+                        <span>فیلم آموزشی</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section 2: اشکال هندسی */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>
+                      <span>📐</span>
+                      <span>اشکال هندسی (خط، فلش، اشکال)</span>
+                    </span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        type="button"
+                        className={`${styles.menuItemBtn} ${tool === 'line' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('line');
+                          setShowToolsMenu(false);
+                          toast('ابزار خط صاف فعال شد ╱', { duration: 1800 });
+                        }}
+                        title="رسم خط صاف و مستقیم"
+                      >
+                        <span>╱ خط صاف</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.menuItemBtn} ${tool === 'arrow' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('arrow');
+                          setShowToolsMenu(false);
+                          toast('ابزار فلش جهت‌دار فعال شد ➔', { duration: 1800 });
+                        }}
+                        title="رسم فلش و بردار جهت‌دار"
+                      >
+                        <span>➔ فلش</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.menuItemBtn} ${tool === 'rect' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('rect');
+                          setShowToolsMenu(false);
+                          toast('ابزار مستطیل و کادر فعال شد ▭', { duration: 1800 });
+                        }}
+                        title="رسم مستطیل و کادر"
+                      >
+                        <span>▭ مستطیل</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.menuItemBtn} ${tool === 'circle' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('circle');
+                          setShowToolsMenu(false);
+                          toast('ابزار دایره و بیضی فعال شد ◯', { duration: 1800 });
+                        }}
+                        title="رسم دایره و بیضی"
+                      >
+                        <span>◯ دایره</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.menuItemBtn} ${tool === 'triangle' ? styles.menuItemBtnActive : ''}`}
+                        onClick={() => {
+                          setTool('triangle');
+                          setShowToolsMenu(false);
+                          toast('ابزار مثلث فعال شد △', { duration: 1800 });
+                        }}
+                        title="رسم مثلث هندسی"
+                      >
+                        <span>△ مثلث</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.menuItemBtn}
+                        onClick={() => {
+                          handleInsertText();
+                          setShowToolsMenu(false);
+                        }}
+                        title="درج متن تایپی روی تخته"
+                      >
+                        <HiOutlineDocumentText size={15} />
+                        <span>متن تایپی</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Highlighter & Brush Size */}
+                  <div className={styles.dropdownSection}>
+                    <span className={styles.dropdownSectionTitle}>
+                      <span>🖌️</span>
+                      <span>قلم و ضخامت</span>
+                    </span>
+                    <div className={styles.dropdownRow}>
+                      <button
+                        type="button"
                         className={`${styles.menuItemBtn} ${tool === 'highlighter' ? styles.menuItemBtnActive : ''}`}
                         onClick={() => {
                           setTool('highlighter');
                           setShowToolsMenu(false);
+                          toast('ماژیک هایلایتر فعال شد 🖌️', { duration: 1800 });
                         }}
                         title="ماژیک هایلایتر"
                       >
@@ -2823,6 +3013,7 @@ export default function ClassRecordStudioPage() {
                       {BRUSH_SIZES.map((b) => (
                         <button
                           key={b.size}
+                          type="button"
                           className={`${styles.menuItemBtn} ${brushSize === b.size ? styles.menuItemBtnActive : ''}`}
                           onClick={() => setBrushSize(b.size)}
                           title={`ضخامت: ${b.label}`}
@@ -2838,101 +3029,6 @@ export default function ClassRecordStudioPage() {
                           />
                         </button>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Section: Geometric Shapes & Text */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>اشکال هندسی و متن</span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        className={`${styles.menuItemBtn} ${tool === 'line' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('line');
-                          setShowToolsMenu(false);
-                        }}
-                      >
-                        <span>╱ خط</span>
-                      </button>
-                      <button
-                        className={`${styles.menuItemBtn} ${tool === 'arrow' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('arrow');
-                          setShowToolsMenu(false);
-                        }}
-                      >
-                        <span>➔ فلش</span>
-                      </button>
-                      <button
-                        className={`${styles.menuItemBtn} ${tool === 'rect' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('rect');
-                          setShowToolsMenu(false);
-                        }}
-                      >
-                        <span>▭ مستطیل</span>
-                      </button>
-                      <button
-                        className={`${styles.menuItemBtn} ${tool === 'circle' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('circle');
-                          setShowToolsMenu(false);
-                        }}
-                      >
-                        <span>◯ دایره</span>
-                      </button>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          handleInsertText();
-                          setShowToolsMenu(false);
-                        }}
-                      >
-                        <HiOutlineDocumentText size={15} />
-                        <span>متن تایپی</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Section: Media & Documents */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>بارگذاری فایل و رسانه روی تخته</span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          docFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="PDF و اسلاید پاورپوینت"
-                      >
-                        <FaFilePdf size={14} color="#ef4444" />
-                        <span>PDF / پاورپوینت</span>
-                      </button>
-
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          imageFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="عکس یا کاربرگ"
-                      >
-                        <HiOutlinePhoto size={15} color="#10b981" />
-                        <span>عکس / کاربرگ</span>
-                      </button>
-
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          videoFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="پخش فیلم آموزشی"
-                      >
-                        <HiOutlineFilm size={15} color="#8b5cf6" />
-                        <span>فیلم آموزشی</span>
-                      </button>
                     </div>
                   </div>
 
