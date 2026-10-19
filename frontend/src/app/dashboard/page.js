@@ -20,9 +20,12 @@ import {
   HiOutlineCalendarDays,
   HiOutlineChatBubbleLeftRight,
   HiOutlineDocumentText,
+  HiOutlineGlobeAlt,
 } from 'react-icons/hi2';
+import toast from 'react-hot-toast';
 import StudentSetupModal from '../../components/student/StudentSetupModal';
 import TeacherSetupModal from '../../components/teacher/TeacherSetupModal';
+import SchoolWebsiteModal from '../../components/school/SchoolWebsiteModal';
 import styles from './dashboard.module.css';
 
 export default function DashboardPage() {
@@ -32,6 +35,8 @@ export default function DashboardPage() {
   const [assignmentStats, setAssignmentStats] = useState({ total: 0, pending: 0 });
   const [showStudentSetup, setShowStudentSetup] = useState(false);
   const [showTeacherSetup, setShowTeacherSetup] = useState(false);
+  const [schoolWebsiteUrl, setSchoolWebsiteUrl] = useState('');
+  const [showWebsiteModal, setShowWebsiteModal] = useState(false);
 
   const isTeacher = user?.role === 'teacher';
   const isStudent = user?.role === 'student';
@@ -124,7 +129,44 @@ export default function DashboardPage() {
       fetchNotifications();
       fetchAssignmentCount();
     }
+
+    // Fetch School Website URL
+    const localWeb = localStorage.getItem('school_website_url') || '';
+    if (localWeb) setSchoolWebsiteUrl(localWeb);
+    api
+      .get('/school/website')
+      .then((res) => {
+        if (res.data?.success && res.data?.data?.website_url) {
+          setSchoolWebsiteUrl(res.data.data.website_url);
+          localStorage.setItem('school_website_url', res.data.data.website_url);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch school website url:', err?.message);
+      });
   }, [user]);
+
+  // Handler to open school website
+  const handleOpenSchoolWebsite = () => {
+    const currentUrl = schoolWebsiteUrl || localStorage.getItem('school_website_url') || '';
+    if (currentUrl && currentUrl.trim()) {
+      let target = currentUrl.trim();
+      if (!/^https?:\/\//i.test(target)) {
+        target = `https://${target}`;
+      }
+      window.open(target, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      setShowWebsiteModal(true);
+    } else {
+      toast('هنوز آدرس اینترنتی وب‌سایت مدرسه توسط مدیریت ثبت نشده است 🌐', {
+        icon: 'ℹ️',
+        duration: 4000,
+      });
+    }
+  };
 
   const fetchParentData = async () => {
     setLoadingParent(true);
@@ -300,6 +342,16 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleOpenSchoolWebsite}
+              className="btn btn-secondary btn-sm"
+              style={{ background: 'rgba(14, 165, 233, 0.15)', borderColor: 'rgba(14, 165, 233, 0.35)', color: '#38bdf8' }}
+              title="ورود به وب‌سایت رسمی مدرسه"
+            >
+              <HiOutlineGlobeAlt style={{ fontSize: '1.15rem' }} />
+              <span>وب‌سایت مدرسه</span>
+            </button>
             <Link href="/dashboard/report-card/" className="btn btn-secondary btn-sm" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.15)' }}>
               <HiOutlineDocumentText />
               <span>کارنامه تحصیلی فرزند</span>
@@ -519,6 +571,16 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+
+        {/* School Website Modal if Admin in Parent context */}
+        {showWebsiteModal && (
+          <SchoolWebsiteModal
+            isOpen={showWebsiteModal}
+            onClose={() => setShowWebsiteModal(false)}
+            currentUrl={schoolWebsiteUrl}
+            onSaved={(newUrl) => setSchoolWebsiteUrl(newUrl)}
+          />
+        )}
       </div>
     );
   }
@@ -558,6 +620,16 @@ export default function DashboardPage() {
         {/* Quick Command Action Buttons */}
         <div className={styles.heroActions}>
           <div className={styles.quickActionGrid}>
+            {/* School Website Button */}
+            <button
+              type="button"
+              onClick={handleOpenSchoolWebsite}
+              className={`${styles.heroBtn} ${styles.schoolWebsiteHeroBtn}`}
+              title={schoolWebsiteUrl ? `ورود به وب‌سایت رسمی مدرسه: ${schoolWebsiteUrl}` : 'ورود به وب‌سایت رسمی مدرسه'}
+            >
+              <HiOutlineGlobeAlt style={{ color: '#0ea5e9', fontSize: '1.25rem' }} />
+              <span style={{ fontWeight: 800 }}>وب‌سایت مدرسه</span>
+            </button>
             {isTeacher && (
               <>
                 <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
@@ -995,6 +1067,16 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* School Website Modal for Admin */}
+      {showWebsiteModal && (
+        <SchoolWebsiteModal
+          isOpen={showWebsiteModal}
+          onClose={() => setShowWebsiteModal(false)}
+          currentUrl={schoolWebsiteUrl}
+          onSaved={(newUrl) => setSchoolWebsiteUrl(newUrl)}
+        />
+      )}
     </div>
   );
 }

@@ -37,6 +37,7 @@ const financeRoutes = require('./modules/finance/finance.routes');
 const ticketRoutes = require('./modules/tickets/ticket.routes');
 const analyticsRoutes = require('./modules/analytics/analytics.routes');
 const announcementRoutes = require('./modules/announcements/announcement.routes');
+const schoolRoutes = require('./modules/school/school.routes');
 
 const { initSocket, activeClassrooms } = require('./socket');
 
@@ -306,6 +307,7 @@ app.use('/api/v1/finance', financeRoutes);
 app.use('/api/v1/tickets', ticketRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/announcements', announcementRoutes);
+app.use('/api/v1/school', schoolRoutes);
 
 // ── Error Handling ──
 app.use(notFoundHandler);

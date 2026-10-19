@@ -23,7 +23,10 @@ import {
   HiOutlinePhone,
   HiOutlineBookOpen,
   HiOutlineXMark,
+  HiOutlineGlobeAlt,
+  HiOutlineArrowTopRightOnSquare,
 } from 'react-icons/hi2';
+import SchoolWebsiteModal from '../../../components/school/SchoolWebsiteModal';
 import styles from './management.module.css';
 
 export default function ManagementDashboardPage() {
@@ -39,7 +42,12 @@ export default function ManagementDashboardPage() {
     level: 'دوره دوم متوسطه',
     city: 'تهران',
     principal: 'دکتر تقوی',
+    website: '',
   });
+
+  // School Website Link State
+  const [schoolWebsiteUrl, setSchoolWebsiteUrl] = useState('');
+  const [showWebsiteModal, setShowWebsiteModal] = useState(false);
 
   // 1. Teachers state
   const [teachers, setTeachers] = useState([]);
@@ -202,7 +210,42 @@ export default function ManagementDashboardPage() {
     }
 
     setLoading(false);
+
+    // Fetch School Website URL
+    const localWeb = localStorage.getItem('school_website_url') || '';
+    if (localWeb) {
+      setSchoolWebsiteUrl(localWeb);
+      setSchoolData((prev) => ({ ...prev, website: localWeb }));
+    }
+
+    api
+      .get('/school/website')
+      .then((res) => {
+        if (res.data?.success && res.data?.data?.website_url) {
+          const fetchedUrl = res.data.data.website_url;
+          setSchoolWebsiteUrl(fetchedUrl);
+          setSchoolData((prev) => ({ ...prev, website: fetchedUrl }));
+          localStorage.setItem('school_website_url', fetchedUrl);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch school website url from server:', err?.message);
+      });
   }, [user]);
+
+  // Open / Visit School Website
+  const handleOpenSchoolWebsite = () => {
+    const currentUrl = schoolWebsiteUrl || localStorage.getItem('school_website_url') || '';
+    if (!currentUrl) {
+      setShowWebsiteModal(true);
+      return;
+    }
+    let target = currentUrl.trim();
+    if (!/^https?:\/\//i.test(target)) {
+      target = `https://${target}`;
+    }
+    window.open(target, '_blank', 'noopener,noreferrer');
+  };
 
   // Copy School Code
   const copySchoolCode = () => {
@@ -484,15 +527,39 @@ export default function ManagementDashboardPage() {
           </p>
         </div>
 
-        <div className={styles.schoolCodeBox}>
-          <div>
-            <span className={styles.schoolCodeLabel}>کد اختصاصی مدرسه:</span>
-            <span className={styles.schoolCodeText}>{schoolData.code}</span>
+        <div className={styles.headerActions}>
+          {/* School Website Button */}
+          <div className={styles.schoolWebsiteBox}>
+            <button
+              type="button"
+              className={styles.websiteVisitBtn}
+              onClick={handleOpenSchoolWebsite}
+              title={schoolWebsiteUrl ? `ورود به وب‌سایت مدرسه: ${schoolWebsiteUrl}` : 'تنظیم و ثبت آدرس وب‌سایت مدرسه'}
+            >
+              <HiOutlineGlobeAlt style={{ fontSize: '1.25rem' }} />
+              <span>{schoolWebsiteUrl ? 'ورود به وب‌سایت مدرسه' : 'ثبت وب‌سایت مدرسه'}</span>
+              {schoolWebsiteUrl && <HiOutlineArrowTopRightOnSquare style={{ fontSize: '1rem' }} />}
+            </button>
+            <button
+              type="button"
+              className={styles.websiteConfigBtn}
+              onClick={() => setShowWebsiteModal(true)}
+              title="تنظیم آدرس اینترنتی وب‌سایت مدرسه"
+            >
+              ⚙️ {schoolWebsiteUrl ? 'ویرایش لینک' : 'تنظیم لینک'}
+            </button>
           </div>
-          <button className={styles.copyCodeBtn} onClick={copySchoolCode} title="کپی کد مدرسه">
-            <HiOutlineClipboardDocumentCheck style={{ fontSize: '1.1rem' }} />
-            کپی کد
-          </button>
+
+          <div className={styles.schoolCodeBox}>
+            <div>
+              <span className={styles.schoolCodeLabel}>کد اختصاصی مدرسه:</span>
+              <span className={styles.schoolCodeText}>{schoolData.code}</span>
+            </div>
+            <button className={styles.copyCodeBtn} onClick={copySchoolCode} title="کپی کد مدرسه">
+              <HiOutlineClipboardDocumentCheck style={{ fontSize: '1.1rem' }} />
+              کپی کد
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1445,6 +1512,19 @@ export default function ManagementDashboardPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── 8. School Website Configuration Modal ── */}
+      {showWebsiteModal && (
+        <SchoolWebsiteModal
+          isOpen={showWebsiteModal}
+          onClose={() => setShowWebsiteModal(false)}
+          currentUrl={schoolWebsiteUrl}
+          onSaved={(newUrl) => {
+            setSchoolWebsiteUrl(newUrl);
+            setSchoolData((prev) => ({ ...prev, website: newUrl }));
+          }}
+        />
       )}
     </div>
   );
