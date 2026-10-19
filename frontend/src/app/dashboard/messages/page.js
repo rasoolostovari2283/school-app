@@ -27,6 +27,7 @@ import {
   HiOutlineClipboardDocument,
   HiOutlineClipboardDocumentCheck,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineArrowRight,
 } from 'react-icons/hi2';
 import CallModal from '../../../components/communication/CallModal';
 import styles from './messages.module.css';
@@ -191,7 +192,9 @@ export default function MessagesPage() {
         if (found) selectConversation(found);
       }
     } else if (conversations.length > 0 && !activePartner && !activeGroup) {
-      selectConversation(conversations[0].user);
+      if (typeof window !== 'undefined' && window.innerWidth > 900) {
+        selectConversation(conversations[0].user);
+      }
     }
   }, [conversations, targetUserId, directory]);
 
@@ -1142,6 +1145,8 @@ export default function MessagesPage() {
     );
   });
 
+  const isChatSelected = Boolean(activePartner || activeGroup);
+
   return (
     <div className={styles.container}>
       {/* Privacy & School Integration Banner */}
@@ -1169,7 +1174,7 @@ export default function MessagesPage() {
 
       <div className={styles.chatWrapper}>
         {/* Contacts Sidebar */}
-        <div className={styles.contactSidebar}>
+        <div className={`${styles.contactSidebar} ${isChatSelected ? styles.sidebarHiddenMobile : ''}`}>
           {/* School Connection & Grade Context Bar */}
           <div className={styles.schoolIdentityBar}>
             <div className={styles.schoolIdentityBadge}>
@@ -1652,18 +1657,29 @@ export default function MessagesPage() {
         </div>
 
         {/* Chat Main Area */}
-        <div className={styles.chatArea}>
+        <div className={`${styles.chatArea} ${!isChatSelected ? styles.chatAreaHiddenMobile : ''}`}>
           {activeGroup ? (
             /* GROUP CHAT VIEW */
             <>
               <div className={styles.chatHeader}>
                 <div className={styles.chatPartnerInfo}>
-                  <div className={styles.groupAvatar} style={{ width: '42px', height: '42px', fontSize: '1.25rem' }}>
+                  <button
+                    type="button"
+                    className={styles.mobileBackBtn}
+                    onClick={() => {
+                      setActiveGroup(null);
+                      setActivePartner(null);
+                    }}
+                    title="بازگشت به لیست گفتگوها"
+                  >
+                    <HiOutlineArrowRight />
+                  </button>
+                  <div className={styles.groupAvatar} style={{ width: '40px', height: '40px', minWidth: '40px', fontSize: '1.2rem' }}>
                     {activeGroup.category === 'council' ? '🏛️' : activeGroup.category === 'parents' ? '🤝' : '🏆'}
                   </div>
-                  <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>{activeGroup.name}</h3>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                  <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeGroup.name}</h3>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                       {activeGroup.members_count || 1} عضو • {activeGroup.description || 'کانال رسمی'}
                     </span>
                   </div>
@@ -2009,6 +2025,17 @@ export default function MessagesPage() {
             <>
               <div className={styles.chatHeader}>
                 <div className={styles.chatPartnerInfo}>
+                  <button
+                    type="button"
+                    className={styles.mobileBackBtn}
+                    onClick={() => {
+                      setActiveGroup(null);
+                      setActivePartner(null);
+                    }}
+                    title="بازگشت به مخاطبین"
+                  >
+                    <HiOutlineArrowRight />
+                  </button>
                   {(() => {
                     const badge = getRoleBadge(activePartner.role);
                     return (
@@ -2016,6 +2043,9 @@ export default function MessagesPage() {
                         <div
                           className="avatar"
                           style={{
+                            width: '40px',
+                            height: '40px',
+                            minWidth: '40px',
                             background:
                               activePartner.role === 'student'
                                 ? 'linear-gradient(135deg, #059669, #10b981)'
@@ -2027,9 +2057,9 @@ export default function MessagesPage() {
                         >
                           {activePartner.display_name?.charAt(0)}
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>{activePartner.display_name}</h3>
+                            <h3 style={{ fontSize: '0.95rem', fontWeight: 800 }}>{activePartner.display_name}</h3>
                             <span className={badge.className}>
                               {badge.icon} {badge.label}
                             </span>
@@ -2070,7 +2100,7 @@ export default function MessagesPage() {
                           </div>
                           <span
                             style={{
-                              fontSize: '0.75rem',
+                              fontSize: '0.72rem',
                               color:
                                 activePartner.role === 'student'
                                   ? '#34d399'
@@ -2078,6 +2108,10 @@ export default function MessagesPage() {
                                   ? '#fbbf24'
                                   : '#a5b4fc',
                               fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: 'block',
                             }}
                           >
                             {activePartner.role === 'parent'
