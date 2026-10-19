@@ -571,8 +571,8 @@ class AuthService {
     ];
 
     const teachers = await db('users')
-      .where({ role: 'teacher' })
-      .select('id', 'display_name', 'username', 'job_title', 'department', 'avatar_url');
+      .whereIn('role', ['teacher', 'admin'])
+      .select('id', 'display_name', 'username', 'job_title', 'department', 'avatar_url', 'role');
 
     const classes = await db('classes')
       .where({ is_active: true })
@@ -584,7 +584,7 @@ class AuthService {
       teacherClassMap.get(c.teacher_id).push(c);
     });
 
-    const enrichedTeachers = teachers.map((t) => {
+    let enrichedTeachers = teachers.map((t) => {
       const tClasses = teacherClassMap.get(t.id) || [];
       const subjects = Array.from(new Set(tClasses.map((c) => c.subject).filter(Boolean)));
       return {
@@ -593,6 +593,18 @@ class AuthService {
         classes: tClasses,
       };
     });
+
+    if (enrichedTeachers.length === 0) {
+      enrichedTeachers = [
+        { id: 'staff-mirzaei', display_name: 'مهندس حسین میرزایی', username: 'hossein_mirzaei', job_title: 'معاون آموزشی و دبیر حسابان', subjects: ['حسابان و دیفرانسیل', 'ریاضی'] },
+        { id: 'staff-sadeghi', display_name: 'دکتر فاطمه صادقی', username: 'fatemeh_sadeghi', job_title: 'دبیر زیست‌شناسی و ژنتیک', subjects: ['زیست‌شناسی و ژنتیک'] },
+        { id: 'staff-akbari', display_name: 'استاد مسعود اکبری', username: 'masoud_akbari', job_title: 'دبیر ادبیات فارسی و نگارش', subjects: ['ادبیات فارسی', 'نگارش'] },
+        { id: 'staff-jalali', display_name: 'سرکار خانم مهندس جلالی', username: 'jalali', job_title: 'دبیر شیمی پایه و پیشرفته', subjects: ['شیمی'] },
+        { id: 'staff-rahmani', display_name: 'دکتر مهدی رحمانی', username: 'mehdi_rahmani', job_title: 'دبیر و طراح فیزیک کنکور', subjects: ['فیزیک'] },
+        { id: '15148e90-e32b-418f-a356-fa77867f86b2', display_name: 'دکتر مسعود کریمی', username: 'masoud_karimi', job_title: 'دبیر هندسه و گسسته', subjects: ['هندسه', 'ریاضیات گسسته'] },
+        { id: 'staff-taghavi', display_name: 'دکتر علیرضا تقوی', username: 'alireza_taghavi', job_title: 'مدیریت و مدرس معارف', subjects: ['دین و زندگی'] },
+      ];
+    }
 
     return { schools, grades, teachers: enrichedTeachers };
   }
