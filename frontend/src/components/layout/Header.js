@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../../stores/authStore';
 import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   HiOutlineMagnifyingGlass,
   HiOutlineBell,
@@ -14,12 +15,64 @@ import {
   HiOutlineDocumentDuplicate,
   HiOutlineBars3,
   HiOutlineArrowUturnRight,
+  HiOutlineArrowRight,
 } from 'react-icons/hi2';
 import styles from './Header.module.css';
 import toast from 'react-hot-toast';
 
 export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
+  const router = useRouter();
+  const pathname = usePathname() || '';
   const { user } = useAuthStore();
+
+  const isSubPage = pathname && pathname !== '/dashboard' && pathname !== '/dashboard/';
+
+  const getSectionTitle = () => {
+    if (pathname.includes('/live')) return 'کلاس پخش زنده';
+    if (pathname.startsWith('/dashboard/classes/') && pathname.split('/').length === 4) return 'صفحه اختصاصی کلاس';
+    if (pathname.includes('/manage-classes')) return 'مدیریت کلاس‌ها';
+    if (pathname.includes('/teachers')) return 'دیتابیس معلمان';
+    if (pathname.includes('/class-rosters')) return 'لیست‌های کلاسی';
+    if (pathname.includes('/classes')) return 'کلاس‌ها و دروس';
+    if (pathname.includes('/report-card')) return 'کارنامه‌ها و نمرات';
+    if (pathname.includes('/quizzes')) return 'آزمون‌ها و کوییز';
+    if (pathname.includes('/assignments')) return 'تکالیف درسی';
+    if (pathname.includes('/messages')) return 'پیام‌ها و ارتباطات';
+    if (pathname.includes('/attendance')) return 'حضور و غیاب';
+    if (pathname.includes('/record')) return 'تخته هوشمند و ضبط';
+    if (pathname.includes('/study-planner')) return 'برنامه‌ریزی درسی';
+    if (pathname.includes('/videos')) return 'ویدیوها و رسانه';
+    if (pathname.includes('/schedule')) return 'برنامه هفتگی';
+    if (pathname.includes('/notifications')) return 'اعلان‌های مدرسه';
+    if (pathname.includes('/announcements')) return 'اطلاعیه‌ها و بخشنامه‌ها';
+    if (pathname.includes('/management')) return 'ستاد مدیریت';
+    if (pathname.includes('/teacher-setup')) return 'تنظیمات تدریس';
+    if (pathname.includes('/settings')) return 'تنظیمات و حساب';
+    if (pathname.includes('/tickets')) return 'پشتیبانی و تیکت‌ها';
+    return 'صفحه قبل';
+  };
+
+  const handleGoBack = () => {
+    try {
+      if (pathname.includes('/live')) {
+        const parentClassPath = pathname.replace('/live', '');
+        router.push(parentClassPath);
+        return;
+      }
+      if (pathname.startsWith('/dashboard/classes/') && pathname.split('/').length === 4) {
+        router.push('/dashboard/classes');
+        return;
+      }
+      if (typeof window !== 'undefined' && window.history.length > 2) {
+        router.back();
+      } else {
+        router.push('/dashboard');
+      }
+    } catch (e) {
+      router.push('/dashboard');
+    }
+  };
+
   const isRealAdmin =
     user?.original_role === 'admin' ||
     user?.original_role === 'manager' ||
@@ -143,8 +196,27 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
   return (
     <>
       <header className={styles.header}>
-        {/* Left: Hamburger Button (for mobile) & Search Bar */}
+        {/* Left: Back Button (on subpages) OR Hamburger & Search Bar */}
         <div className={styles.leftSection}>
+          {isSubPage && (
+            <div className={styles.backNavContainer}>
+              <button
+                type="button"
+                className={styles.backNavBtn}
+                onClick={handleGoBack}
+                title="بازگشت به بخش قبلی / داشبورد"
+                aria-label="بازگشت به بخش قبل"
+              >
+                <HiOutlineArrowRight className={styles.backNavIcon} />
+                <span className={styles.backNavText}>بازگشت</span>
+              </button>
+              <div className={styles.breadcrumbDivider} />
+              <span className={styles.currentSectionBadge}>
+                {getSectionTitle()}
+              </span>
+            </div>
+          )}
+
           {onToggleMobileMenu && (
             <button
               className={styles.hamburgerBtn}
