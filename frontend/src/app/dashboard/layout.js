@@ -6,6 +6,7 @@ import Sidebar from '../../components/layout/Sidebar';
 import Header from '../../components/layout/Header';
 import MobileBottomNav from '../../components/layout/MobileBottomNav';
 import MandatoryAnnouncementModal from '../../components/announcements/MandatoryAnnouncementModal';
+import AutoUpdateChecker from '../../components/system/AutoUpdateChecker';
 import { Toaster } from 'react-hot-toast';
 
 export default function DashboardLayout({ children }) {
@@ -117,6 +118,7 @@ export default function DashboardLayout({ children }) {
         }}
       />
       <MandatoryAnnouncementModal />
+      <AutoUpdateChecker />
       <Sidebar
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}

@@ -504,6 +504,52 @@ export default function SettingsPage() {
           </label>
         </div>
       </div>
+
+      {/* ── 5. In-App Live Update (OTA) ── */}
+      <div className={styles.sectionCard}>
+        <div className={styles.sectionHeader}>
+          <HiOutlineSparkles style={{ fontSize: '1.25rem', color: 'var(--primary-500)' }} />
+          <h2 className={styles.sectionTitle}>وضعیت نسخه و به‌روزرسانی زنده (OTA)</h2>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h4 style={{ fontWeight: 600 }}>همگام‌سازی مستقیم با سرور مدرسه</h4>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                هنگامی که سرور آپدیت می‌شود، می‌توانید بدون نیاز به دانلود و نصب مجدد فایل APK، آخرین نسخه را دریافت کنید.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={styles.saveBtn}
+              style={{ width: 'auto', padding: '10px 20px', whiteSpace: 'nowrap' }}
+              onClick={async () => {
+                const loadId = toast.loading('در حال بررسی آخرین نسخه سرور...');
+                try {
+                  const res = await api.get('/system/app-version');
+                  if (res.data?.success) {
+                    toast.success(
+                      `سرور متصل است! نسخه فعال: ${res.data.build?.substring(0, 7) || '1.2.0'}`,
+                      { id: loadId }
+                    );
+                    localStorage.setItem('educonnect_active_build', res.data.build || 'latest');
+                    setTimeout(() => {
+                      window.location.reload(true);
+                    }, 1000);
+                  } else {
+                    toast.error('پاسخی از سرور دریافت نشد', { id: loadId });
+                  }
+                } catch (e) {
+                  toast.error('خطا در برقراری ارتباط با سرور', { id: loadId });
+                }
+              }}
+            >
+              بررسی و دریافت آپدیت
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

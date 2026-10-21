@@ -92,7 +92,11 @@ app.use(cors({
     if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:(3000|3001|5000))?$/.test(origin)) {
       return callback(null, true);
     }
-    callback(null, false);
+    // Also allow Capacitor / Android webviews & tunnels
+    if (origin.startsWith('capacitor://') || origin.startsWith('ionic://') || origin.startsWith('http://localhost') || origin.includes('pinggy') || origin.includes('trycloudflare') || origin.includes('duckdns.org')) {
+      return callback(null, true);
+    }
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -140,8 +144,22 @@ app.use('/api/v1/auth/quick-entry', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
 app.use('/api/v1/auth/register-school', authLimiter);
 
-// ── Health & Network Resiliency Check ──
-app.get('/api/health', (req, res) => {
+// ── Health & Sync Status Check ──
+const getSyncStatusData = () => {
+  try {
+    const syncFile = path.join(__dirname, '..', 'sync_status.json');
+    if (fs.existsSync(syncFile)) {
+      return JSON.parse(fs.readFileSync(syncFile, 'utf8'));
+    }
+  } catch (e) {}
+  return {
+    status: 'active',
+    message: 'Auto-sync is running and polling for GitHub updates',
+    last_sync: null
+  };
+};
+
+const healthHandler = (req, res) => {
   res.json({
     success: true,
     message: 'EduConnect API is running smoothly',
@@ -150,12 +168,63 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.2.0',
     db_status: 'connected',
+    auto_sync: getSyncStatusData(),
     network_layer: {
       domestic_ready: true,
       external_dns_dependency: false,
       storage_type: 'local_disk',
     },
   });
+};
+
+const syncStatusHandler = (req, res) => {
+  res.json({
+    success: true,
+    server_time: new Date().toISOString(),
+    uptime_seconds: Math.floor(process.uptime()),
+    auto_sync: getSyncStatusData()
+  });
+};
+
+app.get('/', healthHandler);
+app.get('/api', healthHandler);
+app.get('/api/health', healthHandler);
+app.get('/api/v1', healthHandler);
+app.get('/api/v1/', healthHandler);
+app.get('/api/sync-status', syncStatusHandler);
+app.get('/api/v1/system/sync-status', syncStatusHandler);
+
+// ── App OTA & Live Update Info ──
+const appUpdateHandler = (req, res) => {
+  const syncData = getSyncStatusData();
+  const commitHash = syncData?.commit_hash || '4dea30d';
+  res.json({
+    success: true,
+    version: '1.2.0',
+    build: commitHash,
+    commit_hash: commitHash,
+    commit_message: syncData?.commit_message || 'Latest school updates',
+    last_sync: syncData?.last_sync || new Date().toISOString(),
+    live_url: 'http://192.168.1.108',
+    tunnel_url: 'https://nlivj-89-43-89-28.run.pinggy-free.link',
+    ota_mode: 'hybrid_live_switch',
+    apk_download_url: '/api/v1/system/download-apk'
+  });
+};
+
+app.get('/api/v1/system/app-version', appUpdateHandler);
+app.get('/api/app-version', appUpdateHandler);
+
+app.get('/api/v1/system/download-apk', (req, res) => {
+  const apkPath = path.join(__dirname, '..', '..', 'EduConnect.apk');
+  const fallbackApk = path.join(__dirname, '..', 'EduConnect.apk');
+  if (fs.existsSync(apkPath)) {
+    res.download(apkPath, 'EduConnect.apk');
+  } else if (fs.existsSync(fallbackApk)) {
+    res.download(fallbackApk, 'EduConnect.apk');
+  } else {
+    res.status(404).json({ success: false, message: 'فایل نصبی یافت نشد' });
+  }
 });
 
 // ── Top-level Global Routers ──

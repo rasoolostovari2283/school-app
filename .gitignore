@@ -18,8 +18,11 @@ out/
 
 # Database files
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+backend_stage/
 
 # Uploads directory contents (preserve directory with .gitkeep)
 backend/uploads/*
