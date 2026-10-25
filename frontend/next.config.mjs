@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  ...(process.env.NEXT_EXPORT === 'true' ? { output: 'export' } : {}),
   compress: true,
   poweredByHeader: false,
   reactStrictMode: true,

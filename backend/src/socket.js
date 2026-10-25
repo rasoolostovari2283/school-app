@@ -56,7 +56,7 @@ function initSocket(server, config) {
       const room = getOrCreateClassroom(classId);
 
       // Track participant
-      const isTeacher = (currentUser.role === 'teacher' || currentUser.role === 'admin');
+      const isTeacher = (currentUser.role === 'teacher' || currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'school_admin');
       const canDraw = isTeacher; // default false for student, true for teacher
       const canMic = isTeacher;
       const canScreenShare = isTeacher;
@@ -76,7 +76,7 @@ function initSocket(server, config) {
         joinedAt: new Date().toISOString(),
       });
 
-      if (currentUser.role === 'teacher' || currentUser.role === 'admin') {
+      if (currentUser.role === 'teacher' || currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'school_admin') {
         room.teacherSocketId = socket.id;
         room.teacherId = currentUser.id;
         room.teacherName = currentUser.name || currentUser.full_name;

@@ -35,8 +35,8 @@ export default function ClassDetailPage() {
   const params = useParams();
   const router = useRouter();
   const classId = params.id;
-  const { user } = useAuthStore();
-  const isTeacher = user?.role === 'teacher';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isTeacher = user?.role === 'teacher' || isAdmin;
 
   const [classData, setClassData] = useState(null);
   const [members, setMembers] = useState([]);

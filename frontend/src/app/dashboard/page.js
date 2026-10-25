@@ -22,6 +22,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineGlobeAlt,
   HiOutlineVideoCamera,
+  HiOutlineBuildingOffice2,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import StudentSetupModal from '../../components/student/StudentSetupModal';
@@ -962,71 +963,141 @@ export default function DashboardPage() {
 
       {/* ── 2. KPI Metrics Grid ── */}
       <div className={styles.kpiGrid}>
-        {/* KPI 1: Attendance Rate */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiHeader}>
-            <div className={styles.kpiIconBox} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-              <HiOutlineCheckCircle />
+        {isAdmin ? (
+          <>
+            {/* Admin KPI 1: Active Teachers */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>
+                  <HiOutlineAcademicCap />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                  کادر آموزشی
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>۱۲ دبیر</span>
+              </div>
+              <span className={styles.kpiLabel}>معلمان و دبیران فعال مجتمع</span>
             </div>
-            <span className={styles.kpiBadge} style={{ background: '#ecfdf5', color: '#059669' }}>
-              {classes.length > 0 ? 'ثبت روزانه' : 'در انتظار ثبت'}
-            </span>
-          </div>
-          <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{classes.length > 0 ? '۱۰۰٪' : '--'}</span>
-          </div>
-          <span className={styles.kpiLabel}>نرخ حضور و انضباط کلاسی</span>
-        </div>
 
-        {/* KPI 2: Assignments Pending */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiHeader}>
-            <div className={styles.kpiIconBox} style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
-              <HiOutlineClipboardDocumentList />
+            {/* Admin KPI 2: School Webinars & Meetings */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                  <HiOutlineVideoCamera />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#fef2f2', color: '#dc2626' }}>
+                  جلسات آنلاین
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>۴ وبینار</span>
+              </div>
+              <span className={styles.kpiLabel}>وبینارها و جلسات مدرسه</span>
             </div>
-            <span className={styles.kpiBadge} style={{ background: '#eef2ff', color: '#4f46e5' }}>
-              {assignmentStats.total} کل تکالیف
-            </span>
-          </div>
-          <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{assignmentStats.pending || 0}</span>
-          </div>
-          <span className={styles.kpiLabel}>
-            {isTeacher ? 'تکالیف نیازمند تصحیح و نمره' : 'تکالیف در انتظار تحویل'}
-          </span>
-        </div>
 
-        {/* KPI 3: Classes & Students */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiHeader}>
-            <div className={styles.kpiIconBox} style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
-              <HiOutlineAcademicCap />
+            {/* Admin KPI 3: Registered Classes */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
+                  <HiOutlineBuildingOffice2 />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#ecfeff', color: '#0891b2' }}>
+                  کلاس‌های فعال
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>{classes.length || '۲'}</span>
+              </div>
+              <span className={styles.kpiLabel}>کلاس‌های دایر در مجتمع</span>
             </div>
-            <span className={styles.kpiBadge} style={{ background: '#ecfeff', color: '#0891b2' }}>
-              فعال و جاری
-            </span>
-          </div>
-          <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{classes.length}</span>
-          </div>
-          <span className={styles.kpiLabel}>کلاس‌های تحت مدیریت شما</span>
-        </div>
 
-        {/* KPI 4: Class Average */}
-        <div className={styles.kpiCard}>
-          <div className={styles.kpiHeader}>
-            <div className={styles.kpiIconBox} style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
-              <HiOutlineArrowTrendingUp />
+            {/* Admin KPI 4: Directives & Announcements */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+                  <HiOutlineMegaphone />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#ecfdf5', color: '#059669' }}>
+                  اطلاع‌رسانی
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>۸ بخشنامه</span>
+              </div>
+              <span className={styles.kpiLabel}>بخشنامه‌ها و اطلاعیه‌های فعال</span>
             </div>
-            <span className={styles.kpiBadge} style={{ background: '#fffbeb', color: '#b45309' }}>
-              {classes.length > 0 ? 'وضعیت کلاسی' : 'در انتظار نمره'}
-            </span>
-          </div>
-          <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{classes.length > 0 ? 'آماده نمره‌دهی' : '--'}</span>
-          </div>
-          <span className={styles.kpiLabel}>میانگین نمرات آزمون‌ها و تکالیف</span>
-        </div>
+          </>
+        ) : (
+          <>
+            {/* KPI 1: Attendance Rate */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+                  <HiOutlineCheckCircle />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#ecfdf5', color: '#059669' }}>
+                  {classes.length > 0 ? 'ثبت روزانه' : 'در انتظار ثبت'}
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>{classes.length > 0 ? '۱۰۰٪' : '--'}</span>
+              </div>
+              <span className={styles.kpiLabel}>نرخ حضور و انضباط کلاسی</span>
+            </div>
+
+            {/* KPI 2: Assignments Pending */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
+                  <HiOutlineClipboardDocumentList />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                  {assignmentStats.total} کل تکالیف
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>{assignmentStats.pending || 0}</span>
+              </div>
+              <span className={styles.kpiLabel}>
+                {isTeacher ? 'تکالیف نیازمند تصحیح و نمره' : 'تکالیف در انتظار تحویل'}
+              </span>
+            </div>
+
+            {/* KPI 3: Classes & Students */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4' }}>
+                  <HiOutlineAcademicCap />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#ecfeff', color: '#0891b2' }}>
+                  فعال و جاری
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>{classes.length}</span>
+              </div>
+              <span className={styles.kpiLabel}>کلاس‌های تحت مدیریت شما</span>
+            </div>
+
+            {/* KPI 4: Class Average */}
+            <div className={styles.kpiCard}>
+              <div className={styles.kpiHeader}>
+                <div className={styles.kpiIconBox} style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
+                  <HiOutlineArrowTrendingUp />
+                </div>
+                <span className={styles.kpiBadge} style={{ background: '#fffbeb', color: '#b45309' }}>
+                  {classes.length > 0 ? 'وضعیت کلاسی' : 'در انتظار نمره'}
+                </span>
+              </div>
+              <div className={styles.kpiValueRow}>
+                <span className={styles.kpiValue}>{classes.length > 0 ? 'آماده نمره‌دهی' : '--'}</span>
+              </div>
+              <span className={styles.kpiLabel}>میانگین نمرات آزمون‌ها و تکالیف</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── 3. Split Layout: Classes Grid & Timetable/AI ── */}
