@@ -92,6 +92,13 @@ export default function ReportCardPage() {
   const [cellErrors, setCellErrors] = useState({});
   const [savingAll, setSavingAll] = useState(false);
 
+  // Add Class Modal State
+  const [showCreateClassModal, setShowCreateClassModal] = useState(false);
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassGrade, setNewClassGrade] = useState('پایه دهم');
+  const [newClassSubject, setNewClassSubject] = useState('');
+  const [isCreatingClass, setIsCreatingClass] = useState(false);
+
   // Add Category Modal State
   const [showCatModal, setShowCatModal] = useState(false);
   const [newCatTitle, setNewCatTitle] = useState('');
@@ -879,6 +886,75 @@ export default function ReportCardPage() {
     }
   };
 
+  // Create New Class Handler
+  const handleCreateNewClass = async (e) => {
+    e.preventDefault();
+    if (!newClassName.trim()) {
+      toast.error('لطفاً عنوان کلاس را وارد نمایید');
+      return;
+    }
+
+    setIsCreatingClass(true);
+    const teacherSubject = newClassSubject.trim() || user?.department || 'دروس تخصصی';
+    const fallbackId = `roster-cls-${Date.now()}`;
+    let newClassObj = {
+      id: fallbackId,
+      name: newClassName.trim(),
+      grade: newClassGrade,
+      subject: teacherSubject,
+      join_code: `CLS${Math.floor(100 + Math.random() * 900)}`,
+      teacher_id: user?.id,
+      teacher_name: user?.display_name || user?.name || 'دبیر گرامی',
+      is_active: true,
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const res = await api.post('/classes', {
+        name: newClassName.trim(),
+        grade: newClassGrade,
+        subject: teacherSubject,
+        join_code: newClassObj.join_code,
+      });
+      if (res.data?.success && res.data.data?.class) {
+        newClassObj = { ...newClassObj, ...res.data.data.class };
+      }
+    } catch (err) {
+      console.warn('API create class fallback to local:', err.message);
+    }
+
+    // Persist to local storage
+    try {
+      const currentRosters = JSON.parse(localStorage.getItem('class_rosters_classes') || '[]');
+      currentRosters.unshift(newClassObj);
+      localStorage.setItem('class_rosters_classes', JSON.stringify(currentRosters));
+      localStorage.setItem('school_classes_database', JSON.stringify(currentRosters));
+
+      // Also seed standard categories for this new class
+      const starterCats = [
+        { id: `cat-cont-${newClassObj.id}`, title: 'ارزشیابی مستمر کلاسی', weight: 1.0, max_score: 20 },
+        { id: `cat-mid-${newClassObj.id}`, title: 'آزمون میان‌ترم', weight: 1.0, max_score: 20 },
+        { id: `cat-fin-${newClassObj.id}`, title: 'امتحان پایانی نوبت اول', weight: 2.0, max_score: 20 },
+      ];
+      localStorage.setItem(`gradebook_categories_${newClassObj.id}`, JSON.stringify(starterCats));
+    } catch (e) {}
+
+    // Update classes state and select it
+    setClasses((prev) => [newClassObj, ...prev.filter((c) => String(c.id) !== String(newClassObj.id))]);
+    setSelectedClassId(newClassObj.id);
+
+    // Reset modal form
+    setNewClassName('');
+    setNewClassSubject('');
+    setShowCreateClassModal(false);
+    setIsCreatingClass(false);
+
+    toast.success(`کلاس «${newClassObj.name}» با موفقیت افزوده شد و انتخاب گردید! 🎉`);
+
+    // Fetch or initialize gradebook for this new class
+    await fetchClassGradebook(newClassObj.id, [newClassObj, ...classes]);
+  };
+
   // Create Exam Category
   const handleCreateCategory = async (e) => {
     e.preventDefault();
@@ -1647,15 +1723,42 @@ export default function ReportCardPage() {
                   <select
                     className={styles.classSelect}
                     value={selectedClassId || 'cls-gradebook-default'}
-                    onChange={(e) => setSelectedClassId(e.target.value)}
+                    onChange={(e) => {
+                      if (e.target.value === '__add_new__') {
+                        setShowCreateClassModal(true);
+                      } else {
+                        setSelectedClassId(e.target.value);
+                      }
+                    }}
                   >
                     {(classes.length > 0 ? classes : [{ id: 'cls-gradebook-default', name: 'دفتر نمرات کلاسی من', grade: 'پایه دهم' }]).map((cls) => (
                       <option key={cls.id} value={cls.id}>
                         {cls.name} {cls.subject ? `— ${cls.subject}` : ''} ({cls.grade || 'پایه دهم'})
                       </option>
                     ))}
+                    <option value="__add_new__" style={{ color: '#4f46e5', fontWeight: 800 }}>
+                      ➕ + ایجاد و ثبت کلاس جدید...
+                    </option>
                   </select>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCreateClassModal(true)}
+                  className="btn btn-secondary btn-sm"
+                  title="افزودن کلاس جدید به این بخش جهت نمره‌دهی و کارنامه"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    borderColor: '#6366f1',
+                    color: '#6366f1',
+                    fontWeight: 700,
+                  }}
+                >
+                  <HiOutlinePlus style={{ fontSize: '1.1rem' }} />
+                  <span>افزودن کلاس جدید</span>
+                </button>
 
                 <Link
                   href="/dashboard/class-rosters"
@@ -2242,6 +2345,88 @@ export default function ReportCardPage() {
                 ) : (
                   <div>اطلاعات کارنامه در دسترس نیست.</div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Create New Class ── */}
+        {showCreateClassModal && (
+          <div className={styles.modalOverlay} onClick={() => setShowCreateClassModal(false)}>
+            <div className={styles.modalContent} style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <HiOutlineBuildingOffice2 style={{ fontSize: '1.3rem', color: '#6366f1' }} />
+                  <h3 style={{ margin: 0, fontWeight: 800 }}>ایجاد و ثبت کلاس جدید</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateClassModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
+                >
+                  <HiOutlineXMark />
+                </button>
+              </div>
+
+              <div className={styles.modalBody}>
+                <p style={{ margin: '0 0 16px 0', fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  مشخصات کلاس درسی را وارد نمایید. این کلاس بلافاصله به منوی کلاس‌ها اضافه شده و دفتر نمرات آن فعال می‌گردد.
+                </p>
+
+                <form onSubmit={handleCreateNewClass} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div className="input-group">
+                    <label className="input-label" htmlFor="cls_name">نام کلاس *</label>
+                    <input
+                      id="cls_name"
+                      className="input"
+                      type="text"
+                      placeholder="مثلاً: کلاس ۱۰۱ - ریاضی، کلاس دهم تجربی الف"
+                      value={newClassName}
+                      onChange={(e) => setNewClassName(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label" htmlFor="cls_grade">پایه تحصیلی *</label>
+                    <select
+                      id="cls_grade"
+                      className="input"
+                      value={newClassGrade}
+                      onChange={(e) => setNewClassGrade(e.target.value)}
+                    >
+                      <option value="پایه هفتم">پایه هفتم</option>
+                      <option value="پایه هشتم">پایه هشتم</option>
+                      <option value="پایه نهم">پایه نهم</option>
+                      <option value="پایه دهم">پایه دهم</option>
+                      <option value="پایه یازدهم">پایه یازدهم</option>
+                      <option value="پایه دوازدهم">پایه دوازدهم</option>
+                      <option value="عمومی">عمومی / آزاد</option>
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label" htmlFor="cls_subject">عنوان درس / رشته (اختیاری)</label>
+                    <input
+                      id="cls_subject"
+                      className="input"
+                      type="text"
+                      placeholder="مثلاً: ریاضیات تخصصی، فیزیک، زیست‌شناسی"
+                      value={newClassSubject}
+                      onChange={(e) => setNewClassSubject(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreateClassModal(false)}>
+                      انصراف
+                    </button>
+                    <button type="submit" className="btn btn-primary" disabled={isCreatingClass}>
+                      {isCreatingClass ? 'در حال ثبت...' : 'ثبت و ایجاد کلاس'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
