@@ -3046,7 +3046,8 @@ export default function LiveClassroomPage() {
             title="گفتگوی متنی کلاسی"
           >
             <HiOutlineChatBubbleLeftRight />
-            <span>گفتگو ({chatMessages.length})</span>
+            <span>گفتگو</span>
+            {chatMessages.length > 0 && <span className={styles.countBadge}>{chatMessages.length}</span>}
           </button>
 
           <button
@@ -3055,7 +3056,8 @@ export default function LiveClassroomPage() {
             title="لیست حاضرین آنلاین"
           >
             <HiOutlineUserGroup />
-            <span>حاضرین ({participants.length})</span>
+            <span>حاضرین</span>
+            {participants.length > 0 && <span className={styles.countBadge}>{participants.length}</span>}
           </button>
         </div>
       </div>
@@ -3738,6 +3740,15 @@ export default function LiveClassroomPage() {
               >
                 <HiOutlineUserGroup />
                 <span>حاضرین ({participants.length})</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.drawerCloseBtn}
+                onClick={() => setActiveTab(null)}
+                title="بستن و بازگشت به تخته"
+              >
+                <HiOutlineXMark />
               </button>
             </div>
 

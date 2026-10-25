@@ -1841,6 +1841,472 @@
   color: #ffffff;
 }
 
+/* ── Badges & Drawer Close Button ── */
+.countBadge {
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  margin-right: 4px;
+  line-height: 1.2;
+}
+
+.drawerCloseBtn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.35rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: auto;
+  border-radius: 8px;
+}
+
+.drawerCloseBtn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE & TABLET RESPONSIVE DESIGN (phones, tablets, touch)
+══════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1024px) {
+  .topBar {
+    padding: 8px 14px;
+    height: 58px;
+  }
+  .className {
+    max-width: 180px;
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sideDrawer {
+    width: 300px;
+  }
+  .floatingWebcam {
+    width: 180px;
+    height: 120px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 1. App Viewport & Safe Heights for Mobile Address Bars */
+  .liveContainer {
+    height: 100dvh;
+    width: 100vw;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    touch-action: none;
+  }
+
+  /* 2. Compact, Non-wrapping Top Bar */
+  .topBar {
+    height: 52px;
+    padding: 6px 10px;
+    padding-top: max(6px, env(safe-area-inset-top));
+    gap: 8px;
+    flex-shrink: 0;
+    background: rgba(15, 23, 42, 0.98);
+  }
+
+  .classInfo {
+    gap: 6px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  .className {
+    max-width: 110px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Hide verbose decorative badges on mobile */
+  .intranetBadge {
+    display: none !important;
+  }
+
+  .recLiveBadge {
+    padding: 2px 6px;
+    font-size: 0.7rem;
+  }
+
+  .liveBadge {
+    padding: 2px 7px;
+    font-size: 0.6875rem;
+    gap: 4px;
+  }
+
+  /* 3. Horizontal Scrollable Action Buttons */
+  .headerActions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    flex-shrink: 1;
+    min-width: 0;
+    padding: 2px 0;
+  }
+
+  .headerActions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .headerBtn {
+    padding: 6px 10px;
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 9px;
+    font-size: 0.8rem;
+    gap: 4px;
+    flex-shrink: 0;
+    justify-content: center;
+  }
+
+  /* Hide long text in header buttons on mobile phones to prevent breaking layout */
+  .headerBtn > span:not([class*="liveDot"]):not([class*="recDot"]):not([class*="countBadge"]) {
+    display: none !important;
+  }
+
+  .headerBtn svg {
+    font-size: 1.2rem;
+  }
+
+  /* 4. Main Stage */
+  .mainStage {
+    height: calc(100dvh - 52px);
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .canvasArea {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* 5. Compact Corner Webcam PiP (No Overlap) */
+  .floatingWebcam {
+    top: 8px !important;
+    left: 8px !important;
+    width: 100px !important;
+    height: 72px !important;
+    border-radius: 10px !important;
+    border-width: 1.5px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7) !important;
+    z-index: 85 !important;
+  }
+
+  .webcamOffPlaceholder {
+    font-size: 0.625rem !important;
+    gap: 2px !important;
+  }
+
+  .webcamOffPlaceholder svg {
+    font-size: 1.25rem !important;
+  }
+
+  .webcamBadge {
+    display: none !important;
+  }
+
+  /* 6. Multi-Page Navigation Bar (Corner Pill) */
+  .boardPagesBar {
+    top: 8px !important;
+    right: 8px !important;
+    padding: 3px 8px !important;
+    font-size: 0.72rem !important;
+    gap: 4px !important;
+    border-radius: 14px !important;
+    z-index: 85 !important;
+  }
+
+  .boardPageBtn {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 0.75rem !important;
+  }
+
+  .newBoardPageBtn {
+    padding: 2px 6px !important;
+    font-size: 0.6875rem !important;
+    gap: 2px !important;
+  }
+
+  .newBoardPageBtn span {
+    display: none;
+  }
+
+  /* 7. Bottom Thumb-Friendly Floating Whiteboard Toolbar */
+  .floatingToolbar {
+    top: auto !important;
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    max-width: calc(100vw - 16px) !important;
+    padding: 4px 8px !important;
+    gap: 4px !important;
+    border-radius: 9999px !important;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75) !important;
+    z-index: 100 !important;
+    background: rgba(15, 23, 42, 0.96) !important;
+  }
+
+  .toolBtn {
+    width: 35px !important;
+    height: 35px !important;
+    font-size: 1.05rem !important;
+  }
+
+  .toolDivider {
+    height: 20px !important;
+    margin: 0 2px !important;
+  }
+
+  .colorPickerWrap {
+    max-width: 120px !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    gap: 4px !important;
+    padding: 2px 0 !important;
+  }
+
+  .colorPickerWrap::-webkit-scrollbar {
+    display: none;
+  }
+
+  .colorDot {
+    width: 18px !important;
+    height: 18px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .colorCustomBtn {
+    width: 22px !important;
+    height: 22px !important;
+    font-size: 0.8rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .menuToggleBtn {
+    padding: 4px 8px !important;
+    font-size: 0.75rem !important;
+    gap: 3px !important;
+  }
+
+  .menuToggleBtn span {
+    display: none !important;
+  }
+
+  /* Bottom sheet dropdown menu on mobile */
+  .toolsDropdownMenu {
+    bottom: 50px !important;
+    top: auto !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 94vw !important;
+    max-width: 360px !important;
+    max-height: 56vh !important;
+    overflow-y: auto !important;
+    border-radius: 16px !important;
+    padding: 12px !important;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  /* 8. Full-screen Mobile Side Drawer (Chat / Participants) */
+  .sideDrawer {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    z-index: 99999 !important;
+    background: rgba(11, 17, 32, 0.98) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border: none !important;
+    animation: drawerFadeIn 0.25s ease;
+  }
+
+  @keyframes drawerFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .drawerTabs {
+    height: 52px;
+    padding: 0 10px;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .drawerTabBtn {
+    padding: 12px 14px;
+    font-size: 0.875rem;
+    gap: 6px;
+  }
+
+  .chatInputArea {
+    padding: 10px 14px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    background: rgba(15, 23, 42, 0.95);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .chatInput {
+    height: 42px;
+    font-size: 0.875rem;
+    border-radius: 10px;
+  }
+
+  .sendBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  /* 9. Document & Video Navigation Bar */
+  .docNavBar {
+    top: 52px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    max-width: calc(100vw - 16px) !important;
+    padding: 4px 8px !important;
+    gap: 6px !important;
+    font-size: 0.75rem !important;
+    border-radius: 12px !important;
+  }
+
+  .docTitle {
+    max-width: 90px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .docNavBtn {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .docPageBadge {
+    font-size: 0.7rem !important;
+    padding: 1px 6px !important;
+  }
+
+  .docCloseBtnProminent {
+    padding: 2px 8px !important;
+    font-size: 0.6875rem !important;
+  }
+
+  .docCloseBtnProminent span {
+    display: none;
+  }
+
+  .floatingMediaCloseHeader {
+    top: 52px !important;
+    right: 8px !important;
+    max-width: calc(100vw - 16px) !important;
+    font-size: 0.72rem !important;
+    padding: 3px 8px !important;
+  }
+
+  /* 10. Locked Viewer Bar */
+  .lockedWhiteboardBar {
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    left: 10px !important;
+    right: 10px !important;
+    transform: none !important;
+    max-width: none !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+    border-radius: 14px !important;
+  }
+
+  .lockedBarSub {
+    display: none;
+  }
+
+  .requestWbBtn {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 6px 12px !important;
+    font-size: 0.8rem !important;
+  }
+
+  /* 11. Raise Hand Student Button */
+  .raiseHandBtn {
+    bottom: 70px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    padding: 8px 16px !important;
+    font-size: 0.82rem !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE LANDSCAPE ORIENTATION (e.g. phone turned sideways)
+══════════════════════════════════════════════════════════════ */
+@media (max-width: 920px) and (orientation: landscape) {
+  .topBar {
+    height: 44px;
+    padding: 3px 10px;
+  }
+  .className {
+    max-width: 130px;
+    font-size: 0.8rem;
+  }
+  .headerBtn {
+    min-height: 32px;
+    min-width: 32px;
+    padding: 4px 8px;
+  }
+  .mainStage {
+    height: calc(100vh - 44px);
+  }
+  .floatingToolbar {
+    bottom: 6px !important;
+    padding: 3px 6px !important;
+  }
+  .toolBtn {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 0.95rem !important;
+  }
+  .floatingWebcam {
+    width: 85px !important;
+    height: 60px !important;
+    top: 4px !important;
+    left: 4px !important;
+  }
+  .boardPagesBar {
+    top: 4px !important;
+    right: 4px !important;
+    padding: 2px 6px !important;
+  }
+}
+
+
 
 
 
