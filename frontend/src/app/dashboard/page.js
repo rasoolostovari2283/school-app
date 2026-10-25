@@ -768,10 +768,12 @@ export default function DashboardPage() {
               </>
             )}
 
-            <Link href="/dashboard/attendance" className={styles.heroBtn}>
-              <HiOutlineUserGroup style={{ color: '#059669' }} />
-              <span>{isAdmin ? 'حضور و غیاب کل' : 'حضور و غیاب'}</span>
-            </Link>
+            {!isAdmin && (
+              <Link href="/dashboard/attendance" className={styles.heroBtn}>
+                <HiOutlineUserGroup style={{ color: '#059669' }} />
+                <span>حضور و غیاب</span>
+              </Link>
+            )}
 
             {!isAdmin && (
               <Link href="/dashboard/assignments" className={styles.heroBtn}>

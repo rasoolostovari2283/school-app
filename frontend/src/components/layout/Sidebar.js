@@ -33,7 +33,6 @@ const adminNav = [
   { label: 'اطلاع‌رسانی و بخشنامه‌ها', labelEn: 'Announcements', href: '/dashboard/announcements', icon: HiOutlineMegaphone },
   { label: 'لیست‌های کلاسی', labelEn: 'Class Rosters', href: '/dashboard/class-rosters', icon: HiOutlineIdentification },
   { label: 'کارنامه‌ها و دفتر نمرات', labelEn: 'Report Cards & Gradebook', href: '/dashboard/report-card', icon: HiOutlineDocumentText },
-  { label: 'حضور و غیاب کل', labelEn: 'Attendance', href: '/dashboard/attendance', icon: HiOutlineUserGroup },
   { label: 'پیام‌ها و ارتباطات', labelEn: 'Messages', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
   { label: 'اعلان‌های مدرسه', labelEn: 'Notifications', href: '/dashboard/notifications', icon: HiOutlineBell },
 ];
