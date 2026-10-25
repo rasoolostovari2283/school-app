@@ -938,6 +938,159 @@
 
 
 
+/* ── Target Audience Selector & Badges ── */
+.audienceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-secondary);
+  padding: 14px 16px;
+  border-radius: var(--radius-xl);
+  border: 1.5px solid var(--border-color);
+}
+
+.audienceSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.audienceSectionTitle {
+  font-weight: 800;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audienceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 10px;
+}
+
+.audienceCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 12px 10px;
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.audienceCard:hover {
+  border-color: var(--primary-400);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+
+.audienceCardActive {
+  border-color: var(--primary-600) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.audienceCardIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.audienceCardLabel {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.audienceCardDesc {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
+.audienceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 750;
+  border: 1px solid currentColor;
+}
+
+.audienceOverlayBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 800;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.audienceFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+}
+
+.audienceFilterLabel {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.audiencePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.audiencePill:hover {
+  border-color: var(--primary-400);
+  color: var(--text-primary);
+}
+
+.audiencePillActive {
+  background: var(--primary-600);
+  color: white;
+  border-color: var(--primary-500);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
+}
+
 /* ── Responsive Styling ── */
 @media (max-width: 768px) {
   .folderSection {
@@ -970,7 +1123,12 @@
     flex-wrap: wrap;
     font-size: 0.875rem;
   }
+
+  .audienceGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
+
 
 
 

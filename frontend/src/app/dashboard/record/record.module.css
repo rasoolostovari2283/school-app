@@ -1277,3 +1277,85 @@
   color: #ffffff;
 }
 
+/* ── Target Audience Selector for Whiteboard Recordings ── */
+.audienceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-secondary);
+  padding: 14px 16px;
+  border-radius: var(--radius-xl);
+  border: 1.5px solid var(--border-color);
+  margin-bottom: 12px;
+}
+
+.audienceSectionTitle {
+  font-weight: 800;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audienceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.audienceCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 12px 10px;
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.audienceCard:hover {
+  border-color: var(--primary-400);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+
+.audienceCardActive {
+  border-color: var(--primary-600) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.audienceCardIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.audienceCardLabel {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.audienceCardDesc {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
+.audienceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 750;
+  border: 1px solid currentColor;
+}
+

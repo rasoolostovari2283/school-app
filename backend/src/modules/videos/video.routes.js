@@ -142,6 +142,22 @@ try {
 
 router.use(authenticate);
 
+let targetAudienceChecked = false;
+async function ensureTargetAudienceColumn() {
+  if (targetAudienceChecked) return;
+  try {
+    const hasCol = await db.schema.hasColumn('videos', 'target_audience');
+    if (!hasCol) {
+      await db.schema.table('videos', (t) => {
+        t.string('target_audience').defaultTo('all');
+      });
+    }
+    targetAudienceChecked = true;
+  } catch (e) {
+    console.warn('ensureTargetAudienceColumn warning:', e.message);
+  }
+}
+
 /**
  * GET /api/v1/videos/folders — list all folders with video counts
  */
@@ -242,6 +258,8 @@ router.delete('/folders/:name', async (req, res, next) => {
  */
 router.get('/', async (req, res, next) => {
   try {
+    await ensureTargetAudienceColumn();
+
     let query = db('videos')
       .join('users', 'users.id', 'videos.teacher_id')
       .leftJoin('classes', 'classes.id', 'videos.class_id')
@@ -254,29 +272,44 @@ router.get('/', async (req, res, next) => {
       .orderBy('videos.created_at', 'desc');
 
     if (req.user.role === 'teacher') {
-      query = query.where('videos.teacher_id', req.user.id);
+      query = query.where(function () {
+        this.where('videos.teacher_id', req.user.id)
+          .orWhere('videos.target_audience', 'all')
+          .orWhere('videos.target_audience', 'teachers')
+          .orWhere('videos.target_audience', 'students')
+          .orWhereNull('videos.target_audience');
+      });
     } else if (req.user.role === 'student') {
       const classIds = await db('class_members')
         .where({ user_id: req.user.id })
         .pluck('class_id');
 
-      // Student only sees:
-      // 1) Their own personal whiteboard recordings: videos.teacher_id = req.user.id
-      // 2) Class videos published by teachers: class_id in classIds and users.role = 'teacher'
       query = query.where(function () {
         this.where('videos.teacher_id', req.user.id);
+        this.orWhere('videos.target_audience', 'all');
+        this.orWhere('videos.target_audience', 'students');
+        this.orWhereNull('videos.target_audience');
         if (classIds.length > 0) {
           this.orWhere(function () {
             this.whereIn('videos.class_id', classIds)
-              .where('videos.is_published', true)
-              .where('users.role', 'teacher');
+              .where('videos.is_published', true);
           });
         }
+      });
+    } else if (req.user.role === 'parent') {
+      query = query.where(function () {
+        this.where('videos.target_audience', 'all')
+          .orWhere('videos.target_audience', 'parents')
+          .orWhereNull('videos.target_audience');
       });
     }
 
     if (req.query.folder && req.query.folder !== 'all') {
       query = query.where('videos.folder_name', req.query.folder);
+    }
+
+    if (req.query.audience && req.query.audience !== 'all') {
+      query = query.where('videos.target_audience', req.query.audience);
     }
 
     const videos = await query;
@@ -373,6 +406,8 @@ router.post(
         } catch (fErr) {}
       }
 
+      await ensureTargetAudienceColumn();
+
       const videoData = {
         id,
         title: req.body.title || mainFile.originalname,
@@ -381,6 +416,7 @@ router.post(
         teacher_id: currentUserId,
         folder_name: folderName,
         category: req.body.category || 'تدریس',
+        target_audience: req.body.target_audience || 'all',
         file_url: `/uploads/${mainFile.filename}`,
         video_url: `/uploads/${mainFile.filename}`,
         thumbnail_url: thumbnailFile ? `/uploads/${thumbnailFile.filename}` : null,
@@ -404,6 +440,24 @@ router.post(
     }
   }
 );
+
+/**
+ * PUT /api/v1/videos/:id/audience — update target audience (teachers / students / parents / all)
+ */
+router.put('/:id/audience', async (req, res, next) => {
+  try {
+    await ensureTargetAudienceColumn();
+    const { target_audience } = req.body;
+    let query = db('videos').where('id', req.params.id);
+    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+      query = query.where('teacher_id', req.user.id);
+    }
+    await query.update({ target_audience: target_audience || 'all' });
+    res.json({ success: true, message: 'مخاطبان هدف ویدیو به‌روزرسانی شد' });
+  } catch (err) {
+    next(err);
+  }
+});
 
 
 /**

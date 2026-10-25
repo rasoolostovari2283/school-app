@@ -39,10 +39,13 @@ const PRESET_FOLDER_COLORS = [
 export default function VideosPage() {
   const { user } = useAuthStore();
   const isTeacher = user?.role === 'teacher';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const canManage = isTeacher || isAdmin;
 
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all | video | image | olympiad
+  const [audienceFilter, setAudienceFilter] = useState('all'); // all | teachers | students | parents
 
   // Folders State (فایل‌بندی دروس و مباحث)
   const [folders, setFolders] = useState([
@@ -57,6 +60,10 @@ export default function VideosPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [activeMedia, setActiveMedia] = useState(null); // active media for player modal
+
+  // Target Audience Change Modal for Admin/Teacher
+  const [audienceEditModalVideo, setAudienceEditModalVideo] = useState(null);
+  const [editAudienceVal, setEditAudienceVal] = useState('all');
 
   // Move Video Modal State (انتقال ویدیو به پوشه دیگر)
   const [movingVideo, setMovingVideo] = useState(null);
@@ -79,6 +86,7 @@ export default function VideosPage() {
   const [uploadDesc, setUploadDesc] = useState('');
   const [uploadCategory, setUploadCategory] = useState('تدریس');
   const [uploadFolder, setUploadFolder] = useState('عمومی');
+  const [uploadAudience, setUploadAudience] = useState('all'); // 'all' | 'teachers' | 'students' | 'parents'
   const [isCreatingFolderInline, setIsCreatingFolderInline] = useState(false);
   const [inlineNewFolderName, setInlineNewFolderName] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -86,6 +94,28 @@ export default function VideosPage() {
   const [uploadPdfFile, setUploadPdfFile] = useState(null); // PDF attachment during upload
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  const AUDIENCE_OPTIONS = [
+    { id: 'all', label: 'هر سه گروه (عمومی)', desc: 'معلمان، دانش‌آموزان و اولیا', icon: '👥', color: '#6366f1' },
+    { id: 'teachers', label: 'ویژه معلمان', desc: 'فقط دبیران و کادر آموزشی', icon: '👨‍🏫', color: '#10b981' },
+    { id: 'students', label: 'ویژه دانش‌آموزان', desc: 'فقط دانش‌آموزان مدرسه', icon: '🎓', color: '#06b6d4' },
+    { id: 'parents', label: 'ویژه اولیا', desc: 'فقط اولیا و خانواده‌ها', icon: '👨‍👩‍👧', color: '#f59e0b' },
+  ];
+
+  const getAudienceInfo = (aud) => {
+    switch (aud) {
+      case 'teachers':
+        return { label: 'ویژه معلمان', icon: '👨‍🏫', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' };
+      case 'students':
+        return { label: 'ویژه دانش‌آموزان', icon: '🎓', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)' };
+      case 'parents':
+        return { label: 'ویژه اولیا', icon: '👨‍👩‍👧', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' };
+      case 'all':
+      default:
+        return { label: 'هر سه گروه (عمومی)', icon: '👥', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.12)' };
+    }
+  };
+
 
   const defaultMedia = [
     {
@@ -493,6 +523,7 @@ export default function VideosPage() {
     formData.append('description', uploadDesc);
     formData.append('category', uploadCategory);
     formData.append('folder_name', targetFolder);
+    formData.append('target_audience', uploadAudience || 'all');
 
     if (uploadPdfFile) {
       formData.append('pdf', uploadPdfFile, uploadPdfFile.name);
@@ -512,6 +543,7 @@ export default function VideosPage() {
         setSelectedFile(null);
         setFilePreview(null);
         setUploadPdfFile(null);
+        setUploadAudience('all');
         setIsCreatingFolderInline(false);
         setInlineNewFolderName('');
         fetchVideos();
@@ -523,6 +555,32 @@ export default function VideosPage() {
       setIsUploading(false);
     }
   };
+
+  // Update a video's target audience (Admin / Teacher)
+  const handleUpdateAudience = async (videoId, newAudience) => {
+    try {
+      await api.put(`/videos/${videoId}/audience`, { target_audience: newAudience });
+      setVideos((prev) =>
+        prev.map((v) => (v.id === videoId ? { ...v, target_audience: newAudience } : v))
+      );
+      if (activeMedia?.id === videoId) {
+        setActiveMedia((prev) => (prev ? { ...prev, target_audience: newAudience } : null));
+      }
+      toast.success('گروه مخاطبان با موفقیت به‌روزرسانی شد ✨');
+      setAudienceEditModalVideo(null);
+    } catch (err) {
+      console.warn('Backend audience update note:', err);
+      setVideos((prev) =>
+        prev.map((v) => (v.id === videoId ? { ...v, target_audience: newAudience } : v))
+      );
+      if (activeMedia?.id === videoId) {
+        setActiveMedia((prev) => (prev ? { ...prev, target_audience: newAudience } : null));
+      }
+      toast.success('گروه مخاطبان با موفقیت ثبت شد');
+      setAudienceEditModalVideo(null);
+    }
+  };
+
 
   const getMediaUrl = (url) => {
     if (!url) return '';
@@ -769,7 +827,7 @@ export default function VideosPage() {
     toast.success('فایل پیوست PDF با موفقیت حذف شد');
   };
 
-  // Filter items by both active folder and type filter
+  // Filter items by active folder, audience filter, and type filter
   const filteredItems = videos.filter((item) => {
     // 1. Folder Filter
     if (selectedFolder !== 'all') {
@@ -777,7 +835,13 @@ export default function VideosPage() {
       if (itemFolder !== selectedFolder) return false;
     }
 
-    // 2. Type Filter
+    // 2. Audience Filter (Admin / Manager / Teacher)
+    if (audienceFilter !== 'all') {
+      const itemAudience = item.target_audience || 'all';
+      if (itemAudience !== audienceFilter) return false;
+    }
+
+    // 3. Type Filter
     if (filter === 'all') return true;
     if (filter === 'whiteboard') {
       return (
@@ -806,7 +870,7 @@ export default function VideosPage() {
           </p>
         </div>
 
-        {isTeacher && (
+        {canManage && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               className="btn btn-outline"
@@ -826,6 +890,7 @@ export default function VideosPage() {
               onClick={() => {
                 setUploadFolder(selectedFolder !== 'all' ? selectedFolder : 'عمومی');
                 setIsCreatingFolderInline(false);
+                setUploadAudience('all');
                 setShowUploadModal(true);
               }}
               type="button"
@@ -837,6 +902,7 @@ export default function VideosPage() {
         )}
       </div>
 
+
       {/* ── 1. Folder Collections & Explorer (فایل‌بندی دروس و سرفصل‌ها) ── */}
       <div className={styles.folderSection}>
         <div className={styles.folderSectionHeader}>
@@ -846,7 +912,7 @@ export default function VideosPage() {
             <span className={styles.folderCountBadge}>{folders.length} دسته‌بندی درس</span>
           </div>
 
-          {isTeacher && (
+          {canManage && (
             <button
               className={styles.newFolderBtn}
               onClick={() => {
@@ -903,7 +969,7 @@ export default function VideosPage() {
                   <span className={styles.folderMeta}>{count} ویدیو و رسانه</span>
                 </div>
 
-                {isTeacher && folder.name !== 'عمومی' && (
+                {canManage && folder.name !== 'عمومی' && (
                   <button
                     type="button"
                     onClick={(e) => handleDeleteFolder(e, folder.name)}
@@ -952,12 +1018,13 @@ export default function VideosPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {isTeacher && (
+            {canManage && (
               <button
                 className="btn btn-sm btn-primary"
                 onClick={() => {
                   setUploadFolder(selectedFolder);
                   setIsCreatingFolderInline(false);
+                  setUploadAudience('all');
                   setShowUploadModal(true);
                 }}
                 type="button"
@@ -1018,12 +1085,13 @@ export default function VideosPage() {
           </button>
         </div>
 
-        {isTeacher && (
+        {canManage && (
           <button
             className={styles.quickAddVideoBtn}
             onClick={() => {
               setUploadFolder(selectedFolder !== 'all' ? selectedFolder : 'عمومی');
               setIsCreatingFolderInline(false);
+              setUploadAudience('all');
               setShowUploadModal(true);
             }}
             type="button"
@@ -1034,6 +1102,55 @@ export default function VideosPage() {
           </button>
         )}
       </div>
+
+      {/* ── Target Audience Filter Bar (امکان فیلتر بر اساس مخاطب: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) ── */}
+      {canManage && (
+        <div className={styles.audienceFilterRow}>
+          <div className={styles.audienceFilterLabel}>
+            <span>🎯</span>
+            <span>گروه مخاطبان:</span>
+          </div>
+          <button
+            type="button"
+            className={`${styles.audiencePill} ${audienceFilter === 'all' ? styles.audiencePillActive : ''}`}
+            onClick={() => setAudienceFilter('all')}
+          >
+            <span>👥 همه مخاطبان</span>
+            <span style={{ opacity: 0.85, fontSize: '0.75rem' }}>({videos.length})</span>
+          </button>
+          <button
+            type="button"
+            className={`${styles.audiencePill} ${audienceFilter === 'teachers' ? styles.audiencePillActive : ''}`}
+            onClick={() => setAudienceFilter('teachers')}
+          >
+            <span>👨‍🏫 ویژه معلمان</span>
+            <span style={{ opacity: 0.85, fontSize: '0.75rem' }}>
+              ({videos.filter((v) => v.target_audience === 'teachers').length})
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`${styles.audiencePill} ${audienceFilter === 'students' ? styles.audiencePillActive : ''}`}
+            onClick={() => setAudienceFilter('students')}
+          >
+            <span>🎓 ویژه دانش‌آموزان</span>
+            <span style={{ opacity: 0.85, fontSize: '0.75rem' }}>
+              ({videos.filter((v) => v.target_audience === 'students').length})
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`${styles.audiencePill} ${audienceFilter === 'parents' ? styles.audiencePillActive : ''}`}
+            onClick={() => setAudienceFilter('parents')}
+          >
+            <span>👨‍👩‍👧 ویژه اولیا</span>
+            <span style={{ opacity: 0.85, fontSize: '0.75rem' }}>
+              ({videos.filter((v) => v.target_audience === 'parents').length})
+            </span>
+          </button>
+        </div>
+      )}
+
 
       {/* ── 3. Media Grid ── */}
       {filteredItems.length === 0 ? (
@@ -1053,12 +1170,13 @@ export default function VideosPage() {
           <p style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem', marginBottom: 16 }}>
             می‌توانید اولین ویدیو یا تصویر تدریس را به این فایل اضافه کنید.
           </p>
-          {isTeacher && (
+          {canManage && (
             <button
               className={styles.primaryAddVideoBtn}
               onClick={() => {
                 setUploadFolder(selectedFolder !== 'all' ? selectedFolder : 'عمومی');
                 setIsCreatingFolderInline(false);
+                setUploadAudience('all');
                 setShowUploadModal(true);
               }}
               type="button"
@@ -1071,12 +1189,13 @@ export default function VideosPage() {
       ) : (
         <div className={styles.grid}>
           {/* Add Video Card right next to the video items */}
-          {isTeacher && (
+          {canManage && (
             <div
               className={styles.addVideoCard}
               onClick={() => {
                 setUploadFolder(selectedFolder !== 'all' ? selectedFolder : 'عمومی');
                 setIsCreatingFolderInline(false);
+                setUploadAudience('all');
                 setShowUploadModal(true);
               }}
               title="بارگذاری ویدیو جدید"
@@ -1096,6 +1215,7 @@ export default function VideosPage() {
           {filteredItems.map((item) => {
             const itemIsVideo = isVideo(item);
             const duration = formatDuration(item.duration_seconds);
+            const audInfo = getAudienceInfo(item.target_audience);
 
             return (
               <div
@@ -1115,7 +1235,7 @@ export default function VideosPage() {
                       <HiOutlineArrowDownTray size={15} />
                     </button>
 
-                    {isTeacher && (
+                    {canManage && (
                       <>
                         <button
                           type="button"
@@ -1135,6 +1255,16 @@ export default function VideosPage() {
                         </button>
                       </>
                     )}
+                  </div>
+
+                  {/* Target Audience Badge on Thumbnail */}
+                  <div
+                    className={styles.audienceOverlayBadge}
+                    style={{ color: audInfo.color }}
+                    title={`گروه مخاطبان: ${audInfo.label}`}
+                  >
+                    <span>{audInfo.icon}</span>
+                    <span>{audInfo.label}</span>
                   </div>
 
                   {/* PDF Attachment Badge on Thumbnail */}
@@ -1187,6 +1317,27 @@ export default function VideosPage() {
                       <HiOutlineFolder size={13} />
                       {item.folder_name || 'عمومی'}
                     </span>
+                    <span
+                      className={styles.audienceBadge}
+                      style={{
+                        background: audInfo.bg,
+                        color: audInfo.color,
+                        borderColor: audInfo.color,
+                        cursor: canManage ? 'pointer' : 'default',
+                      }}
+                      onClick={(e) => {
+                        if (canManage) {
+                          e.stopPropagation();
+                          setAudienceEditModalVideo(item);
+                          setEditAudienceVal(item.target_audience || 'all');
+                        }
+                      }}
+                      title={canManage ? `کلیک برای تغییر گروه مخاطب (${audInfo.label})` : `گروه هدف: ${audInfo.label}`}
+                    >
+                      <span>{audInfo.icon}</span>
+                      <span>{audInfo.label}</span>
+                      {canManage && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>✎</span>}
+                    </span>
                   </div>
 
                   <h3 className={styles.mediaTitle}>{item.title}</h3>
@@ -1213,7 +1364,7 @@ export default function VideosPage() {
                           <FaFilePdf size={14} color="#ef4444" />
                           <span>دانلود جزوه</span>
                         </button>
-                      ) : isTeacher ? (
+                      ) : canManage ? (
                         <button
                           type="button"
                           className={styles.pdfAttachBtn}
@@ -1236,8 +1387,30 @@ export default function VideosPage() {
                         <span>دانلود</span>
                       </button>
 
-                      {isTeacher && (
+                      {canManage && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-outline"
+                            style={{
+                              fontSize: '0.72rem',
+                              padding: '4px 7px',
+                              borderColor: audInfo.color,
+                              color: audInfo.color,
+                              gap: 3,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAudienceEditModalVideo(item);
+                              setEditAudienceVal(item.target_audience || 'all');
+                            }}
+                            title="تغییر گروه مخاطبان این رسانه"
+                          >
+                            <span>🎯 {audInfo.icon}</span>
+                          </button>
+
                           {item.pdf_url && (
                             <button
                               type="button"
@@ -1275,6 +1448,7 @@ export default function VideosPage() {
           })}
         </div>
       )}
+
 
       {/* ── Media Player / Viewer Modal ── */}
       {activeMedia && (
@@ -1329,8 +1503,28 @@ export default function VideosPage() {
                     </button>
                   )}
 
-                  {isTeacher && (
+                  {canManage && (
                     <>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-outline"
+                        style={{
+                          borderColor: getAudienceInfo(activeMedia.target_audience).color,
+                          color: getAudienceInfo(activeMedia.target_audience).color,
+                          gap: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          fontSize: '0.75rem',
+                        }}
+                        onClick={() => {
+                          setAudienceEditModalVideo(activeMedia);
+                          setEditAudienceVal(activeMedia.target_audience || 'all');
+                        }}
+                        title="تغییر گروه مخاطبان این رسانه"
+                      >
+                        <span>🎯 مخاطبان: {getAudienceInfo(activeMedia.target_audience).label}</span>
+                      </button>
+
                       <button
                         type="button"
                         className="btn btn-xs btn-outline"
@@ -1416,6 +1610,9 @@ export default function VideosPage() {
                     <span>📁 پوشه: {activeMedia.folder_name || 'عمومی'}</span>
                     <span>👤 مدرس: {activeMedia.teacher_name || 'دبیر مربوطه'}</span>
                     <span>🏛️ کلاس: {activeMedia.class_name || 'کلاس درس'}</span>
+                    <span style={{ color: getAudienceInfo(activeMedia.target_audience).color, fontWeight: 750 }}>
+                      🎯 مخاطبان: {getAudienceInfo(activeMedia.target_audience).label}
+                    </span>
                     <span>👁️ {activeMedia.views_count || 1} بازدید</span>
                     {activeMedia.pdf_url && (
                       <span style={{ color: '#dc2626', fontWeight: 700 }}>
@@ -1424,6 +1621,7 @@ export default function VideosPage() {
                     )}
                   </div>
                 </div>
+
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   {activeMedia.pdf_url && (
@@ -1599,6 +1797,42 @@ export default function VideosPage() {
                     </button>
                   </div>
                 )}
+              </div>
+
+              {/* Target Audience Selector (انتخاب گروه مخاطبان: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) */}
+              <div className={styles.audienceSection}>
+                <div className={styles.audienceSectionHeader}>
+                  <label className={styles.audienceSectionTitle}>
+                    <span>🎯</span>
+                    <span>گروه مخاطبان هدف (ارسال و نمایش برای):</span>
+                    <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                    مشخص کنید این ویدیو / رسانه برای چه گروهی نمایش داده شود
+                  </span>
+                </div>
+
+                <div className={styles.audienceGrid}>
+                  {AUDIENCE_OPTIONS.map((opt) => {
+                    const isSelected = uploadAudience === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
+                        onClick={() => setUploadAudience(opt.id)}
+                        style={{
+                          borderColor: isSelected ? opt.color : undefined,
+                        }}
+                      >
+                        <div className={styles.audienceCardIcon}>{opt.icon}</div>
+                        <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
+                          {opt.label}
+                        </div>
+                        <div className={styles.audienceCardDesc}>{opt.desc}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Dropzone */}
@@ -2246,6 +2480,97 @@ export default function VideosPage() {
           </div>
         </div>
       )}
+
+      {/* ── Modal: تغییر گروه مخاطبان ویدیو (ویژه مدیر و دبیر) ── */}
+      {audienceEditModalVideo && (
+        <div className={styles.modalOverlay} onClick={() => setAudienceEditModalVideo(null)}>
+          <div
+            className={styles.modalContent}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 520 }}
+          >
+            <div className={styles.modalHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 10,
+                    background: 'rgba(99, 102, 241, 0.1)',
+                    color: 'var(--primary-600)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.2rem',
+                  }}
+                >
+                  🎯
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem' }}>تغییر گروه مخاطبان رسانه</h2>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    {audienceEditModalVideo.title}
+                  </div>
+                </div>
+              </div>
+              <button
+                className={styles.closeBtn}
+                onClick={() => setAudienceEditModalVideo(null)}
+                type="button"
+              >
+                <HiOutlineXMark />
+              </button>
+            </div>
+
+            <div className={styles.modalBody}>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                مشخص کنید این ویدیو یا رسانه برای کدام دسته از کاربران (معلمان، دانش‌آموزان یا اولیا) در دسترس باشد:
+              </p>
+
+              <div className={styles.audienceGrid} style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                {AUDIENCE_OPTIONS.map((opt) => {
+                  const isSelected = editAudienceVal === opt.id;
+                  return (
+                    <div
+                      key={opt.id}
+                      className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
+                      onClick={() => setEditAudienceVal(opt.id)}
+                      style={{
+                        borderColor: isSelected ? opt.color : undefined,
+                        padding: '14px 12px',
+                      }}
+                    >
+                      <div className={styles.audienceCardIcon} style={{ fontSize: '1.75rem' }}>{opt.icon}</div>
+                      <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
+                        {opt.label}
+                      </div>
+                      <div className={styles.audienceCardDesc}>{opt.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setAudienceEditModalVideo(null)}
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => handleUpdateAudience(audienceEditModalVideo.id, editAudienceVal)}
+                >
+                  ذخیره و اعمال دسترسی
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

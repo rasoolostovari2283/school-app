@@ -28,6 +28,8 @@ const adminNav = [
   { label: 'ثبت و دیتابیس معلمین', labelEn: 'Teachers Database', href: '/dashboard/teachers', icon: HiOutlineAcademicCap, badge: 'پایه' },
   { label: 'ثبت و مدیریت کلاس‌ها', labelEn: 'Class Registry', href: '/dashboard/manage-classes', icon: HiOutlineUserGroup, badge: 'پایه' },
   { label: 'وبینار', labelEn: 'Webinars', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'جلسات' },
+  { label: 'تخته هوشمند و ضبط', labelEn: 'Whiteboard & Recording', href: '/dashboard/record', icon: HiOutlineComputerDesktop },
+  { label: 'ویدیوها و رسانه‌ها', labelEn: 'Videos & Media', href: '/dashboard/videos', icon: HiOutlineVideoCamera },
   { label: 'اطلاع‌رسانی و بخشنامه‌ها', labelEn: 'Announcements', href: '/dashboard/announcements', icon: HiOutlineMegaphone },
   { label: 'لیست‌های کلاسی', labelEn: 'Class Rosters', href: '/dashboard/class-rosters', icon: HiOutlineIdentification },
   { label: 'کارنامه‌ها و دفتر نمرات', labelEn: 'Report Cards & Gradebook', href: '/dashboard/report-card', icon: HiOutlineDocumentText },
@@ -72,6 +74,7 @@ const studentNav = [
 const parentNav = [
   { label: 'داشبورد وضعیت فرزند', labelEn: 'Child Dashboard', href: '/dashboard/', icon: HiOutlineHome },
   { label: 'جلسات آنلاین اولیا با مدرسه', labelEn: 'School Parent Meetings', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'مدرسه' },
+  { label: 'ویدیوها و رسانه‌های مدرسه', labelEn: 'School Videos', href: '/dashboard/videos', icon: HiOutlineVideoCamera },
   { label: 'فرزندان من', labelEn: 'My Children', href: '/dashboard/children/', icon: HiOutlineUserGroup },
   { label: 'کارنامه تحصیلی فرزند', labelEn: 'Child Report Card', href: '/dashboard/report-card/', icon: HiOutlineDocumentText },
   { label: 'تکالیف فرزند', labelEn: 'Assignments', href: '/dashboard/assignments/', icon: HiOutlineClipboardDocumentList },

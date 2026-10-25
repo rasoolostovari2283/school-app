@@ -83,6 +83,28 @@ export default function ClassRecordStudioPage() {
   const [boardType, setBoardType] = useState('white'); // 'white' | 'grid' | 'blackboard'
   const [recordAudio, setRecordAudio] = useState(true);
   const [classesList, setClassesList] = useState([]);
+  const [targetAudience, setTargetAudience] = useState('all'); // 'all' | 'teachers' | 'students' | 'parents'
+
+  const AUDIENCE_OPTIONS = [
+    { id: 'all', label: 'هر سه گروه (عمومی)', desc: 'معلمان، دانش‌آموزان و اولیا', icon: '👥', color: '#6366f1' },
+    { id: 'teachers', label: 'ویژه معلمان', desc: 'فقط دبیران و کادر آموزشی', icon: '👨‍🏫', color: '#10b981' },
+    { id: 'students', label: 'ویژه دانش‌آموزان', desc: 'فقط دانش‌آموزان کلاس‌ها', icon: '🎓', color: '#06b6d4' },
+    { id: 'parents', label: 'ویژه اولیا', desc: 'فقط اولیا و خانواده‌ها', icon: '👨‍👩‍👧', color: '#f59e0b' },
+  ];
+
+  const getAudienceInfo = (aud) => {
+    switch (aud) {
+      case 'teachers':
+        return { label: 'ویژه معلمان', icon: '👨‍🏫', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' };
+      case 'students':
+        return { label: 'ویژه دانش‌آموزان', icon: '🎓', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)' };
+      case 'parents':
+        return { label: 'ویژه اولیا', icon: '👨‍👩‍👧', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' };
+      case 'all':
+      default:
+        return { label: 'هر سه گروه (عمومی)', icon: '👥', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.12)' };
+    }
+  };
 
   // Whiteboard Tool States
   const [tool, setTool] = useState('pen'); // 'pen' | 'highlighter' | 'eraser' | 'line' | 'arrow' | 'rect' | 'circle'
@@ -2164,6 +2186,7 @@ export default function ClassRecordStudioPage() {
       sizeBytes: currentBlob?.size || 0,
       folder_name: finalFolder,
       category: 'تخته هوشمند',
+      target_audience: targetAudience || 'all',
       is_whiteboard_recording: true,
       created_at: sessionDate,
     };
@@ -2197,6 +2220,7 @@ export default function ClassRecordStudioPage() {
         }
         formData.append('folder_name', finalFolder);
         formData.append('category', 'تخته هوشمند');
+        formData.append('target_audience', targetAudience || 'all');
         formData.append('duration_seconds', recSeconds);
 
         // Optional quick notes PDF export
@@ -2282,6 +2306,7 @@ export default function ClassRecordStudioPage() {
         if (selectedClassId) formData.append('class_id', selectedClassId);
         formData.append('folder_name', finalFolder);
         formData.append('category', 'تخته هوشمند');
+        formData.append('target_audience', targetAudience || 'all');
         formData.append('duration_seconds', recSeconds);
 
         api.post('/videos', formData, {
@@ -2300,6 +2325,7 @@ export default function ClassRecordStudioPage() {
       sizeBytes: recordedBlob?.size || 0,
       folder_name: finalFolder,
       category: 'تخته هوشمند',
+      target_audience: targetAudience || 'all',
     };
     saveSessionsToLocal([newSession, ...recordedSessions]);
     toast.success(`جلسه در پوشه «${finalFolder}» و بخش ویدیوها ذخیره شد ✅`);
@@ -2535,25 +2561,46 @@ export default function ClassRecordStudioPage() {
                 <div className={styles.cardBody}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
                     <h3 className={styles.cardTitle}>{session.title}</h3>
-                    <span
-                      style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        color: 'var(--primary-600)',
-                        background: 'rgba(99, 102, 241, 0.1)',
-                        border: '1px solid rgba(99, 102, 241, 0.2)',
-                        padding: '2px 8px',
-                        borderRadius: 'var(--radius-md)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        whiteSpace: 'nowrap',
-                      }}
-                      title="پوشه درس در بخش ویدیوها"
-                    >
-                      <HiOutlineFolder size={12} />
-                      {session.folder_name || 'تخته هوشمند'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {(() => {
+                        const aInfo = getAudienceInfo(session.target_audience);
+                        return (
+                          <span
+                            className={styles.audienceBadge}
+                            style={{
+                              background: aInfo.bg,
+                              color: aInfo.color,
+                              borderColor: aInfo.color,
+                              fontSize: '0.7rem',
+                              padding: '2px 7px',
+                            }}
+                            title={`گروه مخاطبان: ${aInfo.label}`}
+                          >
+                            <span>{aInfo.icon}</span>
+                            <span>{aInfo.label}</span>
+                          </span>
+                        );
+                      })()}
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: 'var(--primary-600)',
+                          background: 'rgba(99, 102, 241, 0.1)',
+                          border: '1px solid rgba(99, 102, 241, 0.2)',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-md)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          whiteSpace: 'nowrap',
+                        }}
+                        title="پوشه درس در بخش ویدیوها"
+                      >
+                        <HiOutlineFolder size={12} />
+                        {session.folder_name || 'تخته هوشمند'}
+                      </span>
+                    </div>
                   </div>
 
                   <div className={styles.cardMeta}>
@@ -2700,6 +2747,35 @@ export default function ClassRecordStudioPage() {
                   </select>
                 </div>
               )}
+
+              {/* Target Audience Selector (گروه مخاطبان هدف: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) */}
+              <div className={styles.audienceSection}>
+                <label className={styles.audienceSectionTitle}>
+                  <span>🎯</span>
+                  <span>گروه مخاطبان این جلسه تدریس (ارسال و نمایش برای):</span>
+                </label>
+                <div className={styles.audienceGrid}>
+                  {AUDIENCE_OPTIONS.map((opt) => {
+                    const isSelected = targetAudience === opt.id;
+                    return (
+                      <div
+                        key={opt.id}
+                        className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
+                        onClick={() => setTargetAudience(opt.id)}
+                        style={{
+                          borderColor: isSelected ? opt.color : undefined,
+                        }}
+                      >
+                        <div className={styles.audienceCardIcon}>{opt.icon}</div>
+                        <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
+                          {opt.label}
+                        </div>
+                        <div className={styles.audienceCardDesc}>{opt.desc}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="form-group">
                 <label className="form-label">نوع تخته تدریس</label>
@@ -3508,6 +3584,35 @@ export default function ClassRecordStudioPage() {
                 <span style={{ fontWeight: 700 }}>
                   {recordedBlob ? (recordedBlob.size / (1024 * 1024)).toFixed(2) + ' مگابایت' : '-'}
                 </span>
+              </div>
+            </div>
+
+            {/* Target Audience Selector (انتخاب گروه مخاطبان: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) */}
+            <div className={styles.audienceSection}>
+              <label className={styles.audienceSectionTitle}>
+                <span>🎯</span>
+                <span>گروه مخاطبان انتشار ویدیو (ارسال و نمایش برای):</span>
+              </label>
+              <div className={styles.audienceGrid}>
+                {AUDIENCE_OPTIONS.map((opt) => {
+                  const isSelected = targetAudience === opt.id;
+                  return (
+                    <div
+                      key={opt.id}
+                      className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
+                      onClick={() => setTargetAudience(opt.id)}
+                      style={{
+                        borderColor: isSelected ? opt.color : undefined,
+                      }}
+                    >
+                      <div className={styles.audienceCardIcon}>{opt.icon}</div>
+                      <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
+                        {opt.label}
+                      </div>
+                      <div className={styles.audienceCardDesc}>{opt.desc}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
