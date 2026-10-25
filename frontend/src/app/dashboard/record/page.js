@@ -1548,56 +1548,81 @@ export default function ClassRecordStudioPage() {
         a.href = data;
         a.download = filename;
         a.target = '_self';
+        a.rel = 'noopener noreferrer';
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
           try {
-            document.body.removeChild(a);
+            if (a.parentNode) document.body.removeChild(a);
           } catch (e) {}
-        }, 500);
+        }, 1000);
         return true;
       } else {
         blob = new Blob([data], { type: mimeType });
       }
 
-      // 1. Try Blob URL with anchor click
+      // IE / legacy Edge support
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveOrOpenBlob(blob, filename);
+        return true;
+      }
+
+      // 1. Blob URL with anchor click
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = filename;
       a.target = '_self';
+      a.rel = 'noopener noreferrer';
       a.style.display = 'none';
       document.body.appendChild(a);
-      a.click();
+
+      if (typeof a.click === 'function') {
+        a.click();
+      } else {
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+        a.dispatchEvent(evt);
+      }
+
+      // Keep Blob URL active for at least 120 seconds so large video files finish downloading without being killed
       setTimeout(() => {
         try {
-          document.body.removeChild(a);
+          if (a.parentNode) {
+            document.body.removeChild(a);
+          }
           URL.revokeObjectURL(blobUrl);
         } catch (e) {}
-      }, 800);
+      }, 120000);
+
       return true;
     } catch (err) {
       console.warn('Standard blob download failed, trying FileReader DataURL fallback:', err);
       // 2. Data URL Fallback (critical for Android WebView & Mobile)
       try {
-        if (data instanceof Blob) {
+        const targetBlob = (data instanceof Blob) ? data : (blob instanceof Blob ? blob : new Blob([data], { type: mimeType }));
+        if (targetBlob instanceof Blob) {
           const reader = new FileReader();
           reader.onload = function () {
-            const a = document.createElement('a');
-            a.href = reader.result;
-            a.download = filename;
-            a.target = '_self';
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-              try {
-                document.body.removeChild(a);
-              } catch (e) {}
-            }, 500);
+            try {
+              const a = document.createElement('a');
+              a.href = reader.result;
+              a.download = filename;
+              a.target = '_self';
+              a.rel = 'noopener noreferrer';
+              a.style.display = 'none';
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                try {
+                  if (a.parentNode) document.body.removeChild(a);
+                } catch (e) {}
+              }, 10000);
+            } catch (eInner) {
+              console.error('Data URL fallback click failed:', eInner);
+            }
           };
-          reader.readAsDataURL(data);
+          reader.readAsDataURL(targetBlob);
           return true;
         }
       } catch (err2) {
@@ -2081,7 +2106,7 @@ export default function ClassRecordStudioPage() {
   // ── 5. Video Saving & Publishing ──
 
   // Direct file download (Supports Desktop, Mobile & Android WebView)
-  const handleDownloadVideo = async () => {
+  const handleDownloadVideo = async (showToast = true) => {
     const cleanName = (projectName || 'جلسه_تدریس_تخته_هوشمند')
       .replace(/[/\\?%*:|"<>]/g, '-')
       .replace(/\s+/g, '_')
@@ -2089,29 +2114,18 @@ export default function ClassRecordStudioPage() {
     const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
     const fileName = `${cleanName}_${dateStr}.webm`;
 
-    const loadingToast = toast.loading('در حال آماده‌سازی فایل ویدیوی کلاس...');
+    const loadingToast = showToast ? toast.loading('در حال آماده‌سازی و دانلود فایل ویدیو...') : null;
 
     try {
       if (recordedBlob && recordedBlob.size > 0) {
         const ok = await triggerDownloadFile(recordedBlob, fileName, 'video/webm');
-        toast.dismiss(loadingToast);
-        if (ok) {
+        if (loadingToast) toast.dismiss(loadingToast);
+        if (ok && showToast) {
           toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-        } else {
+        } else if (!ok && showToast) {
           toast.error('خطا در دانلود ویدیو');
         }
-        return;
-      }
-
-      if (recordedVideoUrl) {
-        const ok = await triggerDownloadFile(recordedVideoUrl, fileName, 'video/webm');
-        toast.dismiss(loadingToast);
-        if (ok) {
-          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-        } else {
-          toast.error('خطا در دانلود ویدیو');
-        }
-        return;
+        return ok;
       }
 
       if (recordedChunksRef.current && recordedChunksRef.current.length > 0) {
@@ -2119,25 +2133,46 @@ export default function ClassRecordStudioPage() {
         const fallbackBlob = new Blob(recordedChunksRef.current, { type: mime });
         setRecordedBlob(fallbackBlob);
         const ok = await triggerDownloadFile(fallbackBlob, fileName, mime);
-        toast.dismiss(loadingToast);
-        if (ok) {
+        if (loadingToast) toast.dismiss(loadingToast);
+        if (ok && showToast) {
           toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-          return;
         }
+        return ok;
       }
 
-      toast.dismiss(loadingToast);
-      toast.error('فایل ویدیوی ضبط شده هنوز آماده نشده یا در دسترس نیست.');
+      if (recordedVideoUrl) {
+        const ok = await triggerDownloadFile(recordedVideoUrl, fileName, 'video/webm');
+        if (loadingToast) toast.dismiss(loadingToast);
+        if (ok && showToast) {
+          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
+        } else if (!ok && showToast) {
+          toast.error('خطا در دانلود ویدیو');
+        }
+        return ok;
+      }
+
+      if (loadingToast) toast.dismiss(loadingToast);
+      if (showToast) toast.error('فایل ویدیوی ضبط شده هنوز آماده نشده یا در دسترس نیست.');
+      return false;
     } catch (err) {
       console.error('handleDownloadVideo error:', err);
-      toast.dismiss(loadingToast);
-      toast.error('خطا در دانلود فایل ویدیو');
+      if (loadingToast) toast.dismiss(loadingToast);
+      if (showToast) toast.error('خطا در دانلود فایل ویدیو');
+      return false;
     }
   };
 
   // Save to School Video Archive API and Navigate to Videos
   const handlePublishToArchive = async () => {
     setIsUploading(true);
+
+    // Also automatically trigger video download to user's device so they have the file locally
+    try {
+      handleDownloadVideo(false);
+    } catch (e) {
+      console.warn('Auto download error on publish:', e);
+    }
+
     const classObj = classesList.find((c) => c.id === selectedClassId);
     const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
       ? saveNewFolderName.trim()
@@ -2268,7 +2303,7 @@ export default function ClassRecordStudioPage() {
       }
     }
 
-    toast.success(`ویدیو با موفقیت در پوشه «${finalFolder}» ذخیره شد و در حال انتقال به بخش ویدیوها... 🎉`);
+    toast.success(`ویدیو با موفقیت ذخیره و دانلود شد و در حال انتقال به بخش ویدیوها... 🎉`);
     setShowSaveModal(false);
     setIsStudioOpen(false);
     setIsUploading(false);
@@ -2279,6 +2314,9 @@ export default function ClassRecordStudioPage() {
 
   // Finish and save locally + auto background upload to videos
   const handleSaveLocallyAndClose = () => {
+    try {
+      handleDownloadVideo(false);
+    } catch (e) {}
     const classObj = classesList.find((c) => c.id === selectedClassId);
     const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
       ? saveNewFolderName.trim()
@@ -3724,11 +3762,12 @@ export default function ClassRecordStudioPage() {
                     gap: 8,
                     padding: '11px 14px',
                     fontSize: '0.875rem',
+                    fontWeight: 700,
                   }}
-                  onClick={handleDownloadVideo}
+                  onClick={() => handleDownloadVideo(true)}
                 >
                   <HiOutlineArrowDownTray size={18} />
-                  <span>دانلود ویدیو تدریس / کلاس</span>
+                  <span>دانلود مستقیم ویدیو (روی سیستم / گوشی)</span>
                 </button>
 
                 <button
@@ -3754,7 +3793,7 @@ export default function ClassRecordStudioPage() {
                   disabled={isUploading}
                 >
                   <HiOutlineCloudArrowUp size={20} />
-                  <span>{isUploading ? 'در حال ثبت و انتقال...' : 'ذخیره و نمایش در بخش ویدیوها'}</span>
+                  <span>{isUploading ? 'در حال ثبت، ذخیره و دانلود...' : 'ذخیره در پنل + دانلود مستقیم ویدیو'}</span>
                 </button>
               </div>
 
