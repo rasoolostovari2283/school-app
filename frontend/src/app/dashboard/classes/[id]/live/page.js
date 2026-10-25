@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import useAuthStore from '../../../../../stores/authStore';
 import { getSocket } from '../../../../../lib/socket';
 import api from '../../../../../lib/api';
@@ -2790,7 +2790,6 @@ export default function LiveClassroomPage() {
 
   return (
     <div className={styles.liveContainer}>
-      <Toaster position="top-center" />
 
       {/* Hidden File Inputs */}
       <input

@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
-import toast, { Toaster } from 'react-hot-toast';
+import toast, { Toaster, ToastBar } from 'react-hot-toast';
 import {
   HiOutlineSparkles,
   HiOutlineIdentification,
@@ -482,7 +482,63 @@ export default function LoginPage() {
 
   return (
     <div className={styles.container}>
-      <Toaster position="top-center" />
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          duration: 3500,
+          error: { duration: 3500 },
+          success: { duration: 2500 },
+          style: {
+            background: 'var(--bg-card, #1e293b)',
+            color: 'var(--text-primary, #f8fafc)',
+            border: '1px solid var(--border-color, rgba(255,255,255,0.1))',
+            borderRadius: '12px',
+            fontFamily: 'var(--font-fa, inherit)',
+            cursor: 'pointer',
+          },
+        }}
+      >
+        {(t) => (
+          <ToastBar toast={t} style={{ ...t.style, cursor: 'pointer' }}>
+            {({ icon, message }) => (
+              <div
+                onClick={() => toast.dismiss(t.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', cursor: 'pointer' }}
+                title="برای بستن کلیک کنید"
+              >
+                {icon}
+                <div style={{ flex: 1, textAlign: 'right' }}>{message}</div>
+                {t.type !== 'loading' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.dismiss(t.id);
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.12)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '20px',
+                      height: '20px',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '11px',
+                      opacity: 0.8,
+                    }}
+                    title="بستن"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+          </ToastBar>
+        )}
+      </Toaster>
 
       {/* Left Side — Hero */}
       <div className={styles.hero}>

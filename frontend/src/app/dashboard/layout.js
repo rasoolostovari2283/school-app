@@ -7,7 +7,7 @@ import Header from '../../components/layout/Header';
 import MobileBottomNav from '../../components/layout/MobileBottomNav';
 import MandatoryAnnouncementModal from '../../components/announcements/MandatoryAnnouncementModal';
 import AutoUpdateChecker from '../../components/system/AutoUpdateChecker';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster, ToastBar } from 'react-hot-toast';
 
 export default function DashboardLayout({ children }) {
   const router = useRouter();
@@ -106,17 +106,102 @@ export default function DashboardLayout({ children }) {
     <div className="app-layout">
       <Toaster
         position="top-center"
+        reverseOrder={false}
+        gutter={8}
+        containerStyle={{
+          top: 24,
+          zIndex: 999999,
+        }}
         toastOptions={{
+          duration: 3500,
+          error: {
+            duration: 3500,
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#ffffff',
+            },
+          },
+          success: {
+            duration: 2500,
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#ffffff',
+            },
+          },
           style: {
-            background: 'var(--bg-card)',
-            color: 'var(--text-primary)',
-            border: '1px solid var(--border-color)',
+            background: 'var(--bg-card, #1e293b)',
+            color: 'var(--text-primary, #f8fafc)',
+            border: '1px solid var(--border-color, rgba(255,255,255,0.1))',
             backdropFilter: 'blur(16px)',
-            borderRadius: 'var(--radius-xl)',
-            fontFamily: 'var(--font-fa)',
+            borderRadius: 'var(--radius-xl, 12px)',
+            fontFamily: 'var(--font-fa, inherit)',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+            cursor: 'pointer',
+            padding: '10px 14px',
+            fontSize: '0.875rem',
+            maxWidth: '420px',
           },
         }}
-      />
+      >
+        {(t) => (
+          <ToastBar
+            toast={t}
+            style={{
+              ...t.style,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            {({ icon, message }) => (
+              <div
+                onClick={() => toast.dismiss(t.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  cursor: 'pointer',
+                }}
+                title="برای بستن اعلان کلیک کنید"
+              >
+                {icon}
+                <div style={{ flex: 1, textAlign: 'right' }}>{message}</div>
+                {t.type !== 'loading' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.dismiss(t.id);
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.12)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '22px',
+                      height: '22px',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '11px',
+                      opacity: 0.8,
+                      marginRight: 'auto',
+                      marginLeft: '4px',
+                      flexShrink: 0,
+                    }}
+                    title="بستن"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+          </ToastBar>
+        )}
+      </Toaster>
       <MandatoryAnnouncementModal />
       <AutoUpdateChecker />
       <Sidebar

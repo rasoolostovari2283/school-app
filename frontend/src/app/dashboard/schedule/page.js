@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import {
   HiOutlineCalendarDays,
   HiOutlinePlus,
@@ -129,7 +129,6 @@ export default function SchedulePage() {
 
   return (
     <div className={styles.container}>
-      <Toaster position="top-center" />
 
       {/* Header */}
       <div className={styles.header}>

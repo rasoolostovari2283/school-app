@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import {
   HiOutlineBuildingLibrary,
   HiOutlineAcademicCap,
@@ -167,7 +167,6 @@ export default function SessPortalPage() {
 
   return (
     <div className={styles.container}>
-      <Toaster position="top-center" />
 
       {/* Header with Shiraz University SESS inspiration */}
       <div className={styles.header}>

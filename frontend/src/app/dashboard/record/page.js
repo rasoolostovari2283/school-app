@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import useAuthStore from '../../../stores/authStore';
 import {
   HiPlus,
@@ -2339,7 +2339,6 @@ export default function ClassRecordStudioPage() {
 
   return (
     <div className={styles.container}>
-      <Toaster position="top-center" />
 
       {/* ── 1. Top Hub Header / Hero Card ── */}
       <div className={styles.heroCard}>

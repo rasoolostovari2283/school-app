@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
 import Link from 'next/link';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import {
   HiOutlineDocumentText,
   HiOutlinePrinter,
@@ -1272,7 +1272,6 @@ export default function ReportCardPage() {
   if (isTeacher) {
     return (
       <div className={styles.container}>
-        <Toaster position="top-center" />
 
         {/* ── Mode Switcher Tabs for Teachers & Management (Only for School Management / Admins) ── */}
         {isAdmin && (
