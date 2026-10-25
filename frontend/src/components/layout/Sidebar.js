@@ -27,9 +27,9 @@ const adminNav = [
   { label: 'ستاد مدیریت مدرسه', labelEn: 'School Management', href: '/dashboard/management', icon: HiOutlineBuildingOffice2 },
   { label: 'ثبت و دیتابیس معلمین', labelEn: 'Teachers Database', href: '/dashboard/teachers', icon: HiOutlineAcademicCap, badge: 'پایه' },
   { label: 'ثبت و مدیریت کلاس‌ها', labelEn: 'Class Registry', href: '/dashboard/manage-classes', icon: HiOutlineUserGroup, badge: 'پایه' },
+  { label: 'وبینار', labelEn: 'Webinars', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'جلسات' },
   { label: 'اطلاع‌رسانی و بخشنامه‌ها', labelEn: 'Announcements', href: '/dashboard/announcements', icon: HiOutlineMegaphone },
   { label: 'لیست‌های کلاسی', labelEn: 'Class Rosters', href: '/dashboard/class-rosters', icon: HiOutlineIdentification },
-  { label: 'کلاس‌ها و دروس', labelEn: 'Classes', href: '/dashboard/classes', icon: HiOutlineAcademicCap },
   { label: 'کارنامه‌ها و دفتر نمرات', labelEn: 'Report Cards & Gradebook', href: '/dashboard/report-card', icon: HiOutlineDocumentText },
   { label: 'حضور و غیاب کل', labelEn: 'Attendance', href: '/dashboard/attendance', icon: HiOutlineUserGroup },
   { label: 'پیام‌ها و ارتباطات', labelEn: 'Messages', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
@@ -38,6 +38,7 @@ const adminNav = [
 
 const teacherNav = [
   { label: 'داشبورد', labelEn: 'Dashboard', href: '/dashboard', icon: HiOutlineHome },
+  { label: 'جلسات آنلاین مدرسه', labelEn: 'School Meetings', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'مدرسه' },
   { label: 'مدرسه و پایه‌های تدریس', labelEn: 'School & Grades', href: '/dashboard/teacher-setup', icon: HiOutlineBuildingOffice2, badge: 'تنظیمات' },
   { label: 'کارنامه‌ها', labelEn: 'Report Cards', href: '/dashboard/report-card', icon: HiOutlineDocumentText },
   { label: 'اطلاع‌رسانی', labelEn: 'Announcements', href: '/dashboard/announcements', icon: HiOutlineMegaphone },
@@ -55,6 +56,7 @@ const teacherNav = [
 
 const studentNav = [
   { label: 'داشبورد', labelEn: 'Dashboard', href: '/dashboard', icon: HiOutlineHome },
+  { label: 'جلسات آنلاین مدرسه', labelEn: 'School Meetings', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'مدرسه' },
   { label: 'کارنامه تحصیلی', labelEn: 'Report Cards', href: '/dashboard/report-card', icon: HiOutlineDocumentText },
   { label: 'اطلاع‌رسانی', labelEn: 'Announcements', href: '/dashboard/announcements', icon: HiOutlineMegaphone },
   { label: 'تخته هوشمند و ضبط', labelEn: 'Whiteboard & Recording', href: '/dashboard/record', icon: HiOutlineComputerDesktop },
@@ -69,6 +71,7 @@ const studentNav = [
 
 const parentNav = [
   { label: 'داشبورد وضعیت فرزند', labelEn: 'Child Dashboard', href: '/dashboard/', icon: HiOutlineHome },
+  { label: 'جلسات آنلاین اولیا با مدرسه', labelEn: 'School Parent Meetings', href: '/dashboard/school-meetings', icon: HiOutlineVideoCamera, badge: 'مدرسه' },
   { label: 'فرزندان من', labelEn: 'My Children', href: '/dashboard/children/', icon: HiOutlineUserGroup },
   { label: 'کارنامه تحصیلی فرزند', labelEn: 'Child Report Card', href: '/dashboard/report-card/', icon: HiOutlineDocumentText },
   { label: 'تکالیف فرزند', labelEn: 'Assignments', href: '/dashboard/assignments/', icon: HiOutlineClipboardDocumentList },

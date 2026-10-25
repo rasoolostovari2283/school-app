@@ -21,6 +21,7 @@ import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineDocumentText,
   HiOutlineGlobeAlt,
+  HiOutlineVideoCamera,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import StudentSetupModal from '../../components/student/StudentSetupModal';
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const isTeacher = user?.role === 'teacher';
   const isStudent = user?.role === 'student';
   const isParent = user?.role === 'parent';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   // Parse user settings
   const userSettings = (() => {
@@ -552,6 +554,47 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* ── 3.5 School Online Meetings Banner for Parents ── */}
+        <div
+          className={styles.parentMessageCard}
+          style={{
+            background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(239, 68, 68, 0.08) 100%)',
+            borderColor: 'rgba(99, 102, 241, 0.35)',
+            boxShadow: '0 8px 24px rgba(79, 70, 229, 0.12)',
+            marginBottom: '16px',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.6875rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>
+                پخش زنده و آنلاین
+              </span>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <HiOutlineVideoCamera style={{ color: '#ef4444', fontSize: '1.4rem' }} />
+                <span>جلسات آنلاین اولیا از طرف مدرسه</span>
+              </h3>
+            </div>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: 0 }}>
+              شرکت مستقیم در نشست‌های مجازی انجمن اولیا و مربیان، کارگاه‌های آموزش خانواده و جلسات هماهنگی با کادر مدیریت مدرسه.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/school-meetings"
+              className="btn btn-primary"
+              style={{
+                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)',
+                fontWeight: 800,
+              }}
+            >
+              <HiOutlineVideoCamera />
+              <span>ورود به جلسات آنلاین مدرسه 🚀</span>
+            </Link>
+          </div>
+        </div>
+
         {/* ── 4. Communication Banner for All School Members ── */}
         <div className={styles.parentMessageCard}>
           <div>
@@ -630,6 +673,23 @@ export default function DashboardPage() {
               <HiOutlineGlobeAlt style={{ color: '#0ea5e9', fontSize: '1.25rem' }} />
               <span style={{ fontWeight: 800 }}>وب‌سایت مدرسه</span>
             </button>
+
+            {/* School Online Meetings & Webinars Hero Button */}
+            <Link
+              href="/dashboard/school-meetings"
+              className={styles.heroBtn}
+              style={{
+                borderColor: 'rgba(239, 68, 68, 0.45)',
+                background: 'rgba(255, 255, 255, 0.95)',
+                boxShadow: '0 2px 8px rgba(239, 68, 68, 0.15)',
+              }}
+              title={isAdmin ? 'وبینارها و جلسات آنلاین مدرسه' : 'جلسات آنلاین و وبینارها از طرف مدرسه'}
+            >
+              <HiOutlineVideoCamera style={{ color: '#ef4444', fontSize: '1.3rem' }} />
+              <span style={{ fontWeight: 800, color: '#dc2626' }}>
+                {isAdmin ? 'وبینار مدرسه' : 'جلسات آنلاین مدرسه'}
+              </span>
+            </Link>
             {isTeacher && (
               <>
                 <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
@@ -926,11 +986,23 @@ export default function DashboardPage() {
         <div>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>
-              <HiOutlineAcademicCap style={{ color: 'var(--primary-400)' }} />
-              <span>کلاس‌های درسی من</span>
+              {isAdmin ? (
+                <>
+                  <HiOutlineVideoCamera style={{ color: '#ef4444' }} />
+                  <span>وبینارها و جلسات آنلاین مدرسه</span>
+                </>
+              ) : (
+                <>
+                  <HiOutlineAcademicCap style={{ color: 'var(--primary-400)' }} />
+                  <span>کلاس‌های درسی من</span>
+                </>
+              )}
             </h2>
-            <Link href="/dashboard/classes" className="btn btn-secondary btn-sm">
-              <span>مدیریت همه کلاس‌ها</span>
+            <Link
+              href={isAdmin ? "/dashboard/school-meetings" : "/dashboard/classes"}
+              className="btn btn-secondary btn-sm"
+            >
+              <span>{isAdmin ? "ورود به اتاق وبینار ←" : "مدیریت همه کلاس‌ها"}</span>
             </Link>
           </div>
 

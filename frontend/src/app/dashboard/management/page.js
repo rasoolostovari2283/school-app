@@ -25,6 +25,7 @@ import {
   HiOutlineXMark,
   HiOutlineGlobeAlt,
   HiOutlineArrowTopRightOnSquare,
+  HiOutlineVideoCamera,
 } from 'react-icons/hi2';
 import SchoolWebsiteModal from '../../../components/school/SchoolWebsiteModal';
 import styles from './management.module.css';
@@ -586,12 +587,12 @@ export default function ManagementDashboardPage() {
         </div>
 
         <div className={styles.statCard} onClick={() => setActiveTab('classes')} style={{ cursor: 'pointer' }}>
-          <div className={styles.statIcon} style={{ background: 'rgba(14, 165, 233, 0.15)', color: '#0ea5e9' }}>
-            <HiOutlineBuildingOffice2 />
+          <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+            <HiOutlineVideoCamera />
           </div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>کلاس‌های زیرشاخه معلمان</span>
-            <span className={styles.statValue}>{classesList.length} کلاس</span>
+            <span className={styles.statLabel}>وبینار و جلسات آنلاین</span>
+            <span className={styles.statValue}>آماده پخش زنده 🔴</span>
           </div>
         </div>
 
@@ -628,8 +629,8 @@ export default function ManagementDashboardPage() {
           className={`${styles.mgmtTabBtn} ${activeTab === 'classes' ? styles.mgmtTabBtnActive : ''}`}
           onClick={() => setActiveTab('classes')}
         >
-          <HiOutlineBuildingOffice2 style={{ fontSize: '1.2rem' }} />
-          🏫 کلاس‌های زیرشاخه معلمان
+          <HiOutlineVideoCamera style={{ fontSize: '1.2rem', color: '#ef4444' }} />
+          🎥 وبینار و جلسات آنلاین
         </button>
 
         <button
@@ -850,10 +851,93 @@ export default function ManagementDashboardPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
-          TAB 3: کلاس‌ها و زیرشاخه‌های معلمان
+          TAB 3: وبینار، جلسات آنلاین و کلاس‌های زیرشاخه
       ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'classes' && (
         <div className={styles.cardSection}>
+          {/* Top Live School Webinar Box */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
+              border: '1.5px solid rgba(239, 68, 68, 0.35)',
+              borderRadius: 'var(--radius-xl)',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '14px',
+              flexWrap: 'wrap',
+              marginBottom: '20px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.3rem',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.35)',
+                }}
+              >
+                <HiOutlineVideoCamera />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                  اتاق اختصاصی وبینار و جلسات آنلاین سراسری مدرسه
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                  برگزاری وبینار، جلسات آنلاین انجمن اولیا و مربیان، شورای دبیران و همایش‌های مجازی دانش‌آموزان
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Link
+                href="/dashboard/school-meetings"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '8px 14px',
+                  fontSize: '0.8125rem',
+                  fontWeight: 750,
+                  textDecoration: 'none',
+                }}
+              >
+                <span>تقویم و تعریف جلسات جدید ↗</span>
+              </Link>
+              <Link
+                href="/dashboard/classes/1/live?type=school_webinar"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: '#ffffff',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: '8px 16px',
+                  fontSize: '0.84375rem',
+                  fontWeight: 800,
+                  textDecoration: 'none',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.35)',
+                }}
+              >
+                <HiOutlineVideoCamera />
+                <span>ورود به وبینار زنده (LIVE) 🚀</span>
+              </Link>
+            </div>
+          </div>
+
           <div className={styles.sectionHeader}>
             <div>
               <h2 className={styles.sectionTitle}>

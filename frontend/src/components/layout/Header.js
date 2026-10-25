@@ -29,6 +29,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
 
   const getSectionTitle = () => {
     if (pathname.includes('/live')) return 'کلاس پخش زنده';
+    if (pathname.includes('/school-meetings')) return 'وبینار و جلسات آنلاین مدرسه';
     if (pathname.startsWith('/dashboard/classes/') && pathname.split('/').length === 4) return 'صفحه اختصاصی کلاس';
     if (pathname.includes('/manage-classes')) return 'مدیریت کلاس‌ها';
     if (pathname.includes('/teachers')) return 'دیتابیس معلمان';

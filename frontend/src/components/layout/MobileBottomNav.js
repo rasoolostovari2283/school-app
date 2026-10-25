@@ -19,6 +19,7 @@ export default function MobileBottomNav({ onOpenMenu }) {
   const { user } = useAuthStore();
   const isTeacher = user?.role === 'teacher';
   const isParent = user?.role === 'parent';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   const navLinks = [
     {
@@ -30,9 +31,9 @@ export default function MobileBottomNav({ onOpenMenu }) {
     },
     {
       id: 'classes',
-      label: 'کلاس‌ها',
-      href: '/dashboard/classes',
-      icon: HiOutlineAcademicCap,
+      label: isAdmin ? 'وبینار' : (isParent ? 'جلسات مدرسه' : 'کلاس‌ها'),
+      href: (isAdmin || isParent) ? '/dashboard/school-meetings' : '/dashboard/classes',
+      icon: (isAdmin || isParent) ? HiOutlineVideoCamera : HiOutlineAcademicCap,
     },
     {
       id: 'live',
