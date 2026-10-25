@@ -371,6 +371,72 @@
   border-radius: var(--radius-md);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   VIDEO PLAYBACK SPEED CONTROLLER BAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.playbackSpeedBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 18px;
+}
+
+.speedLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.speedIcon {
+  color: #f59e0b;
+}
+
+.speedButtons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.speedBtn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.speedBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--primary-400);
+  transform: translateY(-1px);
+}
+
+.speedBtnActive {
+  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  color: #ffffff !important;
+  border-color: #4f46e5 !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  font-weight: 750;
+}
+
 .playerFooter {
   padding: var(--space-5);
   background: var(--bg-card);

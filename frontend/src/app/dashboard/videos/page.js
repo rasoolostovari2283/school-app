@@ -20,6 +20,7 @@ import {
   HiOutlineArrowsRightLeft,
   HiOutlineArrowDownTray,
   HiOutlinePaperClip,
+  HiOutlineBolt,
 } from 'react-icons/hi2';
 import { FaFilePdf } from 'react-icons/fa6';
 import styles from './videos.module.css';
@@ -94,6 +95,41 @@ export default function VideosPage() {
   const [uploadPdfFile, setUploadPdfFile] = useState(null); // PDF attachment during upload
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Video Playback Speed State & Ref
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const videoPlayerRef = useRef(null);
+  const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('educonnect_playback_rate');
+      if (saved) {
+        const val = parseFloat(saved);
+        if (!isNaN(val) && val > 0) setPlaybackRate(val);
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    if (videoPlayerRef.current) {
+      videoPlayerRef.current.playbackRate = playbackRate;
+    }
+  }, [activeMedia, playbackRate]);
+
+  const handleSetPlaybackRate = (rate) => {
+    setPlaybackRate(rate);
+    if (videoPlayerRef.current) {
+      videoPlayerRef.current.playbackRate = rate;
+    }
+    try {
+      localStorage.setItem('educonnect_playback_rate', String(rate));
+    } catch (e) {}
+    toast.success(`سرعت پخش: ${rate === 1 ? '1x (عادی)' : rate + 'x'} ⚡`, {
+      id: 'playback-rate-toast',
+      duration: 1500,
+    });
+  };
 
   const AUDIENCE_OPTIONS = [
     { id: 'all', label: 'هر سه گروه (عمومی)', desc: 'معلمان، دانش‌آموزان و اولیا', icon: '👥', color: '#6366f1' },
@@ -1699,14 +1735,48 @@ export default function VideosPage() {
             </div>
 
             {isVideo(activeMedia) ? (
-              <div className={styles.videoPlayerWrapper}>
-                <video
-                  src={getMediaUrl(activeMedia.file_url || activeMedia.video_url)}
-                  controls
-                  autoPlay
-                  className={styles.videoElement}
-                />
-              </div>
+              <>
+                <div className={styles.videoPlayerWrapper}>
+                  <video
+                    ref={videoPlayerRef}
+                    src={getMediaUrl(activeMedia.file_url || activeMedia.video_url)}
+                    controls
+                    autoPlay
+                    className={styles.videoElement}
+                    onLoadedMetadata={() => {
+                      if (videoPlayerRef.current) {
+                        videoPlayerRef.current.playbackRate = playbackRate;
+                      }
+                    }}
+                    onPlay={() => {
+                      if (videoPlayerRef.current) {
+                        videoPlayerRef.current.playbackRate = playbackRate;
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Video Playback Speed Controller Bar */}
+                <div className={styles.playbackSpeedBar}>
+                  <div className={styles.speedLabel}>
+                    <HiOutlineBolt size={18} className={styles.speedIcon} />
+                    <span>تنظیم سرعت پخش ویدیو:</span>
+                  </div>
+                  <div className={styles.speedButtons}>
+                    {PLAYBACK_RATES.map((rate) => (
+                      <button
+                        key={rate}
+                        type="button"
+                        className={`${styles.speedBtn} ${playbackRate === rate ? styles.speedBtnActive : ''}`}
+                        onClick={() => handleSetPlaybackRate(rate)}
+                        title={`پخش با سرعت ${rate} برابر`}
+                      >
+                        {rate === 1 ? '1x (عادی)' : `${rate}x`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : (
               <div className={styles.imageViewerWrapper}>
                 <img
