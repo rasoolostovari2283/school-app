@@ -594,102 +594,152 @@ export default function ClassRostersPage() {
   };
 
   // Cross-browser & Mobile-safe file downloader
-  const triggerDownload = (filename, content, mimeType) => {
+  const triggerDownload = (filename, content, mimeType = 'application/octet-stream') => {
     try {
-      const blob = new Blob([content], { type: mimeType });
+      const cleanMime = (mimeType || 'application/octet-stream').replace(/;+$/, '').trim();
+      // Ensure UTF-8 BOM is present to guarantee correct Persian display in MS Excel & spreadsheet viewers
+      const hasBom = typeof content === 'string' && content.charCodeAt(0) === 0xFEFF;
+      const blob = new Blob([hasBom ? '' : '\uFEFF', content], { type: cleanMime });
+
+      // Legacy IE & Edge support
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveOrOpenBlob(blob, filename);
+        return true;
+      }
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', filename);
+      link.setAttribute('target', '_self');
+      link.rel = 'noopener noreferrer';
       link.style.display = 'none';
       document.body.appendChild(link);
-      link.click();
+      
+      // Trigger the download via click event
+      if (typeof link.click === 'function') {
+        link.click();
+      } else {
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+        link.dispatchEvent(evt);
+      }
+
+      // Keep Blob URL active for 60 seconds so asynchronous browser download managers never get aborted
       setTimeout(() => {
         try {
-          document.body.removeChild(link);
+          if (link.parentNode) {
+            document.body.removeChild(link);
+          }
           URL.revokeObjectURL(url);
         } catch (e) {}
-      }, 300);
+      }, 60000);
+
+      return true;
     } catch (err) {
-      console.warn('Standard blob download failed, trying data URI fallback:', err);
+      console.warn('Standard blob download failed, trying FileReader data URI fallback:', err);
       try {
-        const encodedUri = encodeURI(`data:${mimeType},` + content);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', filename);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const cleanMime = (mimeType || 'application/octet-stream').replace(/;+$/, '').trim();
+        const hasBom = typeof content === 'string' && content.charCodeAt(0) === 0xFEFF;
+        const blob = new Blob([hasBom ? '' : '\uFEFF', content], { type: cleanMime });
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          try {
+            const dataUri = reader.result;
+            const fallbackLink = document.createElement('a');
+            fallbackLink.href = dataUri;
+            fallbackLink.setAttribute('download', filename);
+            fallbackLink.setAttribute('target', '_self');
+            fallbackLink.rel = 'noopener noreferrer';
+            fallbackLink.style.display = 'none';
+            document.body.appendChild(fallbackLink);
+            fallbackLink.click();
+            setTimeout(() => {
+              try {
+                if (fallbackLink.parentNode) document.body.removeChild(fallbackLink);
+              } catch (e) {}
+            }, 10000);
+          } catch (errInner) {
+            console.error('Data URI download fallback failed:', errInner);
+            toast.error('خطا در دریافت فایل');
+          }
+        };
+        reader.readAsDataURL(blob);
+        return true;
       } catch (e2) {
+        console.error('All download methods failed:', e2);
         toast.error('خطا در دریافت فایل');
+        return false;
       }
     }
   };
 
   // Comprehensive Excel Exporter (.xls spreadsheet & .csv)
   const handleExportExcel = (format = 'excel') => {
-    const studentsToExport = rosterData?.students || [];
-    const currentClass = activeClass || rosterData?.class || classes.find((c) => c.id === selectedClassId);
+    try {
+      const studentsToExport = rosterData?.students || [];
+      const currentClass = activeClass || rosterData?.class || classes.find((c) => c.id === selectedClassId);
 
-    if (!studentsToExport.length) {
-      toast.error('هیچ دانش‌آموزی در این کلاس جهت دریافت فایل اکسل وجود ندارد.');
-      return;
-    }
+      if (!studentsToExport.length) {
+        toast.error('هیچ دانش‌آموزی در این کلاس جهت دریافت فایل اکسل وجود ندارد.');
+        return;
+      }
 
-    const className = currentClass?.name || 'کلاس';
-    const subjectName = currentClass?.subject || 'عمومی';
-    const gradeName = currentClass?.grade || currentClass?.department || '—';
-    const teacherName = user?.display_name || user?.name || currentClass?.teacher_name || 'دبیر محترم';
-    const safeClassName = className.replace(/[/\\?%*:|"<>]/g, '_').trim();
-    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+      const className = currentClass?.name || 'کلاس';
+      const subjectName = currentClass?.subject || 'عمومی';
+      const gradeName = currentClass?.grade || currentClass?.department || '—';
+      const teacherName = user?.display_name || user?.name || currentClass?.teacher_name || 'دبیر محترم';
+      const safeClassName = className.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'کلاس';
+      const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
 
-    if (format === 'csv') {
-      // Export as CSV with UTF-8 BOM
-      const BOM = '\uFEFF';
-      const headers = ['ردیف', 'نام و نام خانوادگی', 'کد دانش‌آموزی', 'پایه / رشته', 'نام ولی', 'شماره تماس دانش‌آموز', 'شماره تماس اولیا', 'نام کلاس', 'عنوان درس', 'نام دبیر'];
-      const rows = studentsToExport.map((s, idx) => [
-        idx + 1,
-        s.display_name || '',
-        s.student_code || '',
-        s.department || gradeName,
-        s.parent_name || '',
-        s.phone || '',
-        s.parent_phone || '',
-        className,
-        subjectName,
-        teacherName,
-      ]);
+      if (format === 'csv') {
+        // Export as CSV with UTF-8 BOM
+        const headers = ['ردیف', 'نام و نام خانوادگی', 'کد دانش‌آموزی', 'پایه / رشته', 'نام ولی', 'شماره تماس دانش‌آموز', 'شماره تماس اولیا', 'نام کلاس', 'عنوان درس', 'نام دبیر'];
+        const rows = studentsToExport.map((s, idx) => [
+          idx + 1,
+          s.display_name || '',
+          s.student_code || '',
+          s.department || gradeName,
+          s.parent_name || '',
+          s.phone || '',
+          s.parent_phone || '',
+          className,
+          subjectName,
+          teacherName,
+        ]);
 
-      const csvContent = BOM + [headers, ...rows]
-        .map((row) => row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(','))
-        .join('\r\n');
+        const csvContent = [headers, ...rows]
+          .map((row) => row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(','))
+          .join('\r\n');
 
-      triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.csv`, csvContent, 'text/csv;charset=utf-8;');
-      toast.success('فایل CSV با موفقیت دریافت شد 📊');
-      return;
-    }
+        const ok = triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.csv`, csvContent, 'text/csv;charset=utf-8');
+        if (ok !== false) {
+          toast.success('فایل CSV با موفقیت دریافت شد 📊');
+        }
+        return;
+      }
 
-    // Default: Export as Native MS-Excel XML/HTML Spreadsheet (.xls)
-    // Opens in Microsoft Excel, Google Sheets & WPS Office with RTL, styles, and leading zeros preserved!
-    const tableRows = studentsToExport
-      .map(
-        (s, idx) => `
-      <tr>
-        <td style="text-align: center; font-weight: bold; mso-number-format:'0';">${idx + 1}</td>
-        <td style="font-weight: bold; mso-number-format:'\\@';">${escapeXml(s.display_name || '—')}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.student_code || '—')}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.department || gradeName)}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.parent_name || '—')}</td>
-        <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.phone || '—')}</td>
-        <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.parent_phone || '—')}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(className)}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(subjectName)}</td>
-        <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(teacherName)}</td>
-      </tr>`
-      )
-      .join('');
+      // Default: Export as Native MS-Excel XML/HTML Spreadsheet (.xls)
+      // Opens in Microsoft Excel, Google Sheets & WPS Office with RTL, styles, and leading zeros preserved!
+      const tableRows = studentsToExport
+        .map(
+          (s, idx) => `
+        <tr>
+          <td style="text-align: center; font-weight: bold; mso-number-format:'0';">${idx + 1}</td>
+          <td style="font-weight: bold; mso-number-format:'\\@';">${escapeXml(s.display_name || '—')}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.student_code || '—')}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.department || gradeName)}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(s.parent_name || '—')}</td>
+          <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.phone || '—')}</td>
+          <td style="text-align: center; mso-number-format:'\\@'; direction: ltr;">${escapeXml(s.parent_phone || '—')}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(className)}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(subjectName)}</td>
+          <td style="text-align: center; mso-number-format:'\\@';">${escapeXml(teacherName)}</td>
+        </tr>`
+        )
+        .join('');
 
-    const excelHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      const excelHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <!--[if gte mso 9]>
@@ -773,8 +823,14 @@ export default function ClassRostersPage() {
 </body>
 </html>`;
 
-    triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.xls`, excelHtml, 'application/vnd.ms-excel;charset=utf-8;');
-    toast.success('فایل اکسل با موفقیت دریافت شد 📊');
+      const ok = triggerDownload(`لیست_کلاسی_${safeClassName}_${dateStr}.xls`, excelHtml, 'application/vnd.ms-excel;charset=utf-8');
+      if (ok !== false) {
+        toast.success('فایل اکسل با موفقیت دریافت شد 📊');
+      }
+    } catch (e) {
+      console.error('Error in handleExportExcel:', e);
+      toast.error('خطا در تولید فایل اکسل');
+    }
   };
 
   // Backwards compatibility alias
