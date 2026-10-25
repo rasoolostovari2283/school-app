@@ -573,6 +573,16 @@ router.post('/:id/pdf', upload.single('pdf'), async (req, res, next) => {
     }
     const video = await query.first();
     if (!video) {
+      // If it's a client-generated ID (e.g. whiteboard recording), still store the uploaded file gracefully
+      if (req.file) {
+        const pdfUrl = `/uploads/${req.file.filename}`;
+        const pdfName = req.body.pdf_name || req.file.originalname;
+        return res.json({
+          success: true,
+          message: 'فایل PDF جزوه با موفقیت پیوست شد 📄',
+          data: { video: null, pdf_url: pdfUrl, pdf_name: pdfName },
+        });
+      }
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد یا دسترسی ندارید' });
     }
 

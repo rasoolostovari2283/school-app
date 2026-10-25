@@ -232,10 +232,15 @@ export default function VideosPage() {
           const localSessions = JSON.parse(localSessionsRaw);
           if (Array.isArray(localSessions)) {
             localSessions.forEach((sess) => {
-              const exists = list.some(
+              const existing = list.find(
                 (v) => v.id === sess.id || (v.title === sess.title && v.duration_seconds === sess.duration)
               );
-              if (!exists && (sess.videoUrl || sess.file_url)) {
+              if (existing) {
+                if (sess.pdf_url && !existing.pdf_url) {
+                  existing.pdf_url = sess.pdf_url;
+                  existing.pdf_name = sess.pdf_name || 'جزوه_درس.pdf';
+                }
+              } else if (sess.videoUrl || sess.file_url) {
                 list.unshift({
                   id: sess.id || `wb-${Date.now()}`,
                   title: sess.title || 'تدریس تخته هوشمند',
@@ -246,6 +251,8 @@ export default function VideosPage() {
                   file_url: sess.videoUrl || sess.file_url,
                   video_url: sess.videoUrl || sess.file_url,
                   thumbnail_url: null,
+                  pdf_url: sess.pdf_url || null,
+                  pdf_name: sess.pdf_name || null,
                   mimetype: 'video/webm',
                   duration_seconds: sess.duration || 0,
                   views_count: 1,
@@ -585,7 +592,158 @@ export default function VideosPage() {
   const getMediaUrl = (url) => {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url;
-    return `${API_BASE_HOST}${url}`;
+    let baseHost = 'http://localhost:5000';
+    if (typeof window !== 'undefined') {
+      const customUrl = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
+      if (customUrl) {
+        baseHost = customUrl.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
+      } else if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        baseHost = `${window.location.protocol}//${window.location.hostname}:5000`;
+      } else {
+        baseHost = process.env.NEXT_PUBLIC_API_HOST || 'http://localhost:5000';
+      }
+    }
+    return `${baseHost}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
+  // Helper to persist attached PDF in local whiteboard recordings cache
+  const updateLocalWhiteboardPdf = (videoId, pdfUrl, pdfName) => {
+    try {
+      const globalKey = 'educonnect_recorded_sessions';
+      const raw = localStorage.getItem(globalKey);
+      if (raw) {
+        const sessions = JSON.parse(raw);
+        if (Array.isArray(sessions)) {
+          const updated = sessions.map((s) =>
+            s.id === videoId ? { ...s, pdf_url: pdfUrl, pdf_name: pdfName } : s
+          );
+          localStorage.setItem(globalKey, JSON.stringify(updated));
+        }
+      }
+      if (user?.id) {
+        const userKey = `educonnect_recorded_sessions_${user.id}`;
+        const uRaw = localStorage.getItem(userKey);
+        if (uRaw) {
+          const uSessions = JSON.parse(uRaw);
+          if (Array.isArray(uSessions)) {
+            const uUpdated = uSessions.map((s) =>
+              s.id === videoId ? { ...s, pdf_url: pdfUrl, pdf_name: pdfName } : s
+            );
+            localStorage.setItem(userKey, JSON.stringify(uUpdated));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error updating local whiteboard PDF cache:', e);
+    }
+  };
+
+  // Universal Client File Downloader (Desktop, Mobile & Android WebView compatible)
+  const downloadFileFromUrl = async (url, fileName) => {
+    if (!url) return false;
+    const fullUrl = getMediaUrl(url);
+
+    // 1. If it's already a blob: or data: URL
+    if (fullUrl.startsWith('blob:') || fullUrl.startsWith('data:')) {
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
+        try {
+          const res = await fetch(fullUrl);
+          const blob = await res.blob();
+          window.navigator.msSaveOrOpenBlob(blob, fileName);
+          return true;
+        } catch (e) {}
+      }
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = fullUrl;
+      a.download = fileName;
+      a.target = '_self';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try {
+          if (a.parentNode) document.body.removeChild(a);
+        } catch (e) {}
+      }, 5000);
+      return true;
+    }
+
+    // 2. Fetch using axios / api with responseType: 'blob'
+    // Handles authentication token, cookies, LAN IP, and avoids cross-origin download attribute restrictions
+    try {
+      const endpoint = url.startsWith('http') ? url : url;
+      const res = await api.get(endpoint, {
+        responseType: 'blob',
+      });
+      const blob = res.data;
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveOrOpenBlob(blob, fileName);
+        return true;
+      }
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = fileName;
+      a.target = '_self';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      // Keep URL active for 60 seconds so browser download manager finishes saving without interruption
+      setTimeout(() => {
+        try {
+          if (a.parentNode) document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+        } catch (e) {}
+      }, 60000);
+      return true;
+    } catch (apiErr) {
+      console.warn('api.get blob failed, trying fetch fallback:', apiErr);
+      // 3. Native fetch fallback
+      try {
+        const response = await fetch(fullUrl, { mode: 'cors' });
+        if (!response.ok) throw new Error('Fetch failed with status ' + response.status);
+        const blob = await response.blob();
+        if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
+          window.navigator.msSaveOrOpenBlob(blob, fileName);
+          return true;
+        }
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = blobUrl;
+        a.download = fileName;
+        a.target = '_self';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try {
+            if (a.parentNode) document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+          } catch (e) {}
+        }, 60000);
+        return true;
+      } catch (fetchErr) {
+        console.warn('Native fetch failed, trying direct anchor link:', fetchErr);
+        // 4. Direct anchor click
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = fullUrl;
+        a.download = fileName;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try {
+            if (a.parentNode) document.body.removeChild(a);
+          } catch (e) {}
+        }, 5000);
+        return true;
+      }
+    }
   };
 
   const formatDuration = (secs) => {
@@ -605,19 +763,17 @@ export default function VideosPage() {
   };
 
   // Download media file (for all users & students)
-  const handleDownloadMedia = (e, item) => {
+  const handleDownloadMedia = async (e, item) => {
     if (e && e.stopPropagation) e.stopPropagation();
     if (!item) return;
 
     const rawUrl = item.file_url || item.video_url;
-    const mediaUrl = getMediaUrl(rawUrl);
-
-    if (!mediaUrl) {
+    if (!rawUrl) {
       toast.error('آدرس فایل جهت دانلود یافت نشد');
       return;
     }
 
-    toast('در حال دریافت و آماده‌سازی فایل...', { icon: '⏳' });
+    const loadingToast = toast.loading('در حال دریافت و آماده‌سازی فایل برای دانلود...');
 
     // Determine appropriate extension
     let ext = 'mp4';
@@ -639,52 +795,17 @@ export default function VideosPage() {
     const cleanTitle = (item.title || 'media').replace(/[/\\?%*:|"<>]/g, '-').trim();
     const downloadFileName = `${cleanTitle}.${ext}`;
 
-    // If blob: or data: URL, trigger immediate anchor download
-    if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('data:')) {
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = mediaUrl;
-      a.download = downloadFileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success(`دانلود «${cleanTitle}» آغاز شد 📥`);
-      return;
+    const ok = await downloadFileFromUrl(rawUrl, downloadFileName);
+    toast.dismiss(loadingToast);
+    if (ok) {
+      toast.success(`دانلود «${cleanTitle}» با موفقیت آغاز شد 📥`);
+    } else {
+      toast.error(`خطا در دانلود فایل «${cleanTitle}»`);
     }
-
-    // Fetch as blob to force native browser download dialog
-    fetch(mediaUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error('Fetch failed');
-        return res.blob();
-      })
-      .then((blob) => {
-        const objectUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = objectUrl;
-        a.download = downloadFileName;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(objectUrl);
-        document.body.removeChild(a);
-        toast.success(`دانلود «${cleanTitle}» آغاز شد 📥`);
-      })
-      .catch((err) => {
-        console.warn('Fetch blob download failed, falling back to direct link:', err);
-        const a = document.createElement('a');
-        a.href = mediaUrl;
-        a.download = downloadFileName;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success(`لینک دانلود باز شد 📥`);
-      });
   };
 
   // Download Attached PDF document
-  const handleDownloadPdf = (e, item) => {
+  const handleDownloadPdf = async (e, item) => {
     if (e && e.stopPropagation) e.stopPropagation();
     if (!item || !item.pdf_url) {
       toast.error('فایل PDF برای این ویدیو یافت نشد');
@@ -692,52 +813,18 @@ export default function VideosPage() {
     }
 
     const rawUrl = item.pdf_url;
-    const pdfUrl = getMediaUrl(rawUrl);
     const pdfName = item.pdf_name || `${(item.title || 'جزوه_درس').replace(/[/\\?%*:|"<>]/g, '-')}.pdf`;
     const finalName = pdfName.toLowerCase().endsWith('.pdf') ? pdfName : `${pdfName}.pdf`;
 
-    toast('در حال آماده‌سازی و دانلود فایل PDF...', { icon: '📄' });
+    const loadingToast = toast.loading(`در حال دریافت و دانلود جزوه «${finalName}»...`);
 
-    if (pdfUrl.startsWith('blob:') || pdfUrl.startsWith('data:')) {
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = pdfUrl;
-      a.download = finalName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success(`دانلود فایل جزوه آغاز شد 📥`);
-      return;
+    const ok = await downloadFileFromUrl(rawUrl, finalName);
+    toast.dismiss(loadingToast);
+    if (ok) {
+      toast.success(`جزوه «${finalName}» با موفقیت دانلود شد 📥`);
+    } else {
+      toast.error('خطا در دانلود فایل جزوه پیوست');
     }
-
-    fetch(pdfUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error('Fetch failed');
-        return res.blob();
-      })
-      .then((blob) => {
-        const objectUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = objectUrl;
-        a.download = finalName;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(objectUrl);
-        document.body.removeChild(a);
-        toast.success(`جزوه «${finalName}» با موفقیت دانلود شد 📥`);
-      })
-      .catch((err) => {
-        console.warn('Fetch pdf failed, falling back to direct link:', err);
-        const a = document.createElement('a');
-        a.href = pdfUrl;
-        a.download = finalName;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success(`فایل PDF باز شد 📥`);
-      });
   };
 
   // Open Attach PDF Modal
@@ -768,7 +855,7 @@ export default function VideosPage() {
 
       if (res.data?.success) {
         const newPdfUrl = res.data.data.pdf_url;
-        const newPdfName = res.data.data.pdf_name;
+        const newPdfName = res.data.data.pdf_name || selectedPdfFile.name;
         setVideos((prev) =>
           prev.map((v) =>
             v.id === attachingPdfVideo.id ? { ...v, pdf_url: newPdfUrl, pdf_name: newPdfName } : v
@@ -777,12 +864,40 @@ export default function VideosPage() {
         if (activeMedia && activeMedia.id === attachingPdfVideo.id) {
           setActiveMedia((prev) => ({ ...prev, pdf_url: newPdfUrl, pdf_name: newPdfName }));
         }
+        updateLocalWhiteboardPdf(attachingPdfVideo.id, newPdfUrl, newPdfName);
         toast.success(`فایل PDF جزوه با موفقیت به ویدیو پیوست شد 📄`);
         setAttachingPdfVideo(null);
         setSelectedPdfFile(null);
+        return;
       }
     } catch (err) {
-      console.warn('Backend attach pdf fallback:', err);
+      console.warn('Backend attach pdf fallback, attempting /upload/ endpoint:', err);
+      try {
+        const uploadForm = new FormData();
+        uploadForm.append('file', selectedPdfFile);
+        const upRes = await api.post('/upload', uploadForm, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        const uploadedUrl = upRes.data?.data?.url || upRes.data?.url;
+        if (uploadedUrl) {
+          setVideos((prev) =>
+            prev.map((v) =>
+              v.id === attachingPdfVideo.id ? { ...v, pdf_url: uploadedUrl, pdf_name: selectedPdfFile.name } : v
+            )
+          );
+          if (activeMedia && activeMedia.id === attachingPdfVideo.id) {
+            setActiveMedia((prev) => ({ ...prev, pdf_url: uploadedUrl, pdf_name: selectedPdfFile.name }));
+          }
+          updateLocalWhiteboardPdf(attachingPdfVideo.id, uploadedUrl, selectedPdfFile.name);
+          toast.success(`فایل جزوه «${selectedPdfFile.name}» با موفقیت پیوست شد 📄`);
+          setAttachingPdfVideo(null);
+          setSelectedPdfFile(null);
+          return;
+        }
+      } catch (upErr) {
+        console.warn('Upload fallback failed:', upErr);
+      }
+
       const fakeUrl = URL.createObjectURL(selectedPdfFile);
       setVideos((prev) =>
         prev.map((v) =>
@@ -792,6 +907,7 @@ export default function VideosPage() {
       if (activeMedia && activeMedia.id === attachingPdfVideo.id) {
         setActiveMedia((prev) => ({ ...prev, pdf_url: fakeUrl, pdf_name: selectedPdfFile.name }));
       }
+      updateLocalWhiteboardPdf(attachingPdfVideo.id, fakeUrl, selectedPdfFile.name);
       toast.success(`فایل جزوه «${selectedPdfFile.name}» به ویدیو پیوست شد 📄`);
       setAttachingPdfVideo(null);
       setSelectedPdfFile(null);
