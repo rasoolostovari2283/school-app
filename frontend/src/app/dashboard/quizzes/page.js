@@ -37,6 +37,7 @@ export default function QuizzesPage() {
   const isTeacher = user?.role === 'teacher';
   const isStudent = user?.role === 'student';
   const isParent = user?.role === 'parent';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   const [quizzes, setQuizzes] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -712,6 +713,39 @@ export default function QuizzesPage() {
           </button>
         )}
       </div>
+
+      {/* Admin Notice */}
+      {isAdmin && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
+            border: '1.5px solid rgba(245, 158, 11, 0.35)',
+            borderRadius: 'var(--radius-xl)',
+            padding: '16px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '14px',
+            flexWrap: 'wrap',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.5rem' }}>ℹ️</span>
+            <div>
+              <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                بخش طراحی و برگزاری کوییز ویژه دبیران و دانش‌آموزان است
+              </div>
+              <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                جهت نظارت بر ریزنمرات، کارنامه‌ها و وضعیت تحصیلی کل مدرسه، به ستاد مدیریت یا دفتر نمرات مراجعه فرمایید.
+              </div>
+            </div>
+          </div>
+          <Link href="/dashboard/management" className="btn btn-secondary btn-sm" style={{ fontWeight: 700 }}>
+            <span>بازگشت به ستاد مدیریت مدرسه ←</span>
+          </Link>
+        </div>
+      )}
 
       {/* Filter by class / grade */}
       <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>

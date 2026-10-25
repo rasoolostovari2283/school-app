@@ -725,20 +725,67 @@ export default function DashboardPage() {
               <span style={{ fontWeight: 800, color: 'var(--primary-600)' }}>ضبط کلاس و تخته</span>
             </Link>
 
+            {isAdmin && (
+              <>
+                <Link
+                  href="/dashboard/management"
+                  className={styles.heroBtn}
+                  style={{
+                    borderColor: 'rgba(245, 158, 11, 0.45)',
+                    background: 'rgba(255, 255, 255, 0.95)',
+                  }}
+                  title="ستاد فرماندهی و نظارت مدیریت مدرسه"
+                >
+                  <span style={{ fontSize: '1.25rem' }}>🏛️</span>
+                  <span style={{ fontWeight: 800, color: '#b45309' }}>ستاد مدیریت</span>
+                </Link>
+
+                <Link
+                  href="/dashboard/teachers"
+                  className={styles.heroBtn}
+                  style={{
+                    borderColor: 'rgba(99, 102, 241, 0.4)',
+                    background: 'rgba(255, 255, 255, 0.95)',
+                  }}
+                  title="دیتابیس و کادر معلمان مدرسه"
+                >
+                  <HiOutlineAcademicCap style={{ color: '#6366f1' }} />
+                  <span style={{ fontWeight: 800, color: '#4f46e5' }}>دیتابیس معلمان</span>
+                </Link>
+
+                <Link
+                  href="/dashboard/report-card"
+                  className={styles.heroBtn}
+                  style={{
+                    borderColor: 'rgba(16, 185, 129, 0.4)',
+                    background: 'rgba(255, 255, 255, 0.95)',
+                  }}
+                  title="کارنامه‌ها و دفتر نمرات کل مجتمع"
+                >
+                  <HiOutlineDocumentText style={{ color: '#059669' }} />
+                  <span style={{ fontWeight: 800, color: '#059669' }}>دفتر نمرات کل</span>
+                </Link>
+              </>
+            )}
+
             <Link href="/dashboard/attendance" className={styles.heroBtn}>
               <HiOutlineUserGroup style={{ color: '#059669' }} />
-              <span>حضور و غیاب</span>
+              <span>{isAdmin ? 'حضور و غیاب کل' : 'حضور و غیاب'}</span>
             </Link>
 
-            <Link href="/dashboard/assignments" className={styles.heroBtn}>
-              <HiOutlineClipboardDocumentList style={{ color: '#6366f1' }} />
-              <span>{isTeacher ? 'تعریف تکلیف' : 'تکالیف من'}</span>
-            </Link>
+            {!isAdmin && (
+              <Link href="/dashboard/assignments" className={styles.heroBtn}>
+                <HiOutlineClipboardDocumentList style={{ color: '#6366f1' }} />
+                <span>{isTeacher ? 'تعریف تکلیف' : 'تکالیف من'}</span>
+              </Link>
+            )}
 
-            <Link href="/dashboard/quizzes" className={styles.heroBtn}>
-              <HiOutlineQuestionMarkCircle style={{ color: '#d97706' }} />
-              <span>آزمون آنلاین</span>
-            </Link>
+            {!isAdmin && (
+              <Link href="/dashboard/quizzes" className={styles.heroBtn}>
+                <HiOutlineQuestionMarkCircle style={{ color: '#d97706' }} />
+                <span>آزمون آنلاین</span>
+              </Link>
+            )}
 
             <Link href="/dashboard/messages" className={styles.heroBtn}>
               <HiOutlineMegaphone style={{ color: '#e11d48' }} />
@@ -1129,12 +1176,12 @@ export default function DashboardPage() {
                 : 'پس از ثبت کلاس‌ها و برگزاری اولین آزمون یا تکلیف، گزارش‌های تحلیلی هوشمند یادگیری در این بخش فعال خواهد شد.'}
             </p>
             <Link
-              href={classes.length > 0 ? '/dashboard/quizzes' : '/dashboard/classes'}
+              href={isAdmin ? '/dashboard/school-meetings' : (classes.length > 0 ? '/dashboard/quizzes' : '/dashboard/classes')}
               className="btn btn-primary btn-sm"
               style={{ alignSelf: 'flex-start', background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' }}
             >
               <HiOutlineSparkles />
-              <span>{classes.length > 0 ? 'تولید تمرین تقویتی هوشمند' : 'ایجاد اولین کلاس'}</span>
+              <span>{isAdmin ? 'مدیریت وبینار و جلسات مدرسه' : (classes.length > 0 ? 'تولید تمرین تقویتی هوشمند' : 'ایجاد اولین کلاس')}</span>
             </Link>
           </div>
         </div>
