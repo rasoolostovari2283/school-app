@@ -31,6 +31,7 @@ export default function ClassesPage() {
   const [teachersList, setTeachersList] = useState([]);
   const [launchLiveAfterCreate, setLaunchLiveAfterCreate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
 
   useEffect(() => {
     fetchClasses();
@@ -90,8 +91,13 @@ export default function ClassesPage() {
     }
   };
 
-  const copyCode = (code) => {
+  const copyCode = (code, id = null) => {
+    if (!code) return;
     navigator.clipboard.writeText(code);
+    if (id) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
     toast.success('کد عضویت در حافظه کپی شد! 📋');
   };
 
@@ -218,10 +224,36 @@ export default function ClassesPage() {
                     )}
                   </div>
 
-                  {user?.role === 'teacher' && (
+                  {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager') && (
                     <div className={styles.codeRow}>
-                      <span className={styles.joinCode}>{cls.join_code}</span>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className={styles.joinCodeBadge}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          copyCode(cls.join_code, cls.id);
+                        }}
+                        title="برای کپی کد عضویت کلاس کلیک کنید"
+                      >
+                        <span className={styles.joinCodeLabel}>کد کلاس:</span>
+                        <span className={styles.joinCodeText}>{cls.join_code}</span>
+                        <span className={`${styles.copyIconWrapper} ${copiedId === cls.id ? styles.copied : ''}`}>
+                          {copiedId === cls.id ? (
+                            <>
+                              <HiOutlineCheck size={14} />
+                              <span className={styles.copyText}>کپی شد</span>
+                            </>
+                          ) : (
+                            <>
+                              <HiOutlineClipboard size={14} />
+                              <span className={styles.copyText}>کپی</span>
+                            </>
+                          )}
+                        </span>
+                      </button>
+
+                      <div className={styles.codeActions}>
                         <Link
                           href={`/dashboard/classes/${cls.id}/live`}
                           onClick={(e) => e.stopPropagation()}
@@ -232,9 +264,10 @@ export default function ClassesPage() {
                             color: '#fff',
                             display: 'inline-flex',
                             alignItems: 'center',
+                            justifyContent: 'center',
                             gap: '4px',
                             fontWeight: 700,
-                            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.35)'
+                            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.35)',
                           }}
                           title="شروع یا ورود به کلاس آنلاین"
                         >
@@ -245,32 +278,17 @@ export default function ClassesPage() {
                           href="/dashboard/report-card"
                           onClick={(e) => e.stopPropagation()}
                           className="btn btn-secondary btn-sm"
-                          style={{ color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.4)' }}
+                          style={{
+                            color: '#6366f1',
+                            borderColor: 'rgba(99, 102, 241, 0.4)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
                           title="ورود و ثبت نمرات این کلاس"
                         >
                           دفتر نمرات
                         </Link>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            copyCode(cls.join_code);
-                          }}
-                          title="کپی کد عضویت"
-                          type="button"
-                        >
-                          <HiOutlineClipboard />
-                          <span>کپی</span>
-                        </button>
-                        <button
-                          className={styles.deleteClassBtn}
-                          onClick={(e) => handleDeleteClass(e, cls)}
-                          title="حذف کلاس اشتباهی"
-                          type="button"
-                        >
-                          <HiOutlineTrash size={15} />
-                          <span>حذف</span>
-                        </button>
                       </div>
                     </div>
                   )}

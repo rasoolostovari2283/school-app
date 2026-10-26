@@ -115,21 +115,91 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-top: auto;
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-color);
 }
 
-.joinCode {
+.joinCodeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  user-select: none;
+  text-decoration: none;
+}
+
+.joinCodeBadge:hover {
+  background: rgba(14, 165, 233, 0.16);
+  border-color: rgba(14, 165, 233, 0.55);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.2);
+}
+
+.joinCodeBadge:active {
+  transform: translateY(0);
+}
+
+.joinCodeLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.joinCodeText {
   font-family: monospace;
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 800;
+  color: #0284c7;
+  letter-spacing: 2px;
+}
+
+:global([data-theme='dark']) .joinCodeText {
   color: #38bdf8;
-  background: rgba(14, 165, 233, 0.1);
-  padding: 4px 12px;
-  border-radius: var(--radius-md);
-  letter-spacing: 3px;
-  border: 1px solid rgba(14, 165, 233, 0.25);
+}
+
+.copyIconWrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: rgba(14, 165, 233, 0.14);
+  color: #0284c7;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: all var(--transition-fast);
+}
+
+:global([data-theme='dark']) .copyIconWrapper {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.18);
+}
+
+.copyIconWrapper.copied {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.copyText {
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.codeActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .deleteClassBannerBtn {
@@ -159,30 +229,40 @@
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.45);
 }
 
-.deleteClassBtn {
-  background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-  padding: 4px 10px;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  border-radius: var(--radius-md);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.deleteClassBtn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
-  color: #ef4444;
-}
-
 @media (max-width: 640px) {
   .grid {
     grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .codeRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .joinCodeBadge {
+    width: 100%;
+    justify-content: space-between;
+    padding: 6px 12px;
+  }
+
+  .codeActions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .codeActions a,
+  .codeActions button {
+    width: 100%;
+    display: inline-flex !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 7px 10px !important;
+    font-size: 0.8125rem !important;
+    box-sizing: border-box !important;
   }
 }
 
