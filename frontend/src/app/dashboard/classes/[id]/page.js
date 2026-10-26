@@ -34,6 +34,7 @@ import styles from './classDetail.module.css';
 export default function ClassDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuthStore();
   const classId = params.id;
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isTeacher = user?.role === 'teacher' || isAdmin;

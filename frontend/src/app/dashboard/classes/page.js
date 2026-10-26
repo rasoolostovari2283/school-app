@@ -29,7 +29,7 @@ export default function ClassesPage() {
   const [formData, setFormData] = useState({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [teachersList, setTeachersList] = useState([]);
-  const [launchLiveAfterCreate, setLaunchLiveAfterCreate] = useState(true);
+  const [launchLiveAfterCreate, setLaunchLiveAfterCreate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -442,50 +442,51 @@ export default function ClassesPage() {
                   </label>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={(e) => handleCreate(e, true)}
-                    disabled={isSubmitting}
-                    className="btn btn-primary"
-                    style={{
-                      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                      borderColor: '#ef4444',
-                      fontWeight: 700,
-                      padding: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
-                    }}
-                  >
-                    <HiOutlineVideoCamera size={20} />
-                    <span>{isSubmitting ? 'در حال ثبت و بارگذاری...' : 'ثبت و شروع کلاس آنلاین 🔴'}</span>
-                  </button>
-
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       type="button"
                       onClick={(e) => handleCreate(e, false)}
                       disabled={isSubmitting}
-                      className="btn btn-secondary"
+                      className="btn btn-primary"
                       style={{
                         flex: 1,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '6px',
+                        gap: '8px',
                         fontWeight: 600,
+                        padding: '12px',
                       }}
                     >
-                      <HiOutlineAcademicCap size={18} />
-                      <span>{isSubmitting ? 'در حال ثبت و ورود...' : 'فقط ثبت کلاس (بدون ورود به لایو)'}</span>
+                      <HiOutlineAcademicCap size={20} />
+                      <span>{isSubmitting ? 'در حال ثبت کلاس...' : 'ثبت کلاس (عادی / آفلاین) 📚'}</span>
                     </button>
                     <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
                       انصراف
                     </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleCreate(e, true)}
+                    disabled={isSubmitting}
+                    className="btn btn-secondary"
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      borderColor: 'rgba(239, 68, 68, 0.3)',
+                      color: '#ef4444',
+                      fontWeight: 700,
+                      padding: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <HiOutlineVideoCamera size={20} />
+                    <span>{isSubmitting ? 'در حال بارگذاری...' : 'ثبت و ورود مستقیم به کلاس آنلاین 🔴'}</span>
+                  </button>
                 </div>
               </form>
             ) : (
