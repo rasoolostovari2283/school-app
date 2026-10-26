@@ -20,6 +20,7 @@ import {
   HiOutlineMapPin,
 } from 'react-icons/hi2';
 import styles from './login.module.css';
+import ServerConnectionBar from '../../components/system/ServerConnectionBar';
 
 // Persian Name to Latin Handle Generator for instant frontend live preview
 const nameDictionary = {
@@ -572,6 +573,9 @@ export default function LoginPage() {
       {/* Right Side — Form Panel */}
       <div className={styles.formSide}>
         <div className={styles.formWrapper}>
+          {/* Server Connection Status & Quick Switcher */}
+          <ServerConnectionBar />
+
           {/* Header */}
           <div className={styles.formHeader} style={{ textAlign: 'center' }}>
             <h2>ورود به سامانه مدرسه</h2>

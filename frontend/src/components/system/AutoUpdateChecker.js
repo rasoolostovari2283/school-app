@@ -1,10 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
-import api from '../../lib/api';
+import api, { autoDetectServer } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { HiOutlineArrowPath, HiOutlineCheckCircle, HiOutlineSparkles } from 'react-icons/hi2';
 
-const CURRENT_LOCAL_BUILD = '4dea30d';
+const CURRENT_LOCAL_BUILD = 'e59160c';
 
 export default function AutoUpdateChecker() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -22,8 +22,17 @@ export default function AutoUpdateChecker() {
 
   const checkUpdate = async () => {
     try {
-      const res = await api.get('/system/app-version');
-      if (res.data?.success && res.data.build) {
+      let res = null;
+      try {
+        res = await api.get('/system/app-version');
+      } catch (err) {
+        const detected = await autoDetectServer();
+        if (detected.success) {
+          res = { data: detected.data };
+        }
+      }
+
+      if (res?.data?.success && res.data.build) {
         const remoteBuild = res.data.build;
         const savedBuild = localStorage.getItem('educonnect_active_build') || CURRENT_LOCAL_BUILD;
         

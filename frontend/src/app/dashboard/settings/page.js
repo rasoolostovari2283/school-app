@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import useAuthStore from '../../../stores/authStore';
-import api from '../../../lib/api';
+import api, { getApiBaseUrl, setApiBaseUrl, probeServer, autoDetectServer, DEFAULT_LOCAL_API, DEFAULT_TUNNEL_API } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import {
   HiOutlineUser,
@@ -18,6 +18,10 @@ import {
   HiOutlineBuildingOffice2,
   HiOutlineCheck,
   HiOutlineBellAlert,
+  HiOutlineGlobeAlt,
+  HiOutlineWifi,
+  HiOutlineArrowPath,
+  HiOutlineSignal,
 } from 'react-icons/hi2';
 import styles from './settings.module.css';
 
@@ -72,6 +76,16 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
+  const [serverUrl, setServerUrl] = useState('');
+  const [serverStatus, setServerStatus] = useState(null);
+  const [isDetectingServer, setIsDetectingServer] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const active = localStorage.getItem('server_api_url') || getApiBaseUrl();
+      setServerUrl(active);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -505,47 +519,255 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── 5. In-App Live Update (OTA) ── */}
+      {/* ── 5. Server Connection & Live OTA Update ── */}
       <div className={styles.sectionCard}>
         <div className={styles.sectionHeader}>
-          <HiOutlineSparkles style={{ fontSize: '1.25rem', color: 'var(--primary-500)' }} />
-          <h2 className={styles.sectionTitle}>وضعیت نسخه و به‌روزرسانی زنده (OTA)</h2>
+          <HiOutlineSignal style={{ fontSize: '1.25rem', color: 'var(--primary-500)' }} />
+          <h2 className={styles.sectionTitle}>تنظیمات اتصال سرور و به‌روزرسانی زنده (OTA)</h2>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div>
+            <label style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              آدرس سرور متصل (API Base URL):
+            </label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                placeholder="http://192.168.1.108/api/v1"
+                dir="ltr"
+                style={{
+                  flex: 1,
+                  minWidth: '240px',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-input, rgba(255,255,255,0.05))',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.875rem',
+                  fontFamily: 'monospace'
+                }}
+              />
+              <button
+                type="button"
+                className={styles.saveBtn}
+                style={{ width: 'auto', padding: '10px 18px', whiteSpace: 'nowrap' }}
+                onClick={async () => {
+                  let raw = (serverUrl || '').trim();
+                  if (!raw) {
+                    toast.error('لطفاً آدرس سرور را وارد نمایید');
+                    return;
+                  }
+                  if (raw.startsWith('p://')) raw = 'htt' + raw;
+                  if (raw.startsWith('ttp://')) raw = 'h' + raw;
+                  if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
+                    raw = raw.startsWith('192.168.') || raw.startsWith('10.') || raw.startsWith('localhost')
+                      ? 'http://' + raw
+                      : 'https://' + raw;
+                  }
+                  let cleaned = raw.replace(/\/+$/, '');
+                  const finalUrl = cleaned.endsWith('/api/v1') ? cleaned : `${cleaned}/api/v1`;
+
+                  const loadId = toast.loading('در حال تست اتصال به آدرس جدید...');
+                  const probe = await probeServer(finalUrl);
+                  if (probe.success) {
+                    setApiBaseUrl(finalUrl);
+                    setServerUrl(finalUrl);
+                    const buildName = probe.data?.build?.substring(0, 7) || '1.2.0';
+                    toast.success(`اتصال برقرار شد! نسخه سرور: ${buildName} 🚀`, { id: loadId });
+                    setServerStatus({ connected: true, message: `نسخه سرور: ${buildName}` });
+                  } else {
+                    toast.error(`خطا در اتصال: ${probe.error || 'عدم پاسخگویی سرور'}`, { id: loadId });
+                    setServerStatus({ connected: false, message: 'عدم پاسخگویی سرور' });
+                  }
+                }}
+              >
+                ذخیره و تست
+              </button>
+
+              <button
+                type="button"
+                disabled={isDetectingServer}
+                style={{
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: 'var(--primary-400, #818cf8)',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  borderRadius: '12px',
+                  padding: '10px 16px',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                onClick={async () => {
+                  setIsDetectingServer(true);
+                  const loadId = toast.loading('در حال جستجو و شناسایی خودکار سرور...');
+                  const detected = await autoDetectServer();
+                  setIsDetectingServer(false);
+                  if (detected.success) {
+                    setServerUrl(detected.url);
+                    setServerStatus({ connected: true, message: `شناسایی موفق! نسخه: ${detected.data?.build?.substring(0, 7)}` });
+                    toast.success(`سرور با موفقیت شناسایی شد: ${detected.url}`, { id: loadId });
+                  } else {
+                    toast.error('هیچ سرور فعالی یافت نشد. لطفاً از اتصال وای‌فای یا اینترنت مطمئن شوید.', { id: loadId });
+                  }
+                }}
+              >
+                <HiOutlineArrowPath className={isDetectingServer ? 'spin' : ''} />
+                شناسایی خودکار
+              </button>
+            </div>
+
+            {/* Quick Preset Buttons */}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+                onClick={async () => {
+                  const url = 'http://192.168.1.104/api/v1';
+                  setServerUrl(url);
+                  setApiBaseUrl(url);
+                  const probe = await probeServer(url);
+                  if (probe.success) {
+                    toast.success('اتصال به وای‌فای اصلی (104) برقرار شد! ✅');
+                    setServerStatus({ connected: true, message: 'متصل به 192.168.1.104' });
+                  } else {
+                    toast.error('وای‌فای 104 پاسخ نداد');
+                  }
+                }}
+              >
+                <HiOutlineWifi />
+                وای‌فای اصلی (192.168.1.104)
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+                onClick={async () => {
+                  const url = DEFAULT_LOCAL_API;
+                  setServerUrl(url);
+                  setApiBaseUrl(url);
+                  const probe = await probeServer(url);
+                  if (probe.success) {
+                    toast.success('اتصال به وای‌فای (108) برقرار شد! ✅');
+                    setServerStatus({ connected: true, message: 'متصل به 192.168.1.108' });
+                  } else {
+                    toast.error('وای‌فای 108 پاسخ نداد');
+                  }
+                }}
+              >
+                <HiOutlineWifi />
+                وای‌فای (192.168.1.108)
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  color: '#10b981',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+                onClick={async () => {
+                  const url = DEFAULT_TUNNEL_API;
+                  setServerUrl(url);
+                  setApiBaseUrl(url);
+                  const probe = await probeServer(url);
+                  if (probe.success) {
+                    toast.success('اتصال به تونل آنلاین برقرار شد! 🚀');
+                    setServerStatus({ connected: true, message: 'متصل به تونل آنلاین' });
+                  } else {
+                    toast.error('تونل آنلاین پاسخ نداد');
+                  }
+                }}
+              >
+                <HiOutlineGlobeAlt />
+                اینترنت سیم‌کارت و بیرون (تونل آنلاین پینگی)
+              </button>
+            </div>
+          </div>
+
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+
+          {/* OTA Update Trigger */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <h4 style={{ fontWeight: 600 }}>همگام‌سازی مستقیم با سرور مدرسه</h4>
+              <h4 style={{ fontWeight: 600 }}>به‌روزرسانی زنده ظاهر و امکانات (OTA)</h4>
               <p style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                هنگامی که سرور آپدیت می‌شود، می‌توانید بدون نیاز به دانلود و نصب مجدد فایل APK، آخرین نسخه را دریافت کنید.
+                دریافت آخرین تغییرات پنل‌ها و کدها از سرور بدون نیاز به دانلود فایل APK جدید
               </p>
             </div>
+
             <button
               type="button"
               className={styles.saveBtn}
-              style={{ width: 'auto', padding: '10px 20px', whiteSpace: 'nowrap' }}
+              style={{
+                width: 'auto',
+                padding: '10px 22px',
+                whiteSpace: 'nowrap',
+                background: 'linear-gradient(135deg, #4f46e5, #06b6d4)'
+              }}
               onClick={async () => {
-                const loadId = toast.loading('در حال بررسی آخرین نسخه سرور...');
+                const loadId = toast.loading('در حال بررسی و دریافت آخرین نسخه سرور...');
                 try {
-                  const res = await api.get('/system/app-version');
-                  if (res.data?.success) {
-                    toast.success(
-                      `سرور متصل است! نسخه فعال: ${res.data.build?.substring(0, 7) || '1.2.0'}`,
-                      { id: loadId }
-                    );
+                  // 1. Try directly
+                  let res = null;
+                  try {
+                    res = await api.get('/system/app-version');
+                  } catch (e) {
+                    const detected = await autoDetectServer();
+                    if (detected.success) res = { data: detected.data };
+                  }
+
+                  if (res?.data?.success) {
+                    const buildName = res.data.build?.substring(0, 7) || 'جدید';
+                    toast.success(`به‌روزرسانی موفق! نسخه ${buildName} اعمال شد.`, { id: loadId });
                     localStorage.setItem('educonnect_active_build', res.data.build || 'latest');
                     setTimeout(() => {
                       window.location.reload(true);
                     }, 1000);
                   } else {
-                    toast.error('پاسخی از سرور دریافت نشد', { id: loadId });
+                    toast.error('پاسخی از سرور دریافت نشد. لطفاً دکمه «شناسایی خودکار» را بزنید.', { id: loadId });
                   }
                 } catch (e) {
-                  toast.error('خطا در برقراری ارتباط با سرور', { id: loadId });
+                  toast.error('خطا در برقراری ارتباط با سرور. لطفاً آدرس سرور را تنظیم فرمایید.', { id: loadId });
                 }
               }}
             >
-              بررسی و دریافت آپدیت
+              بررسی و دریافت آپدیت زنده
             </button>
           </div>
         </div>

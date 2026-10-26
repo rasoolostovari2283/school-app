@@ -195,9 +195,23 @@ app.get('/api/sync-status', syncStatusHandler);
 app.get('/api/v1/system/sync-status', syncStatusHandler);
 
 // ── App OTA & Live Update Info ──
+const getActiveTunnelUrl = () => {
+  try {
+    const pinggyLog = path.join(process.env.HOME || '/home/rasolserver', 'pinggy.log');
+    if (fs.existsSync(pinggyLog)) {
+      const content = fs.readFileSync(pinggyLog, 'utf8');
+      const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net)/ig);
+      if (matches && matches.length > 0) {
+        return matches[matches.length - 1];
+      }
+    }
+  } catch (e) {}
+  return 'https://bwvjn-89-43-93-25.run.pinggy-free.link';
+};
+
 const appUpdateHandler = (req, res) => {
   const syncData = getSyncStatusData();
-  const commitHash = syncData?.commit_hash || '4dea30d';
+  const commitHash = syncData?.commit_hash || 'e59160c';
   res.json({
     success: true,
     version: '1.2.0',
@@ -206,7 +220,7 @@ const appUpdateHandler = (req, res) => {
     commit_message: syncData?.commit_message || 'Latest school updates',
     last_sync: syncData?.last_sync || new Date().toISOString(),
     live_url: 'http://192.168.1.108',
-    tunnel_url: 'https://nlivj-89-43-89-28.run.pinggy-free.link',
+    tunnel_url: getActiveTunnelUrl(),
     ota_mode: 'hybrid_live_switch',
     apk_download_url: '/api/v1/system/download-apk'
   });
