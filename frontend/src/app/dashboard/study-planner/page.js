@@ -1347,7 +1347,7 @@ export default function StudyPlannerPage() {
                                 )}
                               </div>
                             </div>
-                            <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                            <div className={styles.briefingMetaBadges}>
                               <span className={`${styles.gradeBadge} ${gradeStyles.badge}`}>
                                 {plan.grade}
                               </span>
@@ -1386,7 +1386,7 @@ export default function StudyPlannerPage() {
                               {getSessionTypeLabel(plan.session_type)}
                             </span>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className={styles.briefingFooterActions}>
                               <button
                                 type="button"
                                 className={styles.quickEditBtn}
