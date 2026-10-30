@@ -18,7 +18,7 @@
     -webkit-backdrop-filter: var(--glass-blur-heavy);
     border-top: 1px solid var(--border-color);
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
-    z-index: 1000;
+    z-index: 850;
     padding: 0 4px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     transition: all var(--transition-normal);
