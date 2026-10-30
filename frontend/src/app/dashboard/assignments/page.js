@@ -54,6 +54,8 @@ export default function AssignmentsPage() {
   const [customGrade, setCustomGrade] = useState('');
   const [customClassName, setCustomClassName] = useState('');
   const [customClassSubject, setCustomClassSubject] = useState('');
+  const [isCustomClassMode, setIsCustomClassMode] = useState(false);
+  const [creatingQuickClass, setCreatingQuickClass] = useState(false);
   const [selectedClassMembers, setSelectedClassMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [teacherUploading, setTeacherUploading] = useState(false);
@@ -214,27 +216,34 @@ export default function AssignmentsPage() {
   const handleGradeChange = (grade) => {
     setSelectedGrade(grade);
     if (grade === 'custom') {
+      setIsCustomClassMode(true);
       setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
       setSelectedClassMembers([]);
       return;
     }
     const available = grade === 'all' ? classes : classes.filter((c) => c.grade === grade);
     if (available.length > 0) {
-      const nextId = available[0].id;
-      setCreateForm((prev) => ({ ...prev, class_id: nextId }));
-      fetchSelectedClassMembers(nextId);
+      if (!isCustomClassMode) {
+        const nextId = available[0].id;
+        setCreateForm((prev) => ({ ...prev, class_id: nextId }));
+        fetchSelectedClassMembers(nextId);
+      }
     } else {
+      setIsCustomClassMode(true);
       setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
       setSelectedClassMembers([]);
     }
   };
 
   const handleClassChange = (classId) => {
-    setCreateForm((prev) => ({ ...prev, class_id: classId }));
     if (classId === 'custom') {
+      setIsCustomClassMode(true);
+      setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
       setSelectedClassMembers([]);
       return;
     }
+    setIsCustomClassMode(false);
+    setCreateForm((prev) => ({ ...prev, class_id: classId }));
     const found = classes.find((c) => c.id === classId);
     if (found?.grade && selectedGrade !== 'all' && selectedGrade !== 'custom' && selectedGrade !== found.grade) {
       setSelectedGrade(found.grade);
@@ -245,6 +254,7 @@ export default function AssignmentsPage() {
   const handleOpenCreateModal = () => {
     setShowCreateModal(true);
     if (classes.length > 0) {
+      setIsCustomClassMode(false);
       const valid = classes.some((c) => c.id === createForm.class_id);
       const activeClassId = valid ? createForm.class_id : classes[0].id;
       const activeCls = classes.find((c) => c.id === activeClassId);
@@ -254,9 +264,51 @@ export default function AssignmentsPage() {
       setCreateForm((prev) => ({ ...prev, class_id: activeClassId }));
       fetchSelectedClassMembers(activeClassId);
     } else {
-      setSelectedGrade('custom');
+      setIsCustomClassMode(true);
+      setSelectedGrade('all');
       setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
       fetchClasses();
+    }
+  };
+
+  const handleQuickCreateClass = async () => {
+    if (!customClassName.trim()) {
+      toast.error('لطفاً نام کلاس جدید را وارد کنید');
+      return;
+    }
+    const gradeToSave = selectedGrade === 'custom'
+      ? (customGrade.trim() || 'پایه عمومی')
+      : selectedGrade !== 'all' ? selectedGrade : 'پایه عمومی';
+
+    setCreatingQuickClass(true);
+    try {
+      const clsRes = await api.post('/classes', {
+        name: customClassName.trim(),
+        subject: customClassSubject.trim() || 'درس عمومی',
+        grade: gradeToSave,
+      });
+      const createdClass = clsRes.data?.data?.class;
+      toast.success(`کلاس جدید "${createdClass?.name || customClassName}" با موفقیت ذخیره شد 🎉`);
+
+      const newClassObj = createdClass || {
+        id: 'cls_' + Date.now(),
+        name: customClassName.trim(),
+        subject: customClassSubject.trim() || 'درس عمومی',
+        grade: gradeToSave,
+      };
+
+      setClasses((prev) => [newClassObj, ...prev.filter((c) => c.id !== newClassObj.id)]);
+      setCreateForm((prev) => ({ ...prev, class_id: newClassObj.id }));
+      setIsCustomClassMode(false);
+      if (newClassObj.grade && selectedGrade !== 'all' && selectedGrade !== 'custom') {
+        setSelectedGrade(newClassObj.grade);
+      }
+      fetchSelectedClassMembers(newClassObj.id);
+      await fetchClasses();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت کلاس جدید');
+    } finally {
+      setCreatingQuickClass(false);
     }
   };
 
@@ -340,7 +392,7 @@ export default function AssignmentsPage() {
     let targetClassId = createForm.class_id;
 
     // Handle manual/custom class or grade
-    if (targetClassId === 'custom' || !targetClassId) {
+    if (isCustomClassMode || targetClassId === 'custom' || !targetClassId) {
       if (!customClassName.trim()) {
         toast.error('لطفاً نام کلاس دستی را وارد کنید');
         return;
@@ -377,6 +429,7 @@ export default function AssignmentsPage() {
       });
       toast.success('تکلیف با فایل‌های پیوست با موفقیت منتشر شد 🎉');
       setShowCreateModal(false);
+      setIsCustomClassMode(false);
       setCustomGrade('');
       setCustomClassName('');
       setCustomClassSubject('');
@@ -997,56 +1050,165 @@ export default function AssignmentsPage() {
 
                 {/* مرحله ۲: کلاس مربوطه */}
                 <div className={styles.formGroup} style={{ marginBottom: 0 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.84rem', fontWeight: 750 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', fontWeight: 750 }}>
                       <HiOutlineUserGroup style={{ color: '#06b6d4', fontSize: '1.15rem' }} />
                       <span>۲. کلاس مقصد *</span>
                     </span>
-                    {createForm.class_id === 'custom' && (
-                      <span style={{ fontSize: '0.72rem', color: '#06b6d4', fontWeight: 600 }}>
-                        کلاس دستی جدید
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    className="input"
-                    value={createForm.class_id}
-                    onChange={(e) => handleClassChange(e.target.value)}
-                    required
-                  >
-                    {filteredClassesForCreate.map((cls) => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.name} — {cls.subject} {cls.grade && selectedGrade === 'all' ? `[${cls.grade}]` : ''}
-                      </option>
-                    ))}
-                    <option value="custom">✏️ موارد دیگر (تعریف دستی نام کلاس جدید)...</option>
-                  </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isCustomClassMode) {
+                          setIsCustomClassMode(false);
+                          const fallbackId = filteredClassesForCreate[0]?.id || classes[0]?.id || '';
+                          setCreateForm((prev) => ({ ...prev, class_id: fallbackId }));
+                          if (fallbackId) fetchSelectedClassMembers(fallbackId);
+                        } else {
+                          setIsCustomClassMode(true);
+                          setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
+                          setSelectedClassMembers([]);
+                        }
+                      }}
+                      className={styles.manualClassToggleBtn}
+                    >
+                      {isCustomClassMode ? (
+                        <>
+                          <HiOutlineClipboardDocumentList style={{ fontSize: '0.95rem' }} />
+                          <span>انتخاب از لیست کلاس‌ها</span>
+                        </>
+                      ) : (
+                        <>
+                          <HiOutlinePlus style={{ fontSize: '0.95rem' }} />
+                          <span>➕ افزودن کلاس دستی جدید</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
 
-                  {createForm.class_id === 'custom' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
-                      <input
-                        type="text"
+                  {!isCustomClassMode ? (
+                    <>
+                      <select
                         className="input"
-                        placeholder="نام کلاس جدید (مثلاً: کلاس ۲۰۵ یا المپیاد)"
-                        value={customClassName}
-                        onChange={(e) => setCustomClassName(e.target.value)}
-                        required
-                        autoFocus
-                      />
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="عنوان درس (مثلاً: ریاضی پیشرفته)"
-                        value={customClassSubject}
-                        onChange={(e) => setCustomClassSubject(e.target.value)}
-                      />
+                        value={createForm.class_id}
+                        onChange={(e) => {
+                          if (e.target.value === 'custom') {
+                            setIsCustomClassMode(true);
+                          }
+                          handleClassChange(e.target.value);
+                        }}
+                        required={!isCustomClassMode}
+                      >
+                        {filteredClassesForCreate.map((cls) => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.name} — {cls.subject} {cls.grade && selectedGrade === 'all' ? `[${cls.grade}]` : ''}
+                          </option>
+                        ))}
+                        <option value="custom">✏️ موارد دیگر (تعریف دستی نام کلاس جدید)...</option>
+                      </select>
+
+                      <div
+                        className={styles.addManualClassPrompt}
+                        onClick={() => {
+                          setIsCustomClassMode(true);
+                          setCreateForm((prev) => ({ ...prev, class_id: 'custom' }));
+                          setSelectedClassMembers([]);
+                        }}
+                      >
+                        <span>کلاس مورد نظرتان در لیست نیست؟</span>
+                        <span className={styles.addManualClassPromptLink}>
+                          <HiOutlinePlus style={{ fontSize: '0.9rem' }} />
+                          <span>برای تعریف دستی کلاس کلیک کنید</span>
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className={styles.manualClassFormCard}>
+                      <div className={styles.manualClassHeader}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={styles.manualClassBadge}>
+                            ✏️ تعریف دستی کلاس جدید
+                          </span>
+                          <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
+                            مشخصات کلاس را وارد کنید:
+                          </span>
+                        </div>
+                        {classes.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomClassMode(false);
+                              const fallbackId = filteredClassesForCreate[0]?.id || classes[0]?.id || '';
+                              setCreateForm((prev) => ({ ...prev, class_id: fallbackId }));
+                              if (fallbackId) fetchSelectedClassMembers(fallbackId);
+                            }}
+                            className={styles.manualClassCancelBtn}
+                          >
+                            انصراف و بازگشت به لیست ✕
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                            نام کلاس جدید *
+                          </label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="مثلاً: کلاس ۲۰۵ یا تجربی الف"
+                            value={customClassName}
+                            onChange={(e) => setCustomClassName(e.target.value)}
+                            required={isCustomClassMode}
+                            autoFocus
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                            عنوان درس / موضوع
+                          </label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="مثلاً: ریاضی پیشرفته یا فیزیک ۳"
+                            value={customClassSubject}
+                            onChange={(e) => setCustomClassSubject(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
+                        <div style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>پایه متصل:</span>
+                          <strong style={{ color: '#06b6d4' }}>
+                            {selectedGrade === 'custom' ? (customGrade || 'پایه دستی جدید') : selectedGrade === 'all' ? 'عمومی' : selectedGrade}
+                          </strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleQuickCreateClass}
+                          disabled={creatingQuickClass || !customClassName.trim()}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', padding: '5px 12px' }}
+                          title="کلاس را فوراً ثبت و در لیست ذخیره کنید"
+                        >
+                          {creatingQuickClass ? (
+                            <span>در حال ثبت...</span>
+                          ) : (
+                            <>
+                              <HiOutlineCheckCircle style={{ color: '#10b981', fontSize: '1rem' }} />
+                              <span>ثبت آنی و ذخیره این کلاس</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* 👥 اعضای متصل به این کلاس و پایه یا پیش‌نمایش کلاس دستی */}
-              {createForm.class_id === 'custom' ? (
+              {(isCustomClassMode || createForm.class_id === 'custom') ? (
                 <div className={styles.classMembersBox} style={{ borderStyle: 'dashed', borderColor: '#6366f1' }}>
                   <div className={styles.classMembersHeader}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
