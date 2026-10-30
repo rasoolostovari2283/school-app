@@ -7,10 +7,10 @@ router.use(authenticate);
 
 /**
  * POST /api/v1/upload
- * Supports single file ('file') or multiple files ('files')
+ * Supports single file ('file') or multiple files ('files', 'attachments', etc.)
  */
 router.post('/', (req, res, next) => {
-  upload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 10 }])(req, res, (err) => {
+  upload.any()(req, res, (err) => {
     if (err) {
       return res.status(400).json({
         success: false,
@@ -19,14 +19,7 @@ router.post('/', (req, res, next) => {
     }
 
     try {
-      const uploadedFiles = [];
-
-      if (req.files?.file && req.files.file.length > 0) {
-        uploadedFiles.push(...req.files.file);
-      }
-      if (req.files?.files && req.files.files.length > 0) {
-        uploadedFiles.push(...req.files.files);
-      }
+      const uploadedFiles = req.files || [];
 
       if (uploadedFiles.length === 0) {
         return res.status(400).json({
@@ -35,13 +28,24 @@ router.post('/', (req, res, next) => {
         });
       }
 
-      const mapped = uploadedFiles.map((f) => ({
-        originalname: f.originalname,
-        filename: f.filename,
-        size: f.size,
-        mimetype: f.mimetype,
-        url: `/uploads/${f.filename}`,
-      }));
+      const mapped = uploadedFiles.map((f) => {
+        let cleanName = f.originalname;
+        try {
+          // Busboy decodes headers as latin1 by default; fix UTF-8 Persian/Arabic chars
+          const decoded = Buffer.from(f.originalname, 'latin1').toString('utf8');
+          if (!decoded.includes('')) {
+            cleanName = decoded;
+          }
+        } catch (e) {}
+
+        return {
+          originalname: cleanName,
+          filename: f.filename,
+          size: f.size,
+          mimetype: f.mimetype,
+          url: `/uploads/${f.filename}`,
+        };
+      });
 
       res.status(201).json({
         success: true,

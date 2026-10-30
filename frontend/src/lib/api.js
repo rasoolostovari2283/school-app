@@ -96,7 +96,7 @@ export async function autoDetectServer() {
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 15000,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -112,9 +112,16 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
-    // If uploading FormData, delete Content-Type so browser sets boundary multipart correctly
+    // If uploading FormData, delete Content-Type so browser/Axios sets boundary multipart correctly
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
+      if (config.headers) {
+        if (typeof config.headers.delete === 'function') {
+          config.headers.delete('Content-Type');
+          config.headers.delete('content-type');
+        }
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+      }
     }
     return config;
   },
@@ -171,4 +178,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-

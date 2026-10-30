@@ -6,10 +6,10 @@ const { authenticate, authorize, requireClassMember } = require('../../middlewar
 router.use(authenticate);
 router.use(requireClassMember);
 
-router.post('/', authorize('teacher'), assignmentController.create);
+router.post('/', authorize('teacher', 'admin', 'manager'), assignmentController.create);
 router.get('/', assignmentController.getAll);
 router.get('/:id', assignmentController.getById);
 router.post('/:id/submit', authorize('student'), assignmentController.submit);
-router.put('/:id/submissions/:subId/grade', authorize('teacher'), assignmentController.grade);
+router.put('/:id/submissions/:subId/grade', authorize('teacher', 'admin', 'manager'), assignmentController.grade);
 
 module.exports = router;

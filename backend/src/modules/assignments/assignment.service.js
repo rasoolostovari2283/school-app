@@ -3,27 +3,35 @@ const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/db
 
 class AssignmentService {
   async create(teacherId, classId, { title, description, due_date, allow_late, attachments }) {
+    const rawAttachments = Array.isArray(attachments)
+      ? JSON.stringify(attachments)
+      : (typeof attachments === 'string' ? attachments : '[]');
+
     const assignment = await insertAndReturn(db, 'assignments', {
       class_id: classId,
       teacher_id: teacherId,
       title,
-      description,
-      due_date,
-      allow_late: allow_late || false,
-      attachments: JSON.stringify(attachments || []),
+      description: description || '',
+      due_date: due_date || null,
+      allow_late: allow_late ? 1 : 0,
+      attachments: rawAttachments,
     });
 
-    const members = await db('class_members').where({ class_id: classId, role: 'student' }).select('user_id');
-    if (members.length > 0) {
-      for (const m of members) {
-        await insertAndReturn(db, 'notifications', {
-          user_id: m.user_id,
-          type: 'assignment',
-          title: 'تکلیف جدید',
-          body: `تکلیف "${title}" اضافه شد`,
-          data: JSON.stringify({ assignment_id: assignment.id, class_id: classId }),
-        });
+    try {
+      const members = await db('class_members').where({ class_id: classId, role: 'student' }).select('user_id');
+      if (members && members.length > 0) {
+        for (const m of members) {
+          await insertAndReturn(db, 'notifications', {
+            user_id: m.user_id,
+            type: 'assignment',
+            title: 'تکلیف جدید',
+            body: `تکلیف "${title}" اضافه شد`,
+            data: JSON.stringify({ assignment_id: assignment.id, class_id: classId }),
+          }).catch(() => {});
+        }
       }
+    } catch (notifErr) {
+      console.warn('Could not dispatch notifications:', notifErr.message);
     }
     return assignment;
   }

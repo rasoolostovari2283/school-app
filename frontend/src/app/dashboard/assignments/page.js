@@ -359,19 +359,24 @@ export default function AssignmentsPage() {
     }
 
     try {
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const uploaded = res.data.data.files || [res.data.data.file];
-      setCreateForm((prev) => ({
-        ...prev,
-        attachments: [...prev.attachments, ...uploaded],
-      }));
-      toast.success(`${uploaded.length} فایل پیوست شد`);
+      const res = await api.post('/upload', formData);
+      const uploaded = res.data?.data?.files || (res.data?.data?.file ? [res.data.data.file] : []);
+      if (uploaded.length > 0) {
+        setCreateForm((prev) => ({
+          ...prev,
+          attachments: [...prev.attachments, ...uploaded],
+        }));
+        toast.success(`${uploaded.length} فایل با موفقیت پیوست شد`);
+      } else {
+        toast.error('هیچ فایلی ذخیره نشد');
+      }
     } catch (err) {
-      toast.error('خطا در بارگذاری فایل پیوست');
+      const msg = err.response?.data?.message || err.message || 'خطا در بارگذاری فایل پیوست';
+      toast.error(msg);
+      console.error('Teacher upload error:', err);
     } finally {
       setTeacherUploading(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -394,7 +399,7 @@ export default function AssignmentsPage() {
     // Handle manual/custom class or grade
     if (isCustomClassMode || targetClassId === 'custom' || !targetClassId) {
       if (!customClassName.trim()) {
-        toast.error('لطفاً نام کلاس دستی را وارد کنید');
+        toast.error('لطفاً نام کلاس مقصد را وارد کنید');
         return;
       }
       const gradeToSave = selectedGrade === 'custom'
@@ -418,14 +423,27 @@ export default function AssignmentsPage() {
       }
     }
 
+    if (!targetClassId) {
+      toast.error('لطفاً یک کلاس مقصد معتبر انتخاب یا وارد کنید');
+      return;
+    }
+
+    let formattedDueDate = null;
+    if (createForm.due_date) {
+      const d = new Date(createForm.due_date);
+      if (!isNaN(d.getTime())) {
+        formattedDueDate = d.toISOString();
+      }
+    }
+
     setSubmittingCreate(true);
     try {
       await api.post(`/classes/${targetClassId}/assignments`, {
         title: createForm.title.trim(),
-        description: createForm.description,
-        due_date: createForm.due_date ? new Date(createForm.due_date).toISOString() : null,
-        allow_late: createForm.allow_late,
-        attachments: createForm.attachments,
+        description: createForm.description || '',
+        due_date: formattedDueDate,
+        allow_late: !!createForm.allow_late,
+        attachments: createForm.attachments || [],
       });
       toast.success('تکلیف با فایل‌های پیوست با موفقیت منتشر شد 🎉');
       setShowCreateModal(false);
@@ -445,7 +463,9 @@ export default function AssignmentsPage() {
       await fetchClasses();
       fetchAssignments();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ساخت تکلیف');
+      const msg = err.response?.data?.message || err.message || 'خطا در ساخت و انتشار تکلیف';
+      toast.error(msg);
+      console.error('Create assignment error:', err);
     } finally {
       setSubmittingCreate(false);
     }
@@ -509,16 +529,21 @@ export default function AssignmentsPage() {
     }
 
     try {
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const uploaded = res.data.data.files || [res.data.data.file];
-      setStudentFiles((prev) => [...prev, ...uploaded]);
-      toast.success('فایل پاسخ بارگذاری شد');
+      const res = await api.post('/upload', formData);
+      const uploaded = res.data?.data?.files || (res.data?.data?.file ? [res.data.data.file] : []);
+      if (uploaded.length > 0) {
+        setStudentFiles((prev) => [...prev, ...uploaded]);
+        toast.success(`${uploaded.length} فایل پاسخ بارگذاری شد`);
+      } else {
+        toast.error('هیچ فایلی ذخیره نشد');
+      }
     } catch (err) {
-      toast.error('خطا در بارگذاری فایل پاسخ');
+      const msg = err.response?.data?.message || err.message || 'خطا در بارگذاری فایل پاسخ';
+      toast.error(msg);
+      console.error('Student upload error:', err);
     } finally {
       setStudentUploading(false);
+      if (e.target) e.target.value = '';
     }
   };
 
