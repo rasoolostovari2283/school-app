@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-export const DEFAULT_LOCAL_API = 'http://192.168.1.108/api/v1';
-export const DEFAULT_TUNNEL_API = 'https://wkiag-89-43-93-25.free.pinggy.net/api/v1';
+export const DEFAULT_LOCAL_API = 'http://192.168.1.104/api/v1';
+export const DEFAULT_TUNNEL_API = 'https://xpbov-89-43-89-22.run.pinggy-free.link/api/v1';
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
@@ -27,12 +27,22 @@ export function setApiBaseUrl(url) {
   if (typeof window === 'undefined') return;
   if (!url) {
     localStorage.removeItem('server_api_url');
-    return;
+    localStorage.removeItem('educonnect_server_url');
+    return DEFAULT_LOCAL_API;
   }
   let clean = url.trim().replace(/\/+$/, '');
   const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
   localStorage.setItem('server_api_url', finalUrl);
+  localStorage.setItem('educonnect_server_url', finalUrl);
   return finalUrl;
+}
+
+export function resetToDefaultWifi() {
+  if (typeof window === 'undefined') return DEFAULT_LOCAL_API;
+  localStorage.removeItem('server_api_url');
+  localStorage.removeItem('educonnect_server_url');
+  localStorage.setItem('server_api_url', DEFAULT_LOCAL_API);
+  return DEFAULT_LOCAL_API;
 }
 
 export async function probeServer(url) {
@@ -40,16 +50,20 @@ export async function probeServer(url) {
     const clean = url.trim().replace(/\/+$/, '');
     const testUrl = clean.endsWith('/api/v1') ? `${clean}/system/app-version` : `${clean}/api/v1/system/app-version`;
     const res = await axios.get(testUrl, {
-      timeout: 4000,
-      headers: {
-        'X-Pinggy-No-Screen': 'true',
-        'Accept': 'application/json',
-      },
+      timeout: 8000,
     });
-    if (res.data && res.data.success) {
+    if (res.status === 200 || (res.data && res.data.success)) {
       return { success: true, data: res.data };
     }
   } catch (e) {
+    try {
+      const clean = url.trim().replace(/\/+$/, '');
+      const healthUrl = clean.endsWith('/api/v1') ? clean.replace('/api/v1', '/api/health') : `${clean}/api/health`;
+      const res2 = await axios.get(healthUrl, { timeout: 6000 });
+      if (res2.status === 200 || (res2.data && res2.data.success)) {
+        return { success: true, data: res2.data };
+      }
+    } catch (e2) {}
     return { success: false, error: e.message };
   }
   return { success: false };
@@ -59,18 +73,21 @@ export async function autoDetectServer() {
   if (typeof window === 'undefined') return { success: false };
   const current = localStorage.getItem('server_api_url');
   const candidates = [
-    current,
     DEFAULT_LOCAL_API,
-    'http://192.168.1.104/api/v1',
+    'http://192.168.1.108/api/v1',
     DEFAULT_TUNNEL_API,
+    current,
   ].filter(Boolean);
 
-  for (const url of candidates) {
+  // Remove duplicates
+  const uniqueCandidates = [...new Set(candidates)];
+
+  for (const url of uniqueCandidates) {
     const result = await probeServer(url);
     if (result.success) {
       const clean = url.trim().replace(/\/+$/, '');
       const finalBase = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
-      localStorage.setItem('server_api_url', finalBase);
+      setApiBaseUrl(finalBase);
       return { success: true, url: finalBase, data: result.data };
     }
   }
@@ -82,8 +99,6 @@ const api = axios.create({
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'X-Pinggy-No-Screen': 'true',
   },
 });
 
@@ -91,10 +106,6 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     config.baseURL = getApiBaseUrl();
-    config.headers['X-Pinggy-No-Screen'] = 'true';
-    if (!config.headers['Accept']) {
-      config.headers['Accept'] = 'application/json';
-    }
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('accessToken');
       if (token) {
@@ -139,12 +150,7 @@ api.interceptors.response.use(
         if (!refreshToken) throw new Error('No refresh token');
 
         const currentBaseUrl = getApiBaseUrl();
-        const { data } = await axios.post(`${currentBaseUrl}/auth/refresh`, { refreshToken }, {
-          headers: {
-            'X-Pinggy-No-Screen': 'true',
-            'Accept': 'application/json',
-          },
-        });
+        const { data } = await axios.post(`${currentBaseUrl}/auth/refresh`, { refreshToken });
         localStorage.setItem('accessToken', data.data.accessToken);
         localStorage.setItem('refreshToken', data.data.refreshToken);
 

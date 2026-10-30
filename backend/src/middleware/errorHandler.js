@@ -23,19 +23,19 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
-  // Knex/PostgreSQL errors
-  if (err.code === '23505') {
+  // Knex/PostgreSQL duplicate errors
+  if (err.code === '23505' || err.message?.includes('UNIQUE constraint failed')) {
     return res.status(409).json({
       success: false,
-      message: 'این مقدار قبلاً ثبت شده است',
+      message: 'این مقدار یا رکورد قبلاً در سامانه ثبت شده است',
       messageEn: 'Duplicate entry',
     });
   }
 
-  if (err.code === '23503') {
+  if (err.code === '23503' || err.message?.includes('FOREIGN KEY constraint failed')) {
     return res.status(400).json({
       success: false,
-      message: 'رکورد مرتبط یافت نشد',
+      message: 'رکورد مرتبط یافت نشد یا معتبر نیست',
       messageEn: 'Referenced record not found',
     });
   }
@@ -44,15 +44,19 @@ const errorHandler = (err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({
       success: false,
-      message: 'حجم فایل بیش از حد مجاز است',
+      message: 'حجم فایل بیش از حد مجاز است (حداکثر ۵۰ مگابایت)',
       messageEn: 'File size exceeds limit',
     });
   }
 
   const statusCode = err.statusCode || 500;
+  const safeMessage = (statusCode === 500 && config.nodeEnv === 'production')
+    ? 'خطای غیرمنتظره در پردازش درخواست، لطفاً مجدداً تلاش فرمایید.'
+    : (err.message || 'خطای داخلی سرور');
+
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'خطای داخلی سرور',
+    message: safeMessage,
     messageEn: err.messageEn || 'Internal server error',
     ...(config.nodeEnv === 'development' && { stack: err.stack }),
   });

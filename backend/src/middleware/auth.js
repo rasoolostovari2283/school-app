@@ -19,36 +19,40 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-
-    let user;
-    if (token && token.startsWith('mock_')) {
-      user = await db('users').where({ role: 'teacher' }).first();
-      if (!user) user = await db('users').where({ role: 'admin' }).first();
-      if (!user) user = await db('users').first();
-    } else {
-      try {
-        const decoded = jwt.verify(token, config.jwt.secret);
-        user = await db('users')
-          .where({ id: decoded.userId })
-          .first();
-      } catch (err) {
-        if (config.nodeEnv === 'development') {
-          user = await db('users').first();
-        } else {
-          throw err;
-        }
-      }
+    if (!token || !token.trim()) {
+      return res.status(401).json({
+        success: false,
+        message: 'توکن نامعتبر است',
+        messageEn: 'Invalid token',
+      });
     }
 
-    if (!user && config.nodeEnv === 'development') {
-      user = await db('users').first();
+    let user;
+    if (token.startsWith('mock_')) {
+      // Allow mock tokens strictly in development for offline testing
+      if (config.nodeEnv === 'development') {
+        const mockRole = token.replace('mock_', '');
+        user = await db('users').where({ role: mockRole }).first();
+        if (!user) user = await db('users').first();
+      } else {
+        return res.status(401).json({
+          success: false,
+          message: 'توکن نامعتبر است',
+          messageEn: 'Invalid token',
+        });
+      }
+    } else {
+      const decoded = jwt.verify(token, config.jwt.secret);
+      user = await db('users')
+        .where({ id: decoded.userId })
+        .first();
     }
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'کاربر یافت نشد',
-        messageEn: 'User not found',
+        message: 'کاربر یافت نشد یا غیرفعال است',
+        messageEn: 'User not found or inactive',
       });
     }
 

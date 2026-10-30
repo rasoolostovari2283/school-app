@@ -8,6 +8,20 @@ module.exports = {
       filename: path.join(__dirname, '..', '..', 'educonnect.db'),
     },
     useNullAsDefault: true,
+    pool: {
+      afterCreate: (db, done) => {
+        try {
+          db.pragma('journal_mode = WAL');
+          db.pragma('synchronous = NORMAL');
+          db.pragma('busy_timeout = 10000');
+          db.pragma('cache_size = -64000');
+          db.pragma('foreign_keys = ON');
+        } catch (e) {
+          console.error('Failed to set sqlite pragmas:', e.message);
+        }
+        done(null, db);
+      },
+    },
     migrations: {
       directory: path.join(__dirname, '..', 'database', 'migrations'),
     },

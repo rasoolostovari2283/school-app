@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import {
   getApiBaseUrl,
   setApiBaseUrl,
+  resetToDefaultWifi,
   probeServer,
   autoDetectServer,
   DEFAULT_LOCAL_API,
@@ -69,8 +70,9 @@ export default function ServerConnectionBar() {
       setIsModalOpen(false);
     } else {
       setStatus('error');
-      setStatusText(`عدم پاسخ از ${label}`);
-      toast.error(`سرور در آدرس ${label} پاسخ نداد.`, { id: toastId });
+      setStatusText(`عدم پاسخ سریع از ${label} (ذخیره شد)`);
+      toast.error(`پاسخ سریع دریافت نشد، اما آدرس به عنوان پیش‌فرض ذخیره گردید.`, { id: toastId, duration: 4000 });
+      setIsModalOpen(false);
     }
     setIsLoading(false);
   };
@@ -96,6 +98,34 @@ export default function ServerConnectionBar() {
     setIsLoading(false);
   };
 
+  const handleForceSave = (rawUrl) => {
+    let input = (rawUrl || customInput).trim();
+    if (!input) {
+      toast.error('لطفاً آدرس سرور یا لینک جدید را وارد نمایید');
+      return;
+    }
+    if (!input.startsWith('http://') && !input.startsWith('https://')) {
+      input = 'https://' + input;
+    }
+    const finalUrl = setApiBaseUrl(input);
+    setCurrentUrl(finalUrl);
+    setStatus('connected');
+    setStatusText('تنظیم دستی سرور');
+    toast.success('آدرس بدون معطلی و تست، مستقیماً ذخیره شد! 💾');
+    setIsModalOpen(false);
+    setCustomInput('');
+  };
+
+  const handleResetWifi = () => {
+    const defaultUrl = resetToDefaultWifi();
+    setCurrentUrl(defaultUrl);
+    setStatus('checking');
+    setStatusText('بازنشانی به وای‌فای پیش‌فرض');
+    toast.success('آدرس با موفقیت به وای‌فای مدرسه (192.168.1.104) بازنشانی شد! 📶');
+    checkConnection(defaultUrl);
+    setIsModalOpen(false);
+  };
+
   const handleSaveCustom = async () => {
     if (!customInput.trim()) {
       toast.error('لطفاً آدرس سرور یا لینک تونل را وارد نمایید');
@@ -117,7 +147,13 @@ export default function ServerConnectionBar() {
       setIsModalOpen(false);
       setCustomInput('');
     } else {
-      toast.error('خطا در برقراری ارتباط با این آدرس. لطفاً صحت آن را بررسی کنید.', { id: toastId });
+      const finalUrl = setApiBaseUrl(input);
+      setCurrentUrl(finalUrl);
+      setStatus('connected');
+      setStatusText('آدرس ذخیره شد (منتظر درخواست)');
+      toast.success('آدرس با موفقیت ذخیره شد و در درخواست‌ها اعمال می‌شود. 💾', { id: toastId, duration: 4500 });
+      setIsModalOpen(false);
+      setCustomInput('');
     }
     setIsLoading(false);
   };
@@ -389,6 +425,30 @@ export default function ServerConnectionBar() {
                 <span>🔄</span>
                 <span>تست و شناسایی خودکار هوشمند (Auto Detect)</span>
               </button>
+
+              {/* Reset to Default Wi-Fi */}
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={handleResetWifi}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '10px',
+                  borderRadius: '12px',
+                  border: '1px dashed #f59e0b',
+                  background: 'rgba(245, 158, 11, 0.1)',
+                  color: '#fbbf24',
+                  fontWeight: '600',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>📶</span>
+                <span>پاکسازی حافظه و بازنشانی به وای‌فای مدرسه (192.168.1.104)</span>
+              </button>
             </div>
 
             {/* Custom URL Input Section */}
@@ -396,14 +456,14 @@ export default function ServerConnectionBar() {
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '8px' }}>
                 ✏️ وارد کردن آدرس سرور / لینک جدید تونل پینگی:
               </label>
-              <div style={{ display: 'flex', gap: '8px', direction: 'ltr' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <input
                   type="text"
-                  placeholder="https://...pinggy.net"
+                  placeholder="https://...run.pinggy-free.link"
                   value={customInput}
                   onChange={(e) => setCustomInput(e.target.value)}
                   style={{
-                    flex: 1,
+                    width: '100%',
                     padding: '10px 12px',
                     borderRadius: '10px',
                     border: '1px solid rgba(255,255,255,0.2)',
@@ -411,26 +471,49 @@ export default function ServerConnectionBar() {
                     color: '#fff',
                     fontSize: '0.85rem',
                     outline: 'none',
+                    direction: 'ltr',
                   }}
                 />
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleSaveCustom}
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: '10px',
-                    border: 'none',
-                    background: '#10b981',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    fontSize: '0.85rem',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  تست و ذخیره
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={handleSaveCustom}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: 'none',
+                      background: '#10b981',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    🔍 تست و اتصال
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => handleForceSave()}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #6366f1',
+                      background: 'rgba(99, 102, 241, 0.2)',
+                      color: '#a5b4fc',
+                      fontWeight: 'bold',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    💾 ذخیره مستقیم (بدون معطلی)
+                  </button>
+                </div>
               </div>
             </div>
 

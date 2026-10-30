@@ -20,54 +20,45 @@ const storage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `${uuidv4()}${ext}`;
+    // Sanitize extension and force lowercase
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    const filename = `${uuidv4()}${ext || '.bin'}`;
     cb(null, filename);
   },
 });
 
 /**
- * File filter — allows images, documents, presentations, archives, audio, and video
+ * File filter — strictly validates safe educational extensions and blocks scripts/executables
  */
 const fileFilter = (req, file, cb) => {
-  const allowedMimes = [
-    // Images
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
-    // Documents & Office
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
-    'text/csv',
-    // Archives
-    'application/zip',
-    'application/x-zip-compressed',
-    'application/x-rar-compressed',
-    'application/vnd.rar',
-    'application/x-7z-compressed',
-    'application/octet-stream',
-    // Audio
-    'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac',
-    // Video
-    'video/mp4', 'video/webm', 'video/quicktime',
+  const ext = path.extname(file.originalname || '').toLowerCase();
+
+  // Strict blacklist for executables, web scripts, and active content
+  const blockedExts = [
+    '.exe', '.bat', '.cmd', '.sh', '.php', '.phtml', '.php3', '.php4', '.php5',
+    '.py', '.js', '.mjs', '.cjs', '.vbs', '.msi', '.com', '.scr', '.jar',
+    '.html', '.htm', '.xhtml', '.svg', '.svgz', '.htaccess', '.env', '.config'
   ];
 
-  const ext = path.extname(file.originalname).toLowerCase();
+  if (!ext || blockedExts.includes(ext)) {
+    return cb(new Error('بارگذاری این فرمت فایل به دلایل امنیتی مجاز نمی‌باشد.'), false);
+  }
+
   const allowedExts = [
-    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg',
+    // Images
+    '.jpg', '.jpeg', '.png', '.gif', '.webp',
+    // Documents & Office
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv',
+    // Archives
     '.zip', '.rar', '.7z',
+    // Audio & Video
     '.mp3', '.wav', '.ogg', '.webm', '.mp4', '.m4a', '.aac', '.mov'
   ];
 
-  if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
+  if (allowedExts.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('فرمت فایل مجاز نیست (فقط PDF، Word، Excel، PowerPoint، تصویر یا ZIP مجاز است)'), false);
+    cb(new Error('فرمت فایل مجاز نیست (فقط PDF، Word، Excel، PowerPoint، عکس، صدا، ویدیو یا فایل فشرده مجاز است)'), false);
   }
 };
 
@@ -75,7 +66,8 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: config.upload.maxFileSize,
+    fileSize: config.upload.maxFileSize || 50 * 1024 * 1024, // 50MB
+    files: 10,
   },
 });
 

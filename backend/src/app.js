@@ -42,6 +42,9 @@ const schoolRoutes = require('./modules/school/school.routes');
 const { initSocket, activeClassrooms } = require('./socket');
 
 const app = express();
+
+// Trust reverse proxy (Nginx / Pinggy) so real client IPs are used in rate-limiting
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const { io } = initSocket(server, config);
 app.set('io', io);
@@ -70,6 +73,13 @@ app.use(helmet({
   xssFilter: true,
   noSniff: true,
   hidePoweredBy: true,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  dnsPrefetchControl: { allow: false },
 }));
 
 // ── Security: Dynamic & Resilient CORS Validation ──
@@ -85,22 +95,11 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Allow LAN IP connections on web/app ports
-    if (/^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:(3000|3001|5000))?$/.test(origin)) {
-      return callback(null, true);
-    }
-    // Also allow Capacitor / Android webviews & tunnels
-    if (origin.startsWith('capacitor://') || origin.startsWith('ionic://') || origin.startsWith('http://localhost') || origin.includes('pinggy') || origin.includes('trycloudflare') || origin.includes('duckdns.org')) {
-      return callback(null, true);
-    }
-    callback(null, true);
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Pinggy-No-Screen'],
+  maxAge: 86400, // Cache preflight requests for 24h
 }));
 
 app.use(morgan('dev'));
@@ -109,8 +108,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static files for uploads (Hosted locally with 0 external CDN dependency)
 app.use('/uploads', express.static(uploadDir, {
-  maxAge: '7d', // 7 days browser cache for static files
+  maxAge: '7d',
   etag: true,
+  setHeaders: (res, filePath) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.html' || ext === '.htm' || ext === '.svg' || ext === '.xml') {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    }
+  },
 }));
 
 // Global Rate Limiting
@@ -197,16 +205,21 @@ app.get('/api/v1/system/sync-status', syncStatusHandler);
 // ── App OTA & Live Update Info ──
 const getActiveTunnelUrl = () => {
   try {
+    const txtPath = path.join(process.env.HOME || '/home/rasolserver', 'current_pinggy_url.txt');
+    if (fs.existsSync(txtPath)) {
+      const u = fs.readFileSync(txtPath, 'utf8').trim();
+      if (u.startsWith('http')) return u;
+    }
     const pinggyLog = path.join(process.env.HOME || '/home/rasolserver', 'pinggy.log');
     if (fs.existsSync(pinggyLog)) {
       const content = fs.readFileSync(pinggyLog, 'utf8');
-      const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net)/ig);
+      const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net|pinggy\.link)/ig);
       if (matches && matches.length > 0) {
         return matches[matches.length - 1];
       }
     }
   } catch (e) {}
-  return 'https://bwvjn-89-43-93-25.run.pinggy-free.link';
+  return 'https://xpbov-89-43-89-22.run.pinggy-free.link';
 };
 
 const appUpdateHandler = (req, res) => {
@@ -415,3 +428,13 @@ server.listen(PORT, () => {
 });
 
 module.exports = { app, server };
+
+
+// ── Process Resilience & Crash Protection ──
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [EduConnect Process] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 [EduConnect Process] Uncaught Exception:', err.message, err.stack);
+});

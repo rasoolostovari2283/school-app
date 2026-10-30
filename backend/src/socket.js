@@ -37,6 +37,7 @@ function initSocket(server, config) {
     },
     // Domestic resilient transports: starts with websocket, smoothly falls back to polling
     transports: ['websocket', 'polling'],
+    maxHttpBufferSize: 5 * 1024 * 1024,
     pingTimeout: 35000,
     pingInterval: 15000,
   });
@@ -580,6 +581,11 @@ function initSocket(server, config) {
           name: leavingParticipant?.name,
           participantsCount: room.participants.size,
         });
+
+        // Memory cleanup: If room is empty and class is not active live, clean up memory
+        if (room.participants.size === 0 && !room.isLive) {
+          activeClassrooms.delete(currentClassId);
+        }
       }
     });
   });

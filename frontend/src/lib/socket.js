@@ -1,18 +1,22 @@
 import { io } from 'socket.io-client';
+import { getApiBaseUrl } from './api';
 
 let socket = null;
 
 export function getSocket() {
   if (!socket) {
-    // Domestic resilient: connects to local host/port or NEXT_PUBLIC_API_URL without external DNS dependency
-    const backendUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
-      (typeof window !== 'undefined' 
-        ? `${window.location.protocol}//${window.location.hostname}:5000`
-        : 'http://localhost:5000');
+    let backendUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+    if (!backendUrl && typeof window !== 'undefined') {
+      const apiBase = getApiBaseUrl();
+      backendUrl = apiBase.replace(/\/api\/v1\/?$/, '');
+    }
+    if (!backendUrl) {
+      backendUrl = 'http://localhost:3000';
+    }
 
     socket = io(backendUrl, {
       transports: ['websocket', 'polling'], // Fallback to polling on restrictive mobile networks
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15,
       reconnectionDelay: 1500,
       timeout: 20000,
       autoConnect: true,
