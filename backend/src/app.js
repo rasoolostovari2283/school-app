@@ -372,6 +372,14 @@ globalQuizRouter.post('/:id/start', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+globalQuizRouter.post('/:id/share', async (req, res, next) => {
+  try {
+    const quizService = require('./modules/quizzes/quiz.service');
+    const result = await quizService.shareQuiz(req.params.id, req.user.id, req.body);
+    res.json({ success: true, message: 'آزمون با موفقیت با دانش‌آموزان به اشتراک گذاشته شد 📢', data: result });
+  } catch (err) { next(err); }
+});
+
 globalQuizRouter.post('/:id/submit', async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');

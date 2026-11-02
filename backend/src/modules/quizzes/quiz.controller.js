@@ -34,6 +34,17 @@ class QuizController {
     } catch (err) { next(err); }
   }
 
+  async share(req, res, next) {
+    try {
+      const result = await quizService.shareQuiz(req.params.id, req.user.id, req.body);
+      res.json({
+        success: true,
+        message: 'آزمون با موفقیت با دانش‌آموزان به اشتراک گذاشته شد 📢',
+        data: result,
+      });
+    } catch (err) { next(err); }
+  }
+
   async start(req, res, next) {
     try {
       const attempt = await quizService.startAttempt(req.params.id, req.user.id);

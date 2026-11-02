@@ -33,6 +33,25 @@ class QuizService {
         }
       }
     }
+
+    // Automatically notify students when quiz is created/shared
+    try {
+      const members = await db('class_members').where({ class_id: classId, role: 'student' }).select('user_id');
+      if (members && members.length > 0) {
+        for (const m of members) {
+          await insertAndReturn(db, 'notifications', {
+            user_id: m.user_id,
+            type: 'quiz',
+            title: 'آزمون آنلاین جدید',
+            body: `آزمون "${title}" برای کلاس شما به اشتراک گذاشته شد`,
+            data: JSON.stringify({ quiz_id: quiz.id, class_id: classId }),
+          }).catch(() => {});
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Could not dispatch quiz notifications:', notifErr.message);
+    }
+
     return quiz;
   }
 
@@ -157,6 +176,66 @@ class QuizService {
 
   async publish(quizId) {
     return updateAndReturn(db, 'quizzes', { id: quizId }, { is_published: true });
+  }
+
+  async shareQuiz(quizId, teacherId, { sendToAnnouncements = true, customMessage = '' } = {}) {
+    const quiz = await db('quizzes')
+      .join('classes', 'classes.id', 'quizzes.class_id')
+      .where({ 'quizzes.id': quizId })
+      .select('quizzes.*', 'classes.name as class_name', 'classes.grade as class_grade', 'classes.subject as class_subject')
+      .first();
+
+    if (!quiz) {
+      const err = new Error('آزمون یافت نشد');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    // Ensure published
+    await db('quizzes').where({ id: quizId }).update({ is_published: true });
+
+    let notifiedCount = 0;
+    try {
+      const members = await db('class_members').where({ class_id: quiz.class_id, role: 'student' }).select('user_id');
+      if (members && members.length > 0) {
+        notifiedCount = members.length;
+        for (const m of members) {
+          await insertAndReturn(db, 'notifications', {
+            user_id: m.user_id,
+            type: 'quiz',
+            title: 'آزمون آنلاین: ' + quiz.title,
+            body: customMessage || `آزمون آنلاین "${quiz.title}" هم‌اکنون فعال و آماده شرکت است (مدت: ${quiz.duration_minutes} دقیقه)`,
+            data: JSON.stringify({ quiz_id: quiz.id, class_id: quiz.class_id }),
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('Error sending quiz notifications:', e.message);
+    }
+
+    let announcement = null;
+    if (sendToAnnouncements) {
+      try {
+        announcement = await insertAndReturn(db, 'announcements', {
+          class_id: quiz.class_id,
+          title: `📢 برگزاری آزمون آنلاین: ${quiz.title}`,
+          content: customMessage || `دانش‌آموزان گرامی، آزمون آنلاین «${quiz.title}» برای کلاس شما به اشتراک گذاشته شد. مدت زمان آزمون ${quiz.duration_minutes} دقیقه می‌باشد. لطفاً از طریق منوی آزمون‌ها در آزمون شرکت فرمایید.`,
+          attachments: quiz.attachments || '[]',
+          is_pinned: true,
+        }).catch(() => null);
+      } catch (annErr) {
+        console.warn('Could not create announcement for quiz:', annErr.message);
+      }
+    }
+
+    return {
+      quizId,
+      classId: quiz.class_id,
+      className: quiz.class_name,
+      notifiedCount,
+      announcementCreated: !!announcement,
+      shareLink: `/dashboard/quizzes?classId=${quiz.class_id}&quizId=${quiz.id}`,
+    };
   }
 
   async startAttempt(quizId, studentId) {

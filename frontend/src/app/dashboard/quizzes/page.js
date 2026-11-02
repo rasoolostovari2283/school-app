@@ -29,6 +29,10 @@ import {
   HiOutlinePrinter,
   HiOutlinePhone,
   HiOutlineChatBubbleLeftRight,
+  HiOutlineShare,
+  HiOutlineClipboardDocument,
+  HiOutlineMegaphone,
+  HiOutlineLink,
 } from 'react-icons/hi2';
 import styles from './quizzes.module.css';
 
@@ -88,6 +92,13 @@ export default function QuizzesPage() {
   const [participantFilter, setParticipantFilter] = useState('all');
   const [liveMonitoring, setLiveMonitoring] = useState(false);
   const [refreshingList, setRefreshingList] = useState(false);
+
+  // Modal: Share Quiz
+  const [sharingQuiz, setSharingQuiz] = useState(null);
+  const [shareCustomMsg, setShareCustomMsg] = useState('');
+  const [shareToAnnouncements, setShareToAnnouncements] = useState(true);
+  const [sharingLoading, setSharingLoading] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // 🔍 Image Lightbox
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -260,6 +271,16 @@ export default function QuizzesPage() {
         }
       });
       setQuizzes(list);
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const targetQuizId = params.get('quizId');
+        if (targetQuizId) {
+          const matched = list.find((q) => String(q.id) === String(targetQuizId));
+          if (matched && isStudent && !matched.attempt?.completed_at) {
+            handleStartTakingQuiz(matched);
+          }
+        }
+      }
       try {
         localStorage.setItem('cached_quizzes', JSON.stringify(list));
       } catch (e) {}
@@ -684,6 +705,110 @@ export default function QuizzesPage() {
     }
   };
 
+  const handleOpenShareModal = (quiz) => {
+    setSharingQuiz(quiz);
+    setShareCustomMsg(
+      `دانش‌آموزان عزیز، آزمون آنلاین «${quiz.title}» فعال شد. لطفاً در موعد مقرر وارد سامانه شوید و به سوالات پاسخ دهید.`
+    );
+    setShareToAnnouncements(true);
+    setCopiedLink(false);
+  };
+
+  const getQuizShareUrl = (quiz) => {
+    if (typeof window === 'undefined') return '';
+    const base = window.location.origin;
+    return `${base}/dashboard/quizzes?quizId=${quiz?.id || ''}&classId=${quiz?.class_id || ''}`;
+  };
+
+  const handleCopyQuizLink = async (quiz) => {
+    const url = getQuizShareUrl(quiz);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopiedLink(true);
+      toast.success('لینک مستقیم آزمون کپی شد 📋');
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch (e) {
+      toast.error('خطا در کپی کردن لینک');
+    }
+  };
+
+  const handleCopyFullInvite = async (quiz) => {
+    const url = getQuizShareUrl(quiz);
+    const text = `📢 برگزاری آزمون آنلاین: ${quiz.title}
+📚 کلاس / درس: ${quiz.class_name || 'کلاس درس'} ${quiz.class_grade ? `(پایه ${quiz.class_grade})` : ''}
+⏱ مدت زمان پاسخگویی: ${quiz.duration_minutes} دقیقه
+📝 توضیحات: ${shareCustomMsg || 'لطفاً با آمادگی کامل وارد سامانه آزمون شوید.'}
+
+🔗 لینک مستقیم ورود به جلسه آزمون:
+${url}`;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      toast.success('متن کامل دعوت به آزمون کپی شد! می‌توانید در شاد، بله یا ایتا ارسال فرمایید ✨');
+    } catch (e) {
+      toast.error('خطا در کپی متن دعوت');
+    }
+  };
+
+  const handleNativeShare = async (quiz) => {
+    const url = getQuizShareUrl(quiz);
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `آزمون آنلاین: ${quiz.title}`,
+          text: `آزمون آنلاین "${quiz.title}" (${quiz.duration_minutes} دقیقه)\n${shareCustomMsg || ''}`,
+          url: url,
+        });
+        toast.success('اشتراک‌گذاری انجام شد');
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          handleCopyQuizLink(quiz);
+        }
+      }
+    } else {
+      handleCopyFullInvite(quiz);
+    }
+  };
+
+  const handleShareQuizSubmit = async () => {
+    if (!sharingQuiz) return;
+    setSharingLoading(true);
+    try {
+      const res = await api.post(`/classes/${sharingQuiz.class_id}/quizzes/${sharingQuiz.id}/share`, {
+        sendToAnnouncements: shareToAnnouncements,
+        customMessage: shareCustomMsg.trim(),
+      });
+      const data = res.data?.data;
+      toast.success(
+        `آزمون با موفقیت به اشتراک گذاشته شد! ${data?.notifiedCount ? `به ${data.notifiedCount} دانش‌آموز نوتیفیکیشن ارسال شد.` : ''} 🎉`
+      );
+      setSharingQuiz(null);
+      fetchQuizzes();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در اشتراک‌گذاری آزمون');
+    } finally {
+      setSharingLoading(false);
+    }
+  };
+
   const filteredQuizzes = quizzes.filter((q) => {
     if (selectedClassFilter === 'all') return true;
     return q.class_id === selectedClassFilter;
@@ -706,7 +831,7 @@ export default function QuizzesPage() {
           </p>
         </div>
 
-        {isTeacher && (
+        {(isTeacher || isAdmin) && (
           <button className="btn btn-primary" onClick={handleOpenCreateModal}>
             <HiOutlinePlus />
             <span>طراحی آزمون آنلاین با فایل سوالات</span>
@@ -814,9 +939,23 @@ export default function QuizzesPage() {
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: '0.75rem', color: '#059669', background: '#ecfdf5', padding: '3px 8px', borderRadius: '12px', fontWeight: 700 }}>
-                    {isCompleted ? 'تحویل داده شده' : 'آزمون فعال'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {(isTeacher || isAdmin) && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '8px' }}
+                        onClick={() => handleOpenShareModal(quiz)}
+                        title="اشتراک‌گذاری آزمون"
+                      >
+                        <HiOutlineShare style={{ fontSize: '0.95rem', color: '#6366f1' }} />
+                        <span>اشتراک</span>
+                      </button>
+                    )}
+                    <span style={{ fontSize: '0.75rem', color: '#059669', background: '#ecfdf5', padding: '3px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                      {isCompleted ? 'تحویل داده شده' : 'آزمون فعال'}
+                    </span>
+                  </div>
                 </div>
 
                 <div>
@@ -904,15 +1043,25 @@ export default function QuizzesPage() {
                       <HiOutlineChatBubbleLeftRight />
                       <span>گفتگو با دبیر این درس</span>
                     </Link>
-                  ) : isTeacher ? (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ width: '100%' }}
-                      onClick={() => handleOpenResults(quiz)}
-                    >
-                      <HiOutlineUserGroup style={{ color: '#6366f1', fontSize: '1.1rem' }} />
-                      <span>لیست شرکت‌کنندگان و ساعت ورود ({quiz.attempts_count || 0})</span>
-                    </button>
+                  ) : (isTeacher || isAdmin) ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', width: '100%' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px' }}
+                        onClick={() => handleOpenResults(quiz)}
+                      >
+                        <HiOutlineUserGroup style={{ color: '#6366f1', fontSize: '1.1rem' }} />
+                        <span>شرکت‌کنندگان ({quiz.attempts_count || 0})</span>
+                      </button>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)', border: 'none' }}
+                        onClick={() => handleOpenShareModal(quiz)}
+                      >
+                        <HiOutlineShare style={{ fontSize: '1.1rem' }} />
+                        <span>اشتراک‌گذاری</span>
+                      </button>
+                    </div>
                   ) : (
                     <button
                       className={`btn btn-sm ${isCompleted ? 'btn-secondary' : 'btn-primary'}`}
@@ -2227,6 +2376,146 @@ export default function QuizzesPage() {
           </div>
         );
       })()}
+
+      {/* 📢 Modal: Share Quiz */}
+      {sharingQuiz && (
+        <div className={styles.modalBackdrop} onClick={() => setSharingQuiz(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+            <div className={styles.modalHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <HiOutlineShare style={{ color: '#6366f1', fontSize: '1.3rem' }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.15rem', fontWeight: 800 }}>اشتراک‌گذاری و ارسال آزمون</h2>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    ارسال لینک مستقیم و اطلاع‌رسانی آزمون به دانش‌آموزان
+                  </p>
+                </div>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setSharingQuiz(null)}>
+                <HiOutlineXMark />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* خلاصه مشخصات آزمون */}
+              <div style={{ background: 'var(--bg-surface)', padding: '14px 16px', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                  <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                    📝 {sharingQuiz.title}
+                  </strong>
+                  <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '8px', background: '#ecfdf5', color: '#059669', fontWeight: 700 }}>
+                    آزمون آنلاین فعال
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <span>🏫 کلاس: <strong>{sharingQuiz.class_name || 'کلاس'}</strong></span>
+                  {sharingQuiz.class_grade && <span>🎓 پایه: <strong>{sharingQuiz.class_grade}</strong></span>}
+                  <span>⏱ مدت: <strong>{sharingQuiz.duration_minutes} دقیقه</strong></span>
+                  {sharingQuiz.questions_count > 0 && <span>❓ <strong>{sharingQuiz.questions_count}</strong> سوال</span>}
+                </div>
+              </div>
+
+              {/* جعبه کپی لینک مستقیم */}
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, marginBottom: '8px' }}>
+                  <HiOutlineLink style={{ color: '#06b6d4', fontSize: '1.1rem' }} />
+                  <span>لینک مستقیم ورود به آزمون:</span>
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    className="input"
+                    style={{ direction: 'ltr', textAlign: 'left', fontSize: '0.82rem', fontFamily: 'monospace' }}
+                    value={getQuizShareUrl(sharingQuiz)}
+                    onClick={(e) => e.target.select()}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ minWidth: '105px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={() => handleCopyQuizLink(sharingQuiz)}
+                  >
+                    <HiOutlineClipboardDocument style={{ fontSize: '1.1rem' }} />
+                    <span>{copiedLink ? 'کپی شد ✓' : 'کپی لینک'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* متن پیام / راهنما */}
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px' }}>
+                  <HiOutlineMegaphone style={{ color: '#f59e0b', fontSize: '1.1rem' }} />
+                  <span>متن اطلاعیه و پیام به دانش‌آموزان:</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={shareCustomMsg}
+                  onChange={(e) => setShareCustomMsg(e.target.value)}
+                  placeholder="متن دلخواه جهت اطلاع‌رسانی به دانش‌آموزان..."
+                  style={{ resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5 }}
+                />
+              </div>
+
+              {/* گزینه‌های اطلاع‌رسانی خودکار */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(99, 102, 241, 0.05)', padding: '12px 14px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.84rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={shareToAnnouncements}
+                    onChange={(e) => setShareToAnnouncements(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }}
+                  />
+                  <span>📢 سنجاق و ثبت خودکار در تابلوی اعلانات کلاس</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+                  <HiOutlineCheckCircle style={{ color: '#059669', fontSize: '1.1rem', flexShrink: 0 }} />
+                  <span>ارسال نوتیفیکیشن سیستمی برای تمام دانش‌آموزان عضو کلاس</span>
+                </label>
+              </div>
+
+              {/* دکمه‌های اقدام */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  onClick={handleShareQuizSubmit}
+                  disabled={sharingLoading}
+                >
+                  <HiOutlineMegaphone />
+                  <span>{sharingLoading ? 'در حال ارسال و اطلاع‌رسانی...' : 'ارسال و اشتراک‌گذاری با کلاس 📢'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  onClick={() => handleCopyFullInvite(sharingQuiz)}
+                  title="کپی پیام کامل برای ارسال در پیام‌رسان‌ها (شاد، ایتا، بله)"
+                >
+                  <HiOutlineClipboardDocument />
+                  <span>کپی متن دعوت 📋</span>
+                </button>
+                {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={() => handleNativeShare(sharingQuiz)}
+                    title="اشتراک‌گذاری با سایر برنامه‌ها"
+                  >
+                    <HiOutlineShare />
+                    <span>ارسال...</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🔍 Lightbox Image Viewer */}
       {lightboxImage && (
