@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { App as CapApp } from '@capacitor/app';
 import useAuthStore from '../../stores/authStore';
 import Sidebar from '../../components/layout/Sidebar';
 import Header from '../../components/layout/Header';
@@ -15,6 +16,11 @@ export default function DashboardLayout({ children }) {
   const { isAuthenticated, isLoading, initialize } = useAuthStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const pathnameRef = useRef(pathname);
+  const isMobileMenuOpenRef = useRef(isMobileMenuOpen);
+  const navStackRef = useRef(['/dashboard']);
+  const lastBackTimeRef = useRef(0);
+
   useEffect(() => {
     initialize();
   }, []);
@@ -25,52 +31,95 @@ export default function DashboardLayout({ children }) {
     }
   }, [isLoading, isAuthenticated]);
 
-  // Close mobile drawer on route change
+  // Track route changes and close mobile drawer
   useEffect(() => {
     setIsMobileMenuOpen(false);
+    pathnameRef.current = pathname;
+
+    if (pathname) {
+      const cleanPath = pathname.replace(/\/+$/, '') || '/';
+      const stack = navStackRef.current;
+      const currentTop = stack[stack.length - 1];
+
+      if (cleanPath !== currentTop) {
+        // If user navigated backwards to previous item, pop top
+        if (stack.length > 1 && stack[stack.length - 2] === cleanPath) {
+          stack.pop();
+        } else {
+          stack.push(cleanPath);
+        }
+      }
+    }
   }, [pathname]);
 
-  // Handle Android Hardware Back Button (Capacitor & Web Popstate)
   useEffect(() => {
-    let lastBackTime = 0;
+    isMobileMenuOpenRef.current = isMobileMenuOpen;
+  }, [isMobileMenuOpen]);
+
+  // Handle Android Hardware Back Button (Persistent listener across all pages)
+  useEffect(() => {
     let removeListener = null;
 
     const initBackButton = async () => {
       try {
-        const { App: CapApp } = await import('@capacitor/app');
         const listener = await CapApp.addListener('backButton', () => {
-          const currentPath = window.location.pathname;
-          const isMainDashboard = currentPath === '/dashboard' || currentPath === '/dashboard/';
+          // 1. If mobile navigation drawer is open, close it
+          if (isMobileMenuOpenRef.current) {
+            setIsMobileMenuOpen(false);
+            return;
+          }
+
+          // 2. If any modal / popup dialog is open, close it first
+          const modalCloseBtn = document.querySelector(
+            '[class*="modalBackdrop"] button[class*="closeBtn"], [class*="modalBackdrop"] button[class*="close"], [class*="modalOverlay"] button[class*="close"]'
+          );
+          if (modalCloseBtn) {
+            modalCloseBtn.click();
+            return;
+          }
+
+          const modalBackdrop = document.querySelector('[class*="modalBackdrop"], [class*="modalOverlay"]');
+          if (modalBackdrop) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            return;
+          }
+
+          // 3. Check current route
+          const currentPath = (pathnameRef.current || window.location.pathname || '').replace(/\/+$/, '') || '/';
+          const isMainDashboard = currentPath === '/dashboard' || currentPath === '' || currentPath === '/';
 
           if (!isMainDashboard) {
-            // If on a sub-route, return to parent section or dashboard
-            if (currentPath.includes('/live')) {
-              router.push(currentPath.replace('/live', ''));
-            } else if (currentPath.startsWith('/dashboard/classes/') && currentPath.split('/').length === 4) {
-              router.push('/dashboard/classes');
-            } else if (window.history.length > 2) {
-              router.back();
+            // User is on a sub-route (e.g. /dashboard/assignments, /dashboard/videos, /dashboard/classes/...)
+            // Navigate back to the previous screen in history
+            const stack = navStackRef.current;
+            if (stack.length > 1) {
+              stack.pop(); // remove current page
+              const prevPath = stack[stack.length - 1] || '/dashboard';
+              router.push(prevPath);
             } else {
+              // Fallback to main dashboard if stack is shallow
               router.push('/dashboard');
             }
+            return;
+          }
+
+          // 4. On main dashboard home: require double tap within 2 seconds to exit
+          const now = Date.now();
+          if (now - lastBackTimeRef.current < 2000) {
+            CapApp.exitApp();
           } else {
-            // On main dashboard home: double tap to exit app
-            const now = Date.now();
-            if (now - lastBackTime < 2000) {
-              CapApp.exitApp();
-            } else {
-              lastBackTime = now;
-              toast('برای خروج از برنامه، مجدداً دکمه بازگشت را بزنید', {
-                icon: '🚪',
-                duration: 2000,
-                id: 'exit-app-confirm',
-              });
-            }
+            lastBackTimeRef.current = now;
+            toast('برای خروج از برنامه، مجدداً دکمه بازگشت را بزنید', {
+              icon: '🚪',
+              duration: 2000,
+              id: 'exit-app-confirm',
+            });
           }
         });
+
         removeListener = () => listener.remove();
       } catch (e) {
-        // Running in desktop/mobile web browser without native wrapper
+        // Not running in Capacitor Android environment
       }
     };
 
@@ -79,7 +128,7 @@ export default function DashboardLayout({ children }) {
     return () => {
       if (removeListener) removeListener();
     };
-  }, [router]);
+  }, []);
 
   if (isLoading) {
     return (
