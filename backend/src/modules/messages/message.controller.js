@@ -71,6 +71,13 @@ class MessageController {
     } catch (err) { next(err); }
   }
 
+  async deleteGroup(req, res, next) {
+    try {
+      const result = await messageService.deleteGroup(req.params.groupId, req.user.id);
+      res.json({ success: true, message: result.message });
+    } catch (err) { next(err); }
+  }
+
   async getGroupMessages(req, res, next) {
     try {
       const messages = await messageService.getGroupMessages(

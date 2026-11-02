@@ -113,6 +113,9 @@ export default function MessagesPage() {
   const [createGroupMemberInput, setCreateGroupMemberInput] = useState('');
   const [createGroupSearchResults, setCreateGroupSearchResults] = useState([]);
   const [searchingCreateMember, setSearchingCreateMember] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [showDirectoryPickerInCreate, setShowDirectoryPickerInCreate] = useState(false);
+  const [createGroupDirFilter, setCreateGroupDirFilter] = useState('all');
 
   // Directory & School Database Integration
   const [directory, setDirectory] = useState({ staff: [], students: [], parents: [], all: [] });
@@ -975,21 +978,31 @@ export default function MessagesPage() {
   };
 
   const handleCreateGroup = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!newGroupForm.name.trim()) {
       toast.error('لطفاً نام گروه را وارد کنید');
       return;
     }
 
+    setCreatingGroup(true);
     try {
-      const memberIds = createGroupMembers.map((m) => m.id);
+      const memberIds = createGroupMembers.map((m) => m.id).filter(Boolean);
+      const memberIdentifiers = [];
+      if (createGroupMemberInput.trim()) {
+        memberIdentifiers.push(createGroupMemberInput.trim());
+      }
+
       const res = await api.post('/messages/groups', {
-        ...newGroupForm,
+        name: newGroupForm.name.trim(),
+        description: newGroupForm.description?.trim() || '',
+        category: newGroupForm.category || 'council',
         member_ids: memberIds,
+        member_identifiers: memberIdentifiers,
       });
-      const createdGrp = res.data.data?.group;
+      const createdGrp = res.data?.data?.group;
       toast.success('گروه با موفقیت ساخته شد 🎉');
       setShowCreateGroupModal(false);
+      setShowDirectoryPickerInCreate(false);
       setNewGroupForm({ name: '', description: '', category: 'council', member_ids: [] });
       setCreateGroupMembers([]);
       setCreateGroupMemberInput('');
@@ -998,11 +1011,30 @@ export default function MessagesPage() {
       if (createdGrp) {
         selectGroup(createdGrp);
         setActiveTab('groups');
-        // Prompt with the invite link modal so they can share it immediately!
         setShowInviteLinkModal(true);
       }
     } catch (err) {
+      console.error('Error creating group:', err);
       toast.error(err.response?.data?.message || 'خطا در ایجاد گروه');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = async (group) => {
+    if (!group) return;
+    if (!window.confirm(`آیا از حذف گروه «${group.name}» اطمینان دارید؟ تمامی پیام‌های آن حذف خواهد شد.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/messages/groups/${group.id}`);
+      toast.success('گروه با موفقیت حذف گردید');
+      if (activeGroup?.id === group.id) {
+        setActiveGroup(null);
+      }
+      fetchGroups();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در حذف گروه');
     }
   };
 
@@ -1731,6 +1763,18 @@ export default function MessagesPage() {
                     <HiOutlineVideoCamera />
                     <span>ویدیو کنفرانس</span>
                   </button>
+                  {(activeGroup.is_admin || activeGroup.created_by === user?.id || user?.role === 'admin' || user?.role === 'manager') && (
+                    <button
+                      type="button"
+                      className={styles.callToolBtn}
+                      style={{ color: '#ef4444' }}
+                      onClick={() => handleDeleteGroup(activeGroup)}
+                      title="حذف گروه"
+                    >
+                      <HiOutlineTrash />
+                      <span>حذف گروه</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2481,10 +2525,11 @@ export default function MessagesPage() {
                   value={newGroupForm.category}
                   onChange={(e) => setNewGroupForm({ ...newGroupForm, category: e.target.value })}
                 >
-                  <option value="council">شورای دبیران و کادر</option>
-                  <option value="parents">انجمن اولیاء و مربیان</option>
-                  <option value="olympiad">کارگروه المپیاد و پژوهش</option>
-                  <option value="class">کلاس درسی</option>
+                  <option value="council">🏛️ شورای دبیران و کادر مدرسه</option>
+                  <option value="class">📚 کلاس درسی و آموزشی</option>
+                  <option value="olympiad">🏆 کارگروه مسابقات و المپیاد</option>
+                  <option value="parents">🤝 انجمن اولیاء و مربیان</option>
+                  <option value="general">📢 کانال اطلاع‌رسانی عمومی</option>
                 </select>
               </div>
 
@@ -2515,6 +2560,14 @@ export default function MessagesPage() {
                       setCreateGroupMemberInput(e.target.value);
                       handleSearchUsers(e.target.value, 'create');
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (createGroupMemberInput.trim()) {
+                          handleSearchUsers(createGroupMemberInput, 'create');
+                        }
+                      }
+                    }}
                   />
                   <button
                     type="button"
@@ -2525,6 +2578,100 @@ export default function MessagesPage() {
                   >
                     {searchingCreateMember ? 'جستجو...' : 'جستجو'}
                   </button>
+                </div>
+
+                {createGroupMemberInput.trim().length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: '6px', fontSize: '0.78rem' }}
+                    onClick={() => {
+                      const raw = createGroupMemberInput.trim();
+                      handleAddMemberToCreateList({
+                        id: raw.replace(/^@/, ''),
+                        display_name: raw,
+                        username: raw.replace(/^@/, ''),
+                        role: 'member',
+                      });
+                    }}
+                  >
+                    + افزودن مستقیم «{createGroupMemberInput.trim()}» به لیست اعضا
+                  </button>
+                )}
+
+                {/* Quick Directory Picker toggle */}
+                <div style={{ marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem' }}
+                    onClick={() => setShowDirectoryPickerInCreate(!showDirectoryPickerInCreate)}
+                  >
+                    <HiOutlineUserGroup />
+                    <span>{showDirectoryPickerInCreate ? 'بستن لیست مخاطبین مدرسه ▲' : 'انتخاب سریع از دفترچه مخاطبین مدرسه ▼'}</span>
+                  </button>
+
+                  {showDirectoryPickerInCreate && (
+                    <div style={{ marginTop: '8px', padding: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${createGroupDirFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '3px 7px', fontSize: '0.72rem' }}
+                          onClick={() => setCreateGroupDirFilter('all')}
+                        >
+                          همه ({directory.all?.length || 0})
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${createGroupDirFilter === 'staff' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '3px 7px', fontSize: '0.72rem' }}
+                          onClick={() => setCreateGroupDirFilter('staff')}
+                        >
+                          دبیران و کادر ({directory.staff?.length || 0})
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${createGroupDirFilter === 'students' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '3px 7px', fontSize: '0.72rem' }}
+                          onClick={() => setCreateGroupDirFilter('students')}
+                        >
+                          دانش‌آموزان ({directory.students?.length || 0})
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${createGroupDirFilter === 'parents' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '3px 7px', fontSize: '0.72rem' }}
+                          onClick={() => setCreateGroupDirFilter('parents')}
+                        >
+                          اولیاء ({directory.parents?.length || 0})
+                        </button>
+                      </div>
+
+                      <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {((createGroupDirFilter === 'staff' ? directory.staff : createGroupDirFilter === 'students' ? directory.students : createGroupDirFilter === 'parents' ? directory.parents : directory.all) || []).map((u) => {
+                          const isAdded = createGroupMembers.some((m) => m.id === u.id);
+                          return (
+                            <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 8px', background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', fontSize: '0.78rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, overflow: 'hidden' }}>
+                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.display_name}</span>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>({u.job_title || u.role})</span>
+                              </div>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${isAdded ? 'btn-secondary' : 'btn-primary'}`}
+                                style={{ padding: '2px 8px', fontSize: '0.72rem', flexShrink: 0 }}
+                                disabled={isAdded}
+                                onClick={() => handleAddMemberToCreateList(u)}
+                              >
+                                {isAdded ? 'اضافه شد ✓' : '+ افزودن'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Live search results */}
@@ -2573,7 +2720,7 @@ export default function MessagesPage() {
                         <div key={m.id} className={styles.memberChip}>
                           <span>👤 {m.display_name}</span>
                           <span style={{ fontSize: '0.6875rem', opacity: 0.75 }}>
-                            (@{m.username || m.identifier_code})
+                            (@{m.username || m.identifier_code || m.id})
                           </span>
                           <button
                             type="button"
@@ -2595,8 +2742,20 @@ export default function MessagesPage() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                  تأیید و ساخت گروه
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  disabled={creatingGroup}
+                >
+                  {creatingGroup ? (
+                    <span>در حال ایجاد گروه...</span>
+                  ) : (
+                    <>
+                      <HiOutlinePlus />
+                      <span>تأیید و ساخت گروه</span>
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"
