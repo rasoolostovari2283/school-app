@@ -3522,27 +3522,27 @@ export default function ClassRecordStudioPage() {
 
             {/* Record / Pause / Stop Buttons */}
             {recStatus === 'idle' ? (
-              <button className={styles.recBtnStart} onClick={startRecording}>
-                <HiOutlinePlay size={20} />
-                <span>شروع ضبط تدریس</span>
+              <button className={styles.recBtnStart} onClick={startRecording} title="شروع ضبط ویدیو و صدای تدریس">
+                <HiOutlinePlay size={14} />
+                <span>ضبط ویدیو</span>
               </button>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {recStatus === 'recording' ? (
-                  <button className={styles.recBtnPause} onClick={pauseRecording}>
-                    <HiOutlinePause size={18} />
-                    <span>توقف موقت</span>
+                  <button className={styles.recBtnPause} onClick={pauseRecording} title="توقف موقت ضبط">
+                    <HiOutlinePause size={13} />
+                    <span>مکث</span>
                   </button>
                 ) : (
-                  <button className={styles.recBtnPause} onClick={resumeRecording}>
-                    <HiOutlinePlay size={18} />
-                    <span>ادامه ضبط</span>
+                  <button className={styles.recBtnPause} onClick={resumeRecording} title="ادامه ضبط">
+                    <HiOutlinePlay size={13} />
+                    <span>ادامه</span>
                   </button>
                 )}
 
-                <button className={styles.recBtnStop} onClick={stopRecording}>
-                  <HiOutlineStop size={20} />
-                  <span>پایان و ذخیره ویدیو</span>
+                <button className={styles.recBtnStop} onClick={stopRecording} title="پایان و ذخیره ویدیو">
+                  <HiOutlineStop size={14} />
+                  <span>پایان ضبط</span>
                 </button>
               </div>
             )}

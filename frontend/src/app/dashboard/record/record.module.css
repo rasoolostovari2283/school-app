@@ -388,34 +388,35 @@
 /* ── Bottom Floating Recording Bar ── */
 .bottomControlBar {
   position: absolute;
-  bottom: 20px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 16px;
-  background: rgba(15, 23, 42, 0.92);
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.88);
   color: white;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 10px 22px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 5px 14px;
   border-radius: var(--radius-full);
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.28);
   z-index: 60;
+  transition: all var(--transition-fast);
 }
 
 .recStatus {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.875rem;
+  gap: 6px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
 .recDot {
-  width: 12px;
-  height: 12px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: #ef4444;
 }
@@ -432,28 +433,28 @@
 
 .recTimer {
   font-family: monospace;
-  font-size: 1.15rem;
+  font-size: 0.9rem;
   font-weight: 800;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   color: #f8fafc;
   background: rgba(255, 255, 255, 0.08);
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 4px;
 }
 
 .recBtnStart {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   background: #ef4444;
   color: white;
   border: none;
-  padding: 8px 20px;
+  padding: 4px 12px;
   border-radius: var(--radius-full);
-  font-size: 0.9375rem;
-  font-weight: 800;
+  font-size: 0.78rem;
+  font-weight: 750;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
   transition: all var(--transition-fast);
 }
 
@@ -465,13 +466,13 @@
 .recBtnPause {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: rgba(255, 255, 255, 0.12);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 8px 16px;
+  padding: 4px 10px;
   border-radius: var(--radius-full);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -484,16 +485,16 @@
 .recBtnStop {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   background: #10b981;
   color: white;
   border: none;
-  padding: 8px 20px;
+  padding: 4px 12px;
   border-radius: var(--radius-full);
-  font-size: 0.9375rem;
-  font-weight: 800;
+  font-size: 0.78rem;
+  font-weight: 750;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
   transition: all var(--transition-fast);
 }
 
@@ -503,9 +504,9 @@
 }
 
 .lessonTag {
-  font-size: 0.8125rem;
+  font-size: 0.72rem;
   color: #94a3b8;
-  max-width: 200px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1073,13 +1074,14 @@
     padding: 6px 10px;
   }
   .bottomControlBar {
-    bottom: 10px;
-    padding: 8px 14px;
-    gap: 8px;
-    max-width: 95vw;
+    bottom: 8px;
+    padding: 4px 10px;
+    gap: 6px;
+    max-width: 96vw;
   }
   .recTimer {
-    font-size: 0.95rem;
+    font-size: 0.8rem;
+    padding: 2px 5px;
   }
 }
 
