@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-export const DEFAULT_LOCAL_API = 'http://192.168.1.104/api/v1';
-export const DEFAULT_TUNNEL_API = 'https://xpbov-89-43-89-22.run.pinggy-free.link/api/v1';
+export const DEFAULT_LOCAL_API = 'http://192.168.1.102/api/v1';
+export const DEFAULT_TUNNEL_API = 'https://emzyv-89-43-88-180.run.pinggy-free.link/api/v1';
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
@@ -74,6 +74,7 @@ export async function autoDetectServer() {
   const current = localStorage.getItem('server_api_url');
   const candidates = [
     DEFAULT_LOCAL_API,
+    'http://192.168.1.104/api/v1',
     'http://192.168.1.108/api/v1',
     DEFAULT_TUNNEL_API,
     current,
