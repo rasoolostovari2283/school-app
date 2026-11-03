@@ -2932,7 +2932,7 @@ export default function ClassRecordStudioPage() {
             <div className={styles.toolDivider} />
 
             {/* 2. Color Palette */}
-            <div className={styles.toolGroup}>
+            <div className={`${styles.toolGroup} ${styles.colorGroup}`}>
               {PALETTE_COLORS.map((c) => (
                 <div
                   key={c.value}
@@ -2957,7 +2957,7 @@ export default function ClassRecordStudioPage() {
                 title="مشاهده تمام ابزارها و قابلیت‌های تخته"
               >
                 <HiOutlineBars3 size={18} />
-                <span>سایر ابزارها</span>
+                <span>ابزارها</span>
                 <HiOutlineChevronDown
                   size={14}
                   style={{
