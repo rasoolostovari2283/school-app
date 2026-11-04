@@ -338,6 +338,38 @@ export default function ServerConnectionBar() {
                 {currentUrl.includes('pinggy') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
               </button>
 
+              {/* Local Wi-Fi Primary IP 102 */}
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => handleSelectPreset('http://192.168.1.102/api/v1', 'وای‌فای سرور (192.168.1.102)')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  border: currentUrl.includes('192.168.1.102') ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                  background: currentUrl.includes('192.168.1.102') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  textAlign: 'right',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '1.6rem' }}>📶</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
+                      وای‌فای سرور فعلی (192.168.1.102)
+                    </div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.7, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
+                      http://192.168.1.102/api/v1
+                    </div>
+                  </div>
+                </div>
+                {currentUrl.includes('192.168.1.102') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
+              </button>
+
               {/* Local Wi-Fi Primary IP 104 */}
               <button
                 type="button"

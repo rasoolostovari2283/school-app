@@ -1,7 +1,9 @@
 import axios from 'axios';
 
 export const DEFAULT_LOCAL_API = 'http://192.168.1.102/api/v1';
-export const DEFAULT_TUNNEL_API = 'https://emzyv-89-43-88-180.run.pinggy-free.link/api/v1';
+export const DEFAULT_TUNNEL_API = 'https://uywtc-89-43-93-194.run.pinggy-free.link/api/v1';
+export const REGISTRY_GIST_RAW = 'https://gist.githubusercontent.com/rasoolostovari2283/dc4b18cafa978e951913e8b4b832d817/raw/tunnel.json';
+export const REGISTRY_GIST_API = 'https://api.github.com/gists/dc4b18cafa978e951913e8b4b832d817';
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
@@ -20,7 +22,7 @@ export function getApiBaseUrl() {
     }
   }
 
-  return process.env.NEXT_PUBLIC_API_URL || DEFAULT_LOCAL_API;
+  return process.env.NEXT_PUBLIC_API_URL || DEFAULT_TUNNEL_API;
 }
 
 export function setApiBaseUrl(url) {
@@ -28,7 +30,7 @@ export function setApiBaseUrl(url) {
   if (!url) {
     localStorage.removeItem('server_api_url');
     localStorage.removeItem('educonnect_server_url');
-    return DEFAULT_LOCAL_API;
+    return DEFAULT_TUNNEL_API;
   }
   let clean = url.trim().replace(/\/+$/, '');
   const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
@@ -69,11 +71,40 @@ export async function probeServer(url) {
   return { success: false };
 }
 
+export async function fetchLiveTunnelFromRegistry() {
+  const sources = [
+    `${REGISTRY_GIST_RAW}?t=${Date.now()}`,
+    REGISTRY_GIST_API,
+  ];
+
+  for (const src of sources) {
+    try {
+      const res = await axios.get(src, { timeout: 6000 });
+      let liveUrl = null;
+      if (res.data) {
+        if (res.data.api_url) {
+          liveUrl = res.data.api_url;
+        } else if (res.data.url) {
+          liveUrl = `${res.data.url.trim().replace(/\/+$/, '')}/api/v1`;
+        } else if (res.data.files && res.data.files['tunnel.json'] && res.data.files['tunnel.json'].content) {
+          const parsed = JSON.parse(res.data.files['tunnel.json'].content);
+          liveUrl = parsed.api_url || `${parsed.url.trim().replace(/\/+$/, '')}/api/v1`;
+        }
+      }
+      if (liveUrl && liveUrl.startsWith('http')) {
+        return liveUrl;
+      }
+    } catch (err) {}
+  }
+  return null;
+}
+
 export async function autoDetectServer() {
   if (typeof window === 'undefined') return { success: false };
   const current = localStorage.getItem('server_api_url');
   const candidates = [
     DEFAULT_LOCAL_API,
+    'http://192.168.1.102:3000/api/v1',
     'http://192.168.1.104/api/v1',
     'http://192.168.1.108/api/v1',
     DEFAULT_TUNNEL_API,
@@ -92,6 +123,17 @@ export async function autoDetectServer() {
       return { success: true, url: finalBase, data: result.data };
     }
   }
+
+  // Fallback: fetch dynamic tunnel from cloud registry
+  const liveTunnel = await fetchLiveTunnelFromRegistry();
+  if (liveTunnel) {
+    const result = await probeServer(liveTunnel);
+    if (result.success) {
+      setApiBaseUrl(liveTunnel);
+      return { success: true, url: liveTunnel, data: result.data };
+    }
+  }
+
   return { success: false };
 }
 
@@ -146,6 +188,17 @@ api.interceptors.response.use(
         localStorage.setItem('server_api_url', fallbackUrl);
         originalRequest.baseURL = fallbackUrl;
         return api(originalRequest);
+      }
+
+      // If fallback failed, query registry
+      const liveTunnel = await fetchLiveTunnelFromRegistry();
+      if (liveTunnel && liveTunnel !== currentUrl) {
+        const probeRegistry = await probeServer(liveTunnel);
+        if (probeRegistry.success) {
+          localStorage.setItem('server_api_url', liveTunnel);
+          originalRequest.baseURL = liveTunnel;
+          return api(originalRequest);
+        }
       }
     }
 
