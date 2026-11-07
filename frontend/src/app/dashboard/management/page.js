@@ -553,13 +553,15 @@ export default function ManagementDashboardPage() {
 
           <div className={styles.schoolCodeBox}>
             <div>
-              <span className={styles.schoolCodeLabel}>کد اختصاصی مدرسه:</span>
+              <span className={styles.schoolCodeLabel}>کد اختصاصی مدرسه و ستاد مدیریت (جهت اتصال مدیران، شعب، دبیران و دانش‌آموزان زیرمجموعه):</span>
               <span className={styles.schoolCodeText}>{schoolData.code}</span>
             </div>
-            <button className={styles.copyCodeBtn} onClick={copySchoolCode} title="کپی کد مدرسه">
-              <HiOutlineClipboardDocumentCheck style={{ fontSize: '1.1rem' }} />
-              کپی کد
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button className={styles.copyCodeBtn} onClick={copySchoolCode} title="کپی کد مدرسه">
+                <HiOutlineClipboardDocumentCheck style={{ fontSize: '1.1rem' }} />
+                کپی کد اختصاصی
+              </button>
+            </div>
           </div>
         </div>
       </div>

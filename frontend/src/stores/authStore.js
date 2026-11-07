@@ -194,7 +194,9 @@ const useAuthStore = create((set, get) => ({
         original_role: entryData.role || 'student',
         phone: entryData.phone || '',
         student_code: entryData.role === 'student' ? 'STD-40301' : null,
-        personnel_code: entryData.role === 'teacher' ? 'EMP-98402' : null,
+        personnel_code: entryData.role === 'admin'
+          ? 'ADM-' + (entryData.school_code || '4821').replace(/[^0-9]/g, '')
+          : (entryData.role === 'teacher' ? 'EMP-98402' : null),
         school_name: schoolName,
         schools: [schoolName],
         school_code: entryData.school_code || 'SCH-4821',
@@ -300,6 +302,10 @@ const useAuthStore = create((set, get) => ({
 
   // Parent Login by Student Code
   parentLogin: async (student_code, parent_name = '', phone = '') => {
+    const rawCheck = (student_code || '').trim().toUpperCase();
+    if (rawCheck.startsWith('SCH-')) {
+      throw { response: { data: { message: 'کد «' + rawCheck + '» کد اختصاصی مدرسه و مدیریت است. لطفاً از تب ورود سریع یا ورود با نام کاربری استفاده فرمایید.' } } };
+    }
     try {
       const { data } = await api.post('/auth/parent-login', { student_code, parent_name, phone });
       const { user, accessToken, refreshToken } = data.data;

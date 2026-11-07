@@ -392,6 +392,7 @@ export default function LoginPage() {
       await loadSchools();
       setSmartForm((prev) => ({
         ...prev,
+        role: 'admin',
         school_name: res.school.name,
         school_code: res.school.school_code,
       }));
@@ -679,11 +680,12 @@ export default function LoginPage() {
                 <div className={styles.roleChipsGrid}>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${smartForm.role === 'student' ? styles.roleChipActive : ''}`}
-                    onClick={() => setSmartForm({ ...smartForm, role: 'student' })}
+                    className={`${styles.roleChip} ${smartForm.role === 'admin' ? styles.roleChipActive : ''}`}
+                    onClick={() => setSmartForm({ ...smartForm, role: 'admin' })}
+                    style={smartForm.role === 'admin' ? { borderColor: '#4f46e5', background: 'rgba(79, 70, 229, 0.15)', color: '#4f46e5', fontWeight: 800 } : {}}
                   >
-                    <span>👨‍🎓</span>
-                    <span>دانش‌آموز</span>
+                    <span>🏛️</span>
+                    <span>مدرسه و مدیر</span>
                   </button>
                   <button
                     type="button"
@@ -695,6 +697,14 @@ export default function LoginPage() {
                   </button>
                   <button
                     type="button"
+                    className={`${styles.roleChip} ${smartForm.role === 'student' ? styles.roleChipActive : ''}`}
+                    onClick={() => setSmartForm({ ...smartForm, role: 'student' })}
+                  >
+                    <span>👨‍🎓</span>
+                    <span>دانش‌آموز</span>
+                  </button>
+                  <button
+                    type="button"
                     className={`${styles.roleChip} ${smartForm.role === 'parent' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'parent' })}
                   >
@@ -702,6 +712,29 @@ export default function LoginPage() {
                     <span>اولیا</span>
                   </button>
                 </div>
+                {smartForm.role === 'admin' && (
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(6, 182, 212, 0.12) 100%)',
+                      border: '1px solid rgba(79, 70, 229, 0.3)',
+                      borderRadius: 'var(--radius-lg)',
+                      padding: '10px 14px',
+                      fontSize: '0.8125rem',
+                      color: '#4f46e5',
+                      fontWeight: 750,
+                      marginTop: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      textAlign: 'right',
+                    }}
+                  >
+                    <span>🏛️</span>
+                    <span>
+                      شما در حال ورود/ثبت‌نام به عنوان <strong>مدرسه و مدیر</strong> هستید. با این نقش به ستاد مدیریت، کنترل دبیران و شعب زیرمجموعه دسترسی خواهید داشت.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* ── School Selection for Student & Teacher ── */}
@@ -728,11 +761,16 @@ export default function LoginPage() {
                     value={smartForm.school_name}
                     onChange={(e) => {
                       const val = e.target.value;
-                      const found = availableSchools.find((s) => s.name === val);
+                      const cleanVal = val.trim();
+                      const found = availableSchools.find((s) => 
+                        s.name.toLowerCase() === cleanVal.toLowerCase() ||
+                        (s.code && s.code.toLowerCase() === cleanVal.toLowerCase()) ||
+                        (s.id && s.id.toLowerCase() === cleanVal.toLowerCase())
+                      );
                       setSmartForm({
                         ...smartForm,
-                        school_name: val,
-                        school_code: found?.code || '',
+                        school_name: found ? found.name : val,
+                        school_code: found ? (found.code || '') : (cleanVal.toUpperCase().startsWith('SCH-') ? cleanVal.toUpperCase() : smartForm.school_code),
                       });
                       setCustomSchoolName(val);
                     }}
@@ -1548,7 +1586,52 @@ export default function LoginPage() {
                       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                       fontWeight: 800,
                       width: '100%',
-                      padding: '12px',
+                      padding: '13px',
+                      fontSize: '0.95rem',
+                    }}
+                    onClick={() => {
+                      setRegisteredSchoolResult(null);
+                      router.push('/dashboard/management');
+                    }}
+                  >
+                    🏛️ ورود مستقیم به عنوان مدرسه و مدیر (ستاد مدیریت و شعب) 🚀
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.15), rgba(99, 102, 241, 0.15))',
+                      border: '1px solid #6366f1',
+                      color: '#4f46e5',
+                      fontWeight: 800,
+                      width: '100%',
+                      padding: '11px',
+                    }}
+                    onClick={() => {
+                      const sch = registeredSchoolResult;
+                      setRegisteredSchoolResult(null);
+                      setActiveTab('smart');
+                      setSmartForm((prev) => ({
+                        ...prev,
+                        role: 'admin',
+                        school_name: sch.name,
+                        school_code: sch.school_code,
+                      }));
+                      setIsCustomSchoolSelected(false);
+                      toast.success(`مدرسه «${sch.name}» با کد ${sch.school_code} انتخاب شد! نام مدیر/معاون جدید شعبه را وارد فرمایید 🏛️`, { duration: 6000 });
+                    }}
+                  >
+                    👔 ثبت مدیر یا شعبه زیرمجموعه این مدرسه (مدرسه و مدیر)
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{
+                      fontWeight: 750,
+                      width: '100%',
+                      padding: '11px',
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
@@ -1571,7 +1654,7 @@ export default function LoginPage() {
                     type="button"
                     className="btn btn-secondary"
                     style={{
-                      fontWeight: 800,
+                      fontWeight: 750,
                       width: '100%',
                       padding: '11px',
                     }}
@@ -1590,22 +1673,6 @@ export default function LoginPage() {
                     }}
                   >
                     🎓 ورود دانش‌آموزان به عنوان زیرشاخه این مدرسه
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{
-                      opacity: 0.85,
-                      width: '100%',
-                      marginTop: '4px',
-                    }}
-                    onClick={() => {
-                      setRegisteredSchoolResult(null);
-                      router.push('/dashboard/management');
-                    }}
-                  >
-                    👔 ورود به ستاد مدیریت مدرسه 🚀
                   </button>
                 </div>
               </div>

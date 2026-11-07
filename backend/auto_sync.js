@@ -63,6 +63,21 @@ function checkAndSync() {
       }
     }
 
+    // 5. Automatic Database Backup & Zero-Loss Protection
+    try {
+      const dbPath = path.join(BACKEND_DIR, 'educonnect.db');
+      if (fs.existsSync(dbPath)) {
+        const backupDir = path.join(BACKEND_DIR, 'db_backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const timeStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const backupFile = path.join(backupDir, `educonnect_${timeStamp}.db`);
+        fs.copyFileSync(dbPath, backupFile);
+        log(`🛡️ Database backup safely stored: educonnect_${timeStamp}.db`);
+      }
+    } catch (bkErr) {
+      log(`Notice on DB backup: ${bkErr.message}`);
+    }
+
     // 5. Run Database Migrations
     log('Checking and running database migrations...');
     let migrationOutput = '';

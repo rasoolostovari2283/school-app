@@ -71,6 +71,9 @@ class AuthService {
     const cleanPhone = admin_phone ? admin_phone.trim() : null;
     const passToHash = admin_password && admin_password.trim() ? admin_password.trim() : 'admin123';
     const password_hash = await bcrypt.hash(passToHash, 10);
+    const principalName = admin_name && admin_name.trim() ? admin_name.trim() : `مدیر مجتمع`;
+    const adminDisplayName = admin_name && admin_name.trim() ? `${admin_name.trim()} (مدیریت ${school_name.trim()})` : `مدیریت ${school_name.trim()}`;
+    const personnel_code = `ADM-${school_code.replace('SCH-', '')}`;
 
     let existingUser = cleanPhone ? await db('users').where({ phone: cleanPhone }).first() : null;
     let user;
@@ -80,14 +83,16 @@ class AuthService {
       school_code,
       school_level: school_level || 'متوسطه دوم',
       city: city || 'تهران',
-      principal: admin_name || 'مدیر مدرسه',
+      principal: principalName,
       is_school_registered: true,
+      role_title: 'مدیر کل و مسئول آموزشگاه',
     });
 
     if (existingUser) {
       await db('users').where({ id: existingUser.id }).update({
         role: 'admin',
-        display_name: `مدیریت ${school_name.trim()}`,
+        display_name: adminDisplayName,
+        personnel_code,
         settings: schoolSettings,
       });
       user = await db('users').where({ id: existingUser.id }).first();
@@ -95,9 +100,10 @@ class AuthService {
       user = await insertAndReturn(db, 'users', {
         phone: cleanPhone,
         password_hash,
-        display_name: `مدیریت ${school_name.trim()}`,
+        display_name: adminDisplayName,
         username,
         role: 'admin',
+        personnel_code,
         locale: 'fa',
         is_verified: true,
         settings: schoolSettings,
@@ -134,9 +140,12 @@ class AuthService {
       name: school_name.trim(),
       level: school_level || 'متوسطه دوم',
       city: city || 'تهران',
-      principal: admin_name || 'مدیر مدرسه',
+      principal: principalName,
       phone: cleanPhone,
     };
+
+    user.school_code = school.school_code;
+    user.school_name = school.name;
 
     return { user, school, ...tokens };
   }
@@ -208,26 +217,39 @@ class AuthService {
       user = await db('users').where({ display_name: cleanName, role: role || 'student' }).first();
     }
 
-    // Resolve school if provided
+    // Resolve school if provided (by name, code, or if user pasted code as name)
     let matchedSchool = null;
-    if (school_name && school_name.trim()) {
-      const cleanSchoolName = school_name.trim();
-      matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-      if (!matchedSchool && school_code) {
-        matchedSchool = await db('schools').where({ code: school_code.trim() }).first();
+    const rawSchoolName = (school_name || '').trim();
+    const rawSchoolCode = (school_code || '').trim();
+
+    // 1. Direct search by code if provided
+    if (rawSchoolCode) {
+      matchedSchool = await db('schools').whereRaw('UPPER(code) = ?', [rawSchoolCode.toUpperCase()]).first();
+    }
+    // 2. Search if rawSchoolName is actually a code (e.g. starts with SCH-)
+    if (!matchedSchool && rawSchoolName) {
+      if (rawSchoolName.toUpperCase().startsWith('SCH-')) {
+        matchedSchool = await db('schools').whereRaw('UPPER(code) = ?', [rawSchoolName.toUpperCase()]).first();
       }
       if (!matchedSchool) {
-        try {
-          const randSuffix = Math.floor(1000 + Math.random() * 9000);
-          matchedSchool = await insertAndReturn(db, 'schools', {
-            id: generateId(),
-            name: cleanSchoolName,
-            code: school_code || `SCH-${randSuffix}`,
-            city: 'تهران',
-          });
-        } catch (e) {
-          matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-        }
+        matchedSchool = await db('schools').where({ name: rawSchoolName }).first();
+      }
+    }
+    // 3. Fallback: if user specified school_code or role is admin
+    if (!matchedSchool && (rawSchoolName || rawSchoolCode)) {
+      try {
+        const fallbackName = rawSchoolName && !rawSchoolName.toUpperCase().startsWith('SCH-')
+          ? rawSchoolName
+          : `مدرسه اختصاصی ${rawSchoolCode || 'نوآوران'}`;
+        const randSuffix = Math.floor(1000 + Math.random() * 9000);
+        matchedSchool = await insertAndReturn(db, 'schools', {
+          id: generateId(),
+          name: fallbackName,
+          code: rawSchoolCode || `SCH-${randSuffix}`,
+          city: 'تهران',
+        });
+      } catch (e) {
+        matchedSchool = await db('schools').where({ name: rawSchoolName }).first();
       }
     }
 
@@ -249,6 +271,9 @@ class AuthService {
         settings.school_code = matchedSchool.code;
         if (role === 'teacher') {
           settings.schools = Array.from(new Set([matchedSchool.name, ...(settings.schools || [])]));
+        } else if (role === 'admin') {
+          settings.is_school_registered = true;
+          settings.principal = cleanName;
         }
       }
 
@@ -262,10 +287,23 @@ class AuthService {
 
       const updatePayload = { settings: JSON.stringify(settings) };
       if (matchedSchool) updatePayload.school_id = matchedSchool.id;
+      // If registering with admin role (e.g. manager / school branch), upgrade role to admin
+      if (role === 'admin' && user.role !== 'admin') {
+        updatePayload.role = 'admin';
+        user.role = 'admin';
+        if (!user.personnel_code) {
+          updatePayload.personnel_code = matchedSchool?.code
+            ? `ADM-${matchedSchool.code.replace(/[^0-9]/g, '')}`
+            : `ADM-${Math.floor(1000 + Math.random() * 9000)}`;
+          user.personnel_code = updatePayload.personnel_code;
+        }
+      }
+
       await db('users').where({ id: user.id }).update(updatePayload);
 
       user.school_id = matchedSchool ? matchedSchool.id : user.school_id;
       user.school_name = matchedSchool ? matchedSchool.name : (settings.school_name || null);
+      user.school_code = matchedSchool ? matchedSchool.code : (settings.school_code || null);
       user.settings = JSON.stringify(settings);
 
       delete user.password_hash;
@@ -280,12 +318,19 @@ class AuthService {
 
     let student_code = null;
     let personnel_code = null;
-    if (role === 'student') {
+    const finalRole = role === 'admin' ? 'admin' : (role === 'teacher' ? 'teacher' : (role === 'parent' ? 'parent' : 'student'));
+
+    if (finalRole === 'student') {
       const count = await db('users').where({ role: 'student' }).count('id as count').first();
       student_code = `STD-${40300 + (parseInt(count ? count.count : 0, 10) + 1)}`;
-    } else if (role === 'teacher') {
+    } else if (finalRole === 'teacher') {
       const count = await db('users').where({ role: 'teacher' }).count('id as count').first();
       personnel_code = `EMP-${98400 + (parseInt(count ? count.count : 0, 10) + 1)}`;
+    } else if (finalRole === 'admin') {
+      const count = await db('users').where({ role: 'admin' }).count('id as count').first();
+      personnel_code = matchedSchool?.code
+        ? `ADM-${matchedSchool.code.replace(/[^0-9]/g, '')}`
+        : `ADM-${98000 + (parseInt(count ? count.count : 0, 10) + 1)}`;
     }
 
     const initialSettings = {
@@ -295,6 +340,8 @@ class AuthService {
       taught_grades: Array.isArray(grades) && grades.length > 0 ? grades : [],
       subject: subject && subject.trim() ? subject.trim() : null,
       is_teacher_onboarded: Array.isArray(grades) && grades.length > 0,
+      is_school_registered: finalRole === 'admin',
+      principal: finalRole === 'admin' ? cleanName : null,
     };
 
     const newUser = await insertAndReturn(db, 'users', {
@@ -302,7 +349,7 @@ class AuthService {
       password_hash,
       display_name: cleanName,
       username: generatedUsername,
-      role: role || 'student',
+      role: finalRole,
       school_id: matchedSchool ? matchedSchool.id : null,
       student_code,
       personnel_code,
@@ -312,6 +359,7 @@ class AuthService {
     });
 
     newUser.school_name = matchedSchool ? matchedSchool.name : null;
+    newUser.school_code = matchedSchool ? matchedSchool.code : null;
     delete newUser.password_hash;
     const tokens = this.generateTokens(newUser.id, newUser.role);
     return { user: newUser, isNew: true, ...tokens };
@@ -321,7 +369,8 @@ class AuthService {
     const cleanId = (identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
 
-    const user = await db('users')
+    // 1. Check if user exists by direct user identifiers
+    let user = await db('users')
       .where({ email: cleanId })
       .orWhere({ phone: cleanId })
       .orWhere({ student_code: cleanId })
@@ -329,6 +378,45 @@ class AuthService {
       .orWhereRaw('LOWER(username) = ?', [cleanUsername])
       .orWhereRaw('LOWER(display_name) = ?', [cleanId.toLowerCase()])
       .first();
+
+    // 2. If not found, check if identifier is a School Code (e.g. SCH-1001, SCH-4821)
+    if (!user) {
+      const matchedSchool = await db('schools')
+        .whereRaw('UPPER(code) = ?', [cleanId.toUpperCase()])
+        .orWhereRaw('LOWER(name) = ?', [cleanId.toLowerCase()])
+        .first();
+
+      if (matchedSchool) {
+        // Find existing admin/principal for this school
+        user = await db('users')
+          .where({ school_id: matchedSchool.id, role: 'admin' })
+          .first();
+        if (!user && matchedSchool.created_by) {
+          user = await db('users').where({ id: matchedSchool.created_by }).first();
+        }
+        // If still no user, create or link school administrator account
+        if (!user) {
+          const passToHash = password && password.trim() ? password.trim() : 'admin123';
+          const password_hash = await bcrypt.hash(passToHash, 10);
+          user = await insertAndReturn(db, 'users', {
+            phone: null,
+            password_hash,
+            display_name: `مدیریت ${matchedSchool.name}`,
+            username: `admin_${matchedSchool.code.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+            role: 'admin',
+            school_id: matchedSchool.id,
+            personnel_code: `ADM-${matchedSchool.code.replace(/[^0-9]/g, '')}`,
+            locale: 'fa',
+            is_verified: true,
+            settings: JSON.stringify({
+              school_name: matchedSchool.name,
+              school_code: matchedSchool.code,
+              is_school_registered: true,
+            }),
+          });
+        }
+      }
+    }
 
     if (!user) {
       const error = new Error('کاربری با این شناسه کاربری، آیدی یا شماره تلفن یافت نشد');
@@ -364,6 +452,13 @@ class AuthService {
     }
 
     const rawCode = studentCode.trim();
+
+    if (rawCode.toUpperCase().startsWith('SCH-')) {
+      const error = new Error(`کد «${rawCode}» کد اختصاصی مدرسه و مدیریت است. لطفاً برای ورود یا ثبت کادر و شعب زیرمجموعه از تب «ورود سریع» یا «ورود با آیدی» استفاده فرمایید.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
     // Normalize code e.g. "40301" or "STD-40301"
     const student = await db('users')
       .where({ role: 'student' })

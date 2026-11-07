@@ -435,6 +435,32 @@ server.listen(PORT, () => {
   `);
 });
 
+// ── Database Persistence: Periodic SQLite WAL Checkpoint & Graceful Shutdown ──
+setInterval(() => {
+  try {
+    if (db && typeof db.raw === 'function') {
+      db.raw('PRAGMA wal_checkpoint(PASSIVE);').catch(() => {});
+    }
+  } catch (e) {}
+}, 5 * 60 * 1000);
+
+const gracefulShutdown = async (signal) => {
+  console.log(`\n🛑 [EduConnect] Received ${signal}. Flushing database WAL to disk for permanent persistence...`);
+  try {
+    if (db && typeof db.raw === 'function') {
+      await db.raw('PRAGMA wal_checkpoint(TRUNCATE);');
+      console.log('✅ [EduConnect] Database WAL flushed to disk successfully. Zero data loss.');
+    }
+  } catch (err) {
+    console.error('⚠️ [EduConnect] Error during shutdown WAL checkpoint:', err.message);
+  } finally {
+    process.exit(0);
+  }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 module.exports = { app, server };
 
 
