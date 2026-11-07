@@ -51,6 +51,14 @@ function checkAndSync() {
 
     execSync(`cp -ru ${srcRepo}/* ${srcLive}/`, { stdio: 'pipe' });
 
+    // Copy backend scripts if present
+    const scriptsRepo = path.join(REPO_DIR, 'backend', 'scripts');
+    const scriptsLive = path.join(BACKEND_DIR, 'scripts');
+    if (fs.existsSync(scriptsRepo)) {
+      if (!fs.existsSync(scriptsLive)) fs.mkdirSync(scriptsLive, { recursive: true });
+      execSync(`cp -ru ${scriptsRepo}/* ${scriptsLive}/`, { stdio: 'pipe' });
+    }
+
     // Check if package.json has updates
     const pkgRepo = path.join(REPO_DIR, 'backend', 'package.json');
     if (fs.existsSync(pkgRepo)) {

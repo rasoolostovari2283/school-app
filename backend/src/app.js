@@ -232,22 +232,38 @@ app.get('/api/v1/system/sync-status', syncStatusHandler);
 
 // ── App OTA & Live Update Info ──
 const getActiveTunnelUrl = () => {
+  if (process.env.TUNNEL_URL && process.env.TUNNEL_URL.startsWith('http')) {
+    return process.env.TUNNEL_URL.trim().replace(/\/+$/, '');
+  }
   try {
-    const txtPath = path.join(process.env.HOME || '/home/rasolserver', 'current_pinggy_url.txt');
-    if (fs.existsSync(txtPath)) {
-      const u = fs.readFileSync(txtPath, 'utf8').trim();
-      if (u.startsWith('http')) return u;
+    const candidatePaths = [
+      path.join(process.env.HOME || '/home/rasolserver', 'current_pinggy_url.txt'),
+      path.join(__dirname, '..', 'current_pinggy_url.txt'),
+      path.join(process.cwd(), 'current_pinggy_url.txt')
+    ];
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        const u = fs.readFileSync(p, 'utf8').trim();
+        if (u.startsWith('http')) return u;
+      }
     }
-    const pinggyLog = path.join(process.env.HOME || '/home/rasolserver', 'pinggy.log');
-    if (fs.existsSync(pinggyLog)) {
-      const content = fs.readFileSync(pinggyLog, 'utf8');
-      const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net|pinggy\.link)/ig);
-      if (matches && matches.length > 0) {
-        return matches[matches.length - 1];
+
+    const candidateLogs = [
+      path.join(process.env.HOME || '/home/rasolserver', 'pinggy.log'),
+      path.join(__dirname, '..', 'pinggy.log'),
+      path.join(process.cwd(), 'pinggy.log')
+    ];
+    for (const logPath of candidateLogs) {
+      if (fs.existsSync(logPath)) {
+        const content = fs.readFileSync(logPath, 'utf8');
+        const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net|pinggy\.link|trycloudflare\.com)/ig);
+        if (matches && matches.length > 0) {
+          return matches[matches.length - 1];
+        }
       }
     }
   } catch (e) {}
-  return 'https://xpbov-89-43-89-22.run.pinggy-free.link';
+  return 'https://uywtc-89-43-93-194.run.pinggy-free.link';
 };
 
 const appUpdateHandler = (req, res) => {

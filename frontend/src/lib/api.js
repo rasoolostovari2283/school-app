@@ -128,35 +128,32 @@ export async function autoDetectServer() {
   // Remove duplicates
   const uniqueCandidates = [...new Set(candidates)];
 
-  // Fast parallel probe: test all candidates concurrently so it finishes in < 2.5 seconds
-  try {
-    const probePromises = uniqueCandidates.map((url) =>
-      probeServer(url, 2500).then((result) => {
-        if (result && result.success) return result;
-        throw new Error('Unreachable');
-      })
-    );
+  // Fast parallel probe: test all candidates AND cloud registry concurrently
+  const candidatePromises = uniqueCandidates.map((url) =>
+    probeServer(url, 2500).then((result) => {
+      if (result && result.success) return result;
+      throw new Error('Unreachable');
+    })
+  );
 
-    const fastest = await Promise.any(probePromises);
-    if (fastest && fastest.success) {
+  // Concurrently fetch and probe latest live tunnel from cloud registry
+  const registryPromise = fetchLiveTunnelFromRegistry().then(async (liveTunnel) => {
+    if (liveTunnel && !uniqueCandidates.includes(liveTunnel)) {
+      const res = await probeServer(liveTunnel, 3000);
+      if (res && res.success) return res;
+    }
+    throw new Error('Registry unreachable');
+  });
+
+  try {
+    const fastest = await Promise.any([...candidatePromises, registryPromise]);
+    if (fastest && fastest.success && fastest.url) {
       setApiBaseUrl(fastest.url);
       return { success: true, url: fastest.url, data: fastest.data };
     }
   } catch (err) {
-    // All direct candidates failed or timed out
+    // All candidates failed or timed out
   }
-
-  // Fallback: fetch dynamic tunnel from cloud registry
-  try {
-    const liveTunnel = await fetchLiveTunnelFromRegistry();
-    if (liveTunnel) {
-      const result = await probeServer(liveTunnel, 3000);
-      if (result.success) {
-        setApiBaseUrl(liveTunnel);
-        return { success: true, url: liveTunnel, data: result.data };
-      }
-    }
-  } catch (regErr) {}
 
   return { success: false };
 }
@@ -201,29 +198,30 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // 1. Automatic Network Failover (Switch between local Wi-Fi and online Pinggy tunnel)
-    if (!error.response && !originalRequest._retryNetwork && typeof window !== 'undefined') {
-      originalRequest._retryNetwork = true;
-      const currentUrl = getApiBaseUrl();
-      const fallbackUrl = currentUrl.includes('pinggy') ? DEFAULT_LOCAL_API : DEFAULT_TUNNEL_API;
+    // 1. Automatic Network Failover & Intelligent Self-Healing
+    // When a request fails due to connection drop, tunnel reset, or Wi-Fi/mobile data switch:
+    if (!error.response && !originalRequest._retryAutoDetect && typeof window !== 'undefined') {
+      originalRequest._retryAutoDetect = true;
 
-      const probe = await probeServer(fallbackUrl);
-      if (probe.success) {
-        localStorage.setItem('server_api_url', fallbackUrl);
-        originalRequest.baseURL = fallbackUrl;
-        return api(originalRequest);
-      }
+      try {
+        // Fast parallel probe across all possible servers (LAN, Tunnels, Registry)
+        const detected = await autoDetectServer();
+        if (detected && detected.success && detected.url) {
+          // Permanently save the working server to eliminate future drops
+          localStorage.setItem('server_api_url', detected.url);
+          localStorage.setItem('educonnect_server_url', detected.url);
+          api.defaults.baseURL = detected.url;
+          originalRequest.baseURL = detected.url;
 
-      // If fallback failed, query registry
-      const liveTunnel = await fetchLiveTunnelFromRegistry();
-      if (liveTunnel && liveTunnel !== currentUrl) {
-        const probeRegistry = await probeServer(liveTunnel);
-        if (probeRegistry.success) {
-          localStorage.setItem('server_api_url', liveTunnel);
-          originalRequest.baseURL = liveTunnel;
+          // Notify ServerConnectionBar and other UI components
+          window.dispatchEvent(
+            new CustomEvent('educonnect_server_switched', { detail: { url: detected.url, data: detected.data } })
+          );
+
+          // Retry the failed request with the newly discovered active server
           return api(originalRequest);
         }
-      }
+      } catch (detectErr) {}
     }
 
     // 2. Token refresh handler
