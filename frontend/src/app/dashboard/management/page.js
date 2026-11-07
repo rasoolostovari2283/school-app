@@ -134,7 +134,7 @@ export default function ManagementDashboardPage() {
     const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
     const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
 
-    // ── Load Teachers ──
+    // ── Load Teachers from LocalStorage as fallback initial ──
     const teacherStorageKey = `mgmt_teachers_${currentSchoolCode}`;
     const savedTeachers = localStorage.getItem(teacherStorageKey);
     let loadedTeachers = [];
@@ -145,11 +145,8 @@ export default function ManagementDashboardPage() {
     }
     loadedTeachers = Array.isArray(loadedTeachers) ? loadedTeachers.filter((t) => !isDummyTeacher(t)) : [];
     setTeachers(loadedTeachers);
-    try {
-      localStorage.setItem(teacherStorageKey, JSON.stringify(loadedTeachers));
-    } catch (e) {}
 
-    // ── Load Students Grade-by-Grade ──
+    // ── Load Students from LocalStorage as fallback initial ──
     const studentStorageKey = `mgmt_students_${currentSchoolCode}`;
     const savedStudents = localStorage.getItem(studentStorageKey);
     let loadedStudents = [];
@@ -160,11 +157,8 @@ export default function ManagementDashboardPage() {
     }
     loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
     setStudents(loadedStudents);
-    try {
-      localStorage.setItem(studentStorageKey, JSON.stringify(loadedStudents));
-    } catch (e) {}
 
-    // ── Load Classes Subordinate to Teachers ──
+    // ── Load Classes from LocalStorage as fallback initial ──
     const classStorageKey = `mgmt_classes_${currentSchoolCode}`;
     const savedClasses = localStorage.getItem(classStorageKey);
     let loadedClasses = [];
@@ -175,63 +169,92 @@ export default function ManagementDashboardPage() {
     }
     loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
     setClassesList(loadedClasses);
-    try {
-      localStorage.setItem(classStorageKey, JSON.stringify(loadedClasses));
-    } catch (e) {}
 
-    // ── Load Directives ──
+    // ── Load Directives from LocalStorage as fallback initial ──
     const savedDirectives = localStorage.getItem('sent_management_directives');
     if (savedDirectives) {
       try {
         setSentDirectives(JSON.parse(savedDirectives));
       } catch (e) {}
-    } else {
-      setSentDirectives([
-        {
-          id: 'init-1',
-          title: 'برگزاری جلسه فوری شورای دبیران - هماهنگی آزمون‌های میان‌ترم',
-          body: 'به اطلاع کلیه دبیران محترم می‌رساند جلسه شورای آموزشی روز شنبه ساعت ۱۳:۳۰ در اتاق شورا برگزار می‌گردد.',
-          category: 'council',
-          priority: 'urgent',
-          target_audience: 'teachers',
-          recipients_count: 'کلیه دبیران مدرسه',
-          created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-        },
-        {
-          id: 'init-2',
-          title: 'تقویم آموزشی و برنامه آزمون‌های جامع نیم‌سال اول',
-          body: 'دانش‌آموزان گرامی جهت برنامه‌ریزی درسی، زمان‌بندی دقیق آزمون‌های میان‌ترم در بخش اطلاعیه‌ها بارگذاری شد.',
-          category: 'administrative',
-          priority: 'important',
-          target_audience: 'students',
-          recipients_count: 'کلیه دانش‌آموزان مدرسه',
-          created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
-        },
-      ]);
     }
 
-    setLoading(false);
+    // ── Database Sync: Fetch Persistent Data from SQLite Backend ──
+    Promise.allSettled([
+      api.get('/school/info'),
+      api.get('/school/members'),
+      api.get('/classes'),
+      api.get('/school/directives'),
+      api.get('/school/website'),
+    ]).then(([infoRes, membersRes, classesRes, directivesRes, webRes]) => {
+      // 1. School Info from DB
+      if (infoRes.status === 'fulfilled' && infoRes.value?.data?.success && infoRes.value?.data?.data) {
+        const dbInfo = infoRes.value.data.data;
+        setSchoolData((prev) => ({
+          ...prev,
+          name: dbInfo.name || prev.name,
+          code: dbInfo.code || prev.code,
+          level: dbInfo.level || prev.level,
+          city: dbInfo.city || prev.city,
+          principal: dbInfo.principal || prev.principal,
+          website: dbInfo.website || prev.website,
+        }));
+      }
 
-    // Fetch School Website URL
-    const localWeb = localStorage.getItem('school_website_url') || '';
-    if (localWeb) {
-      setSchoolWebsiteUrl(localWeb);
-      setSchoolData((prev) => ({ ...prev, website: localWeb }));
-    }
-
-    api
-      .get('/school/website')
-      .then((res) => {
-        if (res.data?.success && res.data?.data?.website_url) {
-          const fetchedUrl = res.data.data.website_url;
-          setSchoolWebsiteUrl(fetchedUrl);
-          setSchoolData((prev) => ({ ...prev, website: fetchedUrl }));
-          localStorage.setItem('school_website_url', fetchedUrl);
+      // 2. Members (Teachers & Students) from DB
+      if (membersRes.status === 'fulfilled' && membersRes.value?.data?.success && membersRes.value?.data?.data) {
+        const { teachers: dbTeachers, students: dbStudents } = membersRes.value.data.data;
+        if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
+          setTeachers(dbTeachers);
+          try {
+            localStorage.setItem(teacherStorageKey, JSON.stringify(dbTeachers));
+            localStorage.setItem('school_teachers_database', JSON.stringify(dbTeachers));
+          } catch (e) {}
         }
-      })
-      .catch((err) => {
-        console.warn('Could not fetch school website url from server:', err?.message);
-      });
+        if (Array.isArray(dbStudents) && dbStudents.length > 0) {
+          setStudents(dbStudents);
+          try {
+            localStorage.setItem(studentStorageKey, JSON.stringify(dbStudents));
+          } catch (e) {}
+        }
+      }
+
+      // 3. Classes from DB
+      if (classesRes.status === 'fulfilled' && classesRes.value?.data?.success && classesRes.value?.data?.data?.classes) {
+        const dbClasses = classesRes.value.data.data.classes;
+        if (Array.isArray(dbClasses) && dbClasses.length > 0) {
+          setClassesList(dbClasses);
+          try {
+            localStorage.setItem(classStorageKey, JSON.stringify(dbClasses));
+            localStorage.setItem('school_classes_database', JSON.stringify(dbClasses));
+          } catch (e) {}
+        }
+      }
+
+      // 4. Directives from DB
+      if (directivesRes.status === 'fulfilled' && directivesRes.value?.data?.success && directivesRes.value?.data?.data?.directives) {
+        const dbDirectives = directivesRes.value.data.data.directives;
+        if (Array.isArray(dbDirectives) && dbDirectives.length > 0) {
+          setSentDirectives(dbDirectives);
+          try {
+            localStorage.setItem('sent_management_directives', JSON.stringify(dbDirectives));
+          } catch (e) {}
+        }
+      }
+
+      // 5. Website from DB
+      if (webRes.status === 'fulfilled' && webRes.value?.data?.success && webRes.value?.data?.data?.website_url) {
+        const fetchedUrl = webRes.value.data.data.website_url;
+        setSchoolWebsiteUrl(fetchedUrl);
+        setSchoolData((prev) => ({ ...prev, website: fetchedUrl }));
+        try {
+          localStorage.setItem('school_website_url', fetchedUrl);
+        } catch (e) {}
+      }
+
+      setLoading(false);
+    }).catch(() => {
+      setLoading(false);
+    });
   }, [user]);
 
   // Open / Visit School Website
@@ -273,41 +296,58 @@ export default function ManagementDashboardPage() {
     setShowTeacherModal(true);
   };
 
-  const handleSaveTeacher = (e) => {
+  const handleSaveTeacher = async (e) => {
     e.preventDefault();
     const cleanName = newTeacher.name.trim();
     if (!cleanName) return toast.error('نام و نام‌خانوادگی معلم را وارد کنید');
 
     const cleanCode = newTeacher.code.trim().toUpperCase() || `TCH-${100 + teachers.length + 1}`;
 
-    const teacherObj = {
-      id: `tch-${Date.now()}`,
-      name: cleanName,
-      code: cleanCode,
-      subject: newTeacher.subject || 'ریاضی و هندسه',
-      phone: newTeacher.phone.trim() || 'ثبت نشده',
-      grades: newTeacher.grades && newTeacher.grades.length > 0 ? newTeacher.grades : ['پایه دهم'],
-    };
-
-    const updated = [teacherObj, ...teachers];
-    setTeachers(updated);
     try {
-      localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
-      localStorage.setItem('school_teachers_database', JSON.stringify(updated));
-    } catch (err) {}
+      const res = await api.post('/school/teachers', {
+        name: cleanName,
+        code: cleanCode,
+        subject: newTeacher.subject || 'ریاضی و هندسه',
+        phone: newTeacher.phone.trim() || '',
+        grades: newTeacher.grades && newTeacher.grades.length > 0 ? newTeacher.grades : ['پایه دهم'],
+      });
 
-    toast.success(`معلم گرامی «${teacherObj.name}» با کد اختصاصی ${teacherObj.code} به زیرمجموعه مدرسه افزوده شد 🎉`);
-    setShowTeacherModal(false);
+      const savedTeacher = res.data?.data?.teacher || {
+        id: `tch-${Date.now()}`,
+        name: cleanName,
+        code: cleanCode,
+        subject: newTeacher.subject || 'ریاضی و هندسه',
+        phone: newTeacher.phone.trim() || 'ثبت نشده',
+        grades: newTeacher.grades && newTeacher.grades.length > 0 ? newTeacher.grades : ['پایه دهم'],
+      };
+
+      const updated = [savedTeacher, ...teachers.filter((t) => t.id !== savedTeacher.id)];
+      setTeachers(updated);
+      try {
+        localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
+        localStorage.setItem('school_teachers_database', JSON.stringify(updated));
+      } catch (err) {}
+
+      toast.success(`معلم گرامی «${savedTeacher.name}» با کد اختصاصی ${savedTeacher.code} با موفقیت در دیتابیس ثبت شد 🎉`);
+      setShowTeacherModal(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت معلم در دیتابیس');
+    }
   };
 
-  const handleDeleteTeacher = (id, name) => {
+  const handleDeleteTeacher = async (id, name) => {
     if (!window.confirm(`آیا از حذف معلم «${name}» از لیست مدرسه اطمینان دارید؟`)) return;
-    const updated = teachers.filter((t) => t.id !== id);
-    setTeachers(updated);
     try {
-      localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
-    } catch (err) {}
-    toast.success(`معلم «${name}» از کادر مدرسه حذف شد.`);
+      await api.delete(`/school/teachers/${id}`);
+      const updated = teachers.filter((t) => t.id !== id);
+      setTeachers(updated);
+      try {
+        localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
+      } catch (err) {}
+      toast.success(`معلم «${name}» از دیتابیس حذف شد.`);
+    } catch (err) {
+      toast.error('خطا در حذف معلم از دیتابیس');
+    }
   };
 
   // ── 2. Student Management Actions ──
@@ -325,39 +365,57 @@ export default function ManagementDashboardPage() {
     setShowStudentModal(true);
   };
 
-  const handleSaveStudent = (e) => {
+  const handleSaveStudent = async (e) => {
     e.preventDefault();
     if (!newStudent.name.trim()) return toast.error('نام دانش‌آموز را وارد کنید');
     if (!newStudent.code.trim()) return toast.error('کد دانش‌آموزی را وارد کنید');
 
-    const studentObj = {
-      id: `std-${Date.now()}`,
-      name: newStudent.name.trim(),
-      code: newStudent.code.trim().toUpperCase(),
-      grade: newStudent.grade,
-      class_name: newStudent.class_name,
-      teacher_name: newStudent.teacher_name,
-      parent_phone: newStudent.parent_phone.trim() || 'ثبت نشده',
-    };
-
-    const updated = [studentObj, ...students];
-    setStudents(updated);
     try {
-      localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
-    } catch (err) {}
+      const res = await api.post('/school/students', {
+        name: newStudent.name.trim(),
+        code: newStudent.code.trim().toUpperCase(),
+        grade: newStudent.grade,
+        class_name: newStudent.class_name,
+        teacher_name: newStudent.teacher_name,
+        parent_phone: newStudent.parent_phone.trim() || '',
+      });
 
-    toast.success(`دانش‌آموز «${studentObj.name}» در ${studentObj.grade} ثبت‌نام شد 🎓`);
-    setShowStudentModal(false);
+      const savedStudent = res.data?.data?.student || {
+        id: `std-${Date.now()}`,
+        name: newStudent.name.trim(),
+        code: newStudent.code.trim().toUpperCase(),
+        grade: newStudent.grade,
+        class_name: newStudent.class_name,
+        teacher_name: newStudent.teacher_name,
+        parent_phone: newStudent.parent_phone.trim() || 'ثبت نشده',
+      };
+
+      const updated = [savedStudent, ...students.filter((s) => s.id !== savedStudent.id)];
+      setStudents(updated);
+      try {
+        localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
+      } catch (err) {}
+
+      toast.success(`دانش‌آموز «${savedStudent.name}» با موفقیت در دیتابیس ثبت‌نام شد 🎓`);
+      setShowStudentModal(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت دانش‌آموز در دیتابیس');
+    }
   };
 
-  const handleDeleteStudent = (id, name) => {
+  const handleDeleteStudent = async (id, name) => {
     if (!window.confirm(`آیا از حذف دانش‌آموز «${name}» اطمینان دارید؟`)) return;
-    const updated = students.filter((s) => s.id !== id);
-    setStudents(updated);
     try {
-      localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
-    } catch (err) {}
-    toast.success(`دانش‌آموز «${name}» حذف شد.`);
+      await api.delete(`/school/students/${id}`);
+      const updated = students.filter((s) => s.id !== id);
+      setStudents(updated);
+      try {
+        localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
+      } catch (err) {}
+      toast.success(`دانش‌آموز «${name}» از دیتابیس حذف شد.`);
+    } catch (err) {
+      toast.error('خطا در حذف دانش‌آموز از دیتابیس');
+    }
   };
 
   // Filter students based on selected grade
@@ -375,40 +433,56 @@ export default function ManagementDashboardPage() {
     setShowClassModal(true);
   };
 
-  const handleSaveClass = (e) => {
+  const handleSaveClass = async (e) => {
     e.preventDefault();
     if (!newClass.name.trim()) return toast.error('نام کلاس را وارد کنید');
     if (!newClass.teacher_id) return toast.error('معلم سرپرست کلاس را انتخاب کنید');
 
     const teacher = teachers.find((t) => t.id === newClass.teacher_id);
-    const classObj = {
-      id: `cls-${Date.now()}`,
-      name: newClass.name.trim(),
-      grade: newClass.grade,
-      teacher_id: newClass.teacher_id,
-      teacher_name: teacher ? teacher.name : 'نامشخص',
-      students_count: 0,
-      room: newClass.room.trim() || 'کلاس عمومی',
-    };
-
-    const updated = [...classesList, classObj];
-    setClassesList(updated);
     try {
-      localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
-    } catch (err) {}
+      const res = await api.post('/classes', {
+        name: newClass.name.trim(),
+        grade: newClass.grade,
+        teacher_id: newClass.teacher_id,
+        room: newClass.room.trim() || 'کلاس عمومی',
+      });
 
-    toast.success(`کلاس «${classObj.name}» به عنوان زیرشاخه معلم «${classObj.teacher_name}» ایجاد شد 🏫`);
-    setShowClassModal(false);
+      const savedClass = res.data?.data?.class || {
+        id: `cls-${Date.now()}`,
+        name: newClass.name.trim(),
+        grade: newClass.grade,
+        teacher_id: newClass.teacher_id,
+        teacher_name: teacher ? teacher.name : 'نامشخص',
+        students_count: 0,
+        room: newClass.room.trim() || 'کلاس عمومی',
+      };
+
+      const updated = [...classesList.filter((c) => c.id !== savedClass.id), savedClass];
+      setClassesList(updated);
+      try {
+        localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
+      } catch (err) {}
+
+      toast.success(`کلاس «${savedClass.name}» با موفقیت در دیتابیس ثبت شد 🏫`);
+      setShowClassModal(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت کلاس در دیتابیس');
+    }
   };
 
-  const handleDeleteClass = (id, name) => {
+  const handleDeleteClass = async (id, name) => {
     if (!window.confirm(`آیا از حذف کلاس «${name}» اطمینان دارید؟`)) return;
-    const updated = classesList.filter((c) => c.id !== id);
-    setClassesList(updated);
     try {
-      localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
-    } catch (err) {}
-    toast.success(`کلاس «${name}» حذف شد.`);
+      await api.delete(`/classes/${id}`);
+      const updated = classesList.filter((c) => c.id !== id);
+      setClassesList(updated);
+      try {
+        localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
+      } catch (err) {}
+      toast.success(`کلاس «${name}» از دیتابیس حذف شد.`);
+    } catch (err) {
+      toast.error('خطا در حذف کلاس از دیتابیس');
+    }
   };
 
   // ── 4. Directives Actions ──
@@ -449,33 +523,25 @@ export default function ManagementDashboardPage() {
 
     try {
       setSubmitting(true);
-      let recText = 'کلیه مخاطبان مدرسه';
-      if (directiveForm.target_audience === 'students') {
-        recText = directiveForm.target_grades.includes('*') ? 'کلیه دانش‌آموزان' : `دانش‌آموزان (${directiveForm.target_grades.join('، ')})`;
-      } else if (directiveForm.target_audience === 'teachers') {
-        recText = directiveForm.teacher_ids.includes('*') ? 'کلیه دبیران مدرسه' : `${directiveForm.teacher_ids.length} دبیر منتخب`;
-      } else if (directiveForm.target_audience === 'parents') {
-        recText = 'کلیه اولیای دانش‌آموزان';
-      }
-
-      const newDirective = {
+      const res = await api.post('/school/directives', directiveForm);
+      const savedDirective = res.data?.data?.directive || {
         id: Date.now().toString(),
         title: directiveForm.title,
         body: directiveForm.body,
         category: directiveForm.category,
         priority: directiveForm.priority,
         target_audience: directiveForm.target_audience,
-        recipients_count: recText,
+        recipients_count: 'کلیه مخاطبان',
         created_at: new Date().toISOString(),
       };
 
-      const updated = [newDirective, ...sentDirectives];
+      const updated = [savedDirective, ...sentDirectives];
       setSentDirectives(updated);
       try {
         localStorage.setItem('sent_management_directives', JSON.stringify(updated));
       } catch (err) {}
 
-      toast.success('پیام و بخشنامه مدیریت با موفقیت در سراسر مدرسه ابلاغ شد 🚀');
+      toast.success('پیام و بخشنامه مدیریت با موفقیت در دیتابیس ثبت و ابلاغ شد 🚀');
 
       setDirectiveForm({
         title: '',
@@ -489,21 +555,25 @@ export default function ManagementDashboardPage() {
         is_pinned: false,
       });
     } catch (err) {
-      toast.error('خطا در ارسال بخشنامه');
+      toast.error(err.response?.data?.message || 'خطا در ثبت بخشنامه در دیتابیس');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDeleteDirective = (id, e) => {
-    e?.stopPropagation();
-    if (!window.confirm('آیا از حذف این پیام از تاریخچه مدیریت اطمینان دارید؟')) return;
-    const updated = sentDirectives.filter((d) => d.id !== id);
-    setSentDirectives(updated);
+  const handleDeleteDirective = async (id, title) => {
+    if (!window.confirm(`آیا از حذف بخشنامه «${title}» اطمینان دارید؟`)) return;
     try {
-      localStorage.setItem('sent_management_directives', JSON.stringify(updated));
-    } catch (err) {}
-    toast.success('پیام از تاریخچه حذف شد');
+      await api.delete(`/school/directives/${id}`);
+      const updated = sentDirectives.filter((d) => d.id !== id);
+      setSentDirectives(updated);
+      try {
+        localStorage.setItem('sent_management_directives', JSON.stringify(updated));
+      } catch (err) {}
+      toast.success('بخشنامه با موفقیت از دیتابیس حذف شد');
+    } catch (err) {
+      toast.error('خطا در حذف بخشنامه');
+    }
   };
 
   const categoryNames = {
@@ -1272,7 +1342,7 @@ export default function ManagementDashboardPage() {
                         type="button"
                         className={styles.deleteDirectiveBtn}
                         title="حذف از تاریخچه"
-                        onClick={(e) => handleDeleteDirective(d.id, e)}
+                        onClick={() => handleDeleteDirective(d.id, d.title)}
                       >
                         <HiOutlineTrash />
                       </button>

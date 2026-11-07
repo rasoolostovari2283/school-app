@@ -72,13 +72,81 @@ class ClassService {
       });
     } catch (e) {}
 
+    // Attach teacher name
+    if (teacherExists) {
+      cls.teacher_name = teacherExists.display_name;
+    }
+
     return cls;
   }
 
+  async updateClass(classId, userId, { name, subject, grade, teacher_id, teacher_name, room }) {
+    const cls = await db('classes').where({ id: classId }).first();
+    if (!cls) {
+      const err = new Error('کلاس یافت نشد');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    let validTeacherId = cls.teacher_id;
+    if (teacher_id) {
+      const teacherExists = await db('users').where({ id: teacher_id }).first();
+      if (teacherExists) validTeacherId = teacher_id;
+    } else if (teacher_name) {
+      const teacherByName = await db('users')
+        .where('display_name', teacher_name)
+        .orWhere('username', teacher_name)
+        .first();
+      if (teacherByName) validTeacherId = teacherByName.id;
+    }
+
+    const updates = {
+      updated_at: new Date().toISOString(),
+    };
+    if (name && name.trim()) updates.name = name.trim();
+    if (subject && subject.trim()) updates.subject = subject.trim();
+    if (grade && grade.trim()) updates.grade = grade.trim();
+    if (validTeacherId) updates.teacher_id = validTeacherId;
+
+    await db('classes').where({ id: classId }).update(updates);
+    const updatedCls = await db('classes')
+      .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
+      .select('classes.*', 'teachers.display_name as teacher_name')
+      .where({ 'classes.id': classId })
+      .first();
+
+    return updatedCls;
+  }
+
   async getUserClasses(userId, role) {
+    let userSchoolId = null;
+    try {
+      const u = await db('users').where({ id: userId }).first();
+      userSchoolId = u?.school_id || null;
+    } catch (e) {}
+
     if (role === 'teacher' || role === 'admin' || role === 'manager') {
-      const owned = await db('classes')
-        .where(function () {
+      let query = db('classes')
+        .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
+        .select(
+          'classes.*',
+          'teachers.display_name as teacher_name'
+        )
+        .where('classes.is_active', true);
+
+      if (userSchoolId) {
+        query = query.where(function () {
+          this.where('classes.school_id', userSchoolId)
+            .orWhere('classes.teacher_id', userId)
+            .orWhereExists(function () {
+              this.select('*')
+                .from('class_members')
+                .whereRaw('class_members.class_id = classes.id')
+                .where('class_members.user_id', userId);
+            });
+        });
+      } else if (role === 'teacher') {
+        query = query.where(function () {
           this.where('classes.teacher_id', userId).orWhereExists(function () {
             this.select('*')
               .from('class_members')
@@ -86,12 +154,44 @@ class ClassService {
               .where('class_members.user_id', userId)
               .where('class_members.role', 'teacher');
           });
-        })
+        });
+      }
+
+      const list = await query.orderBy('classes.created_at', 'desc');
+
+      // Populate student counts
+      for (const c of list) {
+        try {
+          const count = await db('class_members')
+            .where({ class_id: c.id, role: 'student' })
+            .count('id as count')
+            .first();
+          c.students_count = parseInt(count?.count || 0, 10);
+        } catch (e) {
+          c.students_count = 0;
+        }
+      }
+
+      if (list.length > 0) return list;
+
+      const allClasses = await db('classes')
+        .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
+        .select('classes.*', 'teachers.display_name as teacher_name')
         .where({ 'classes.is_active': true })
         .orderBy('classes.created_at', 'desc');
 
-      if (owned.length > 0) return owned;
-      const allClasses = await db('classes').where({ is_active: true }).orderBy('created_at', 'desc');
+      for (const c of allClasses) {
+        try {
+          const count = await db('class_members')
+            .where({ class_id: c.id, role: 'student' })
+            .count('id as count')
+            .first();
+          c.students_count = parseInt(count?.count || 0, 10);
+        } catch (e) {
+          c.students_count = 0;
+        }
+      }
+
       if (allClasses.length > 0) return allClasses;
 
       // Auto-initialize standard classes if table is empty

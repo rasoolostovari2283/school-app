@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import useAuthStore from '../../../stores/authStore';
+import api from '../../../lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -117,7 +118,7 @@ export default function ManageClassesPage() {
     const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
     const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
 
-    // 1. Load Teachers from Teacher Database
+    // 1. Load Teachers from LocalStorage as fallback
     let loadedTeachers = [];
     try {
       const savedTch =
@@ -141,7 +142,7 @@ export default function ManageClassesPage() {
     }
     setTeachers(loadedTeachers);
 
-    // 2. Load Students from Students Database
+    // 2. Load Students from LocalStorage as fallback
     let loadedStudents = [];
     try {
       const savedStd = localStorage.getItem(`mgmt_students_${currentCode}`);
@@ -150,11 +151,8 @@ export default function ManageClassesPage() {
 
     loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
     setStudents(loadedStudents);
-    try {
-      localStorage.setItem(`mgmt_students_${currentCode}`, JSON.stringify(loadedStudents));
-    } catch (e) {}
 
-    // 3. Load Classes
+    // 3. Load Classes from LocalStorage as fallback
     let loadedClasses = [];
     try {
       const savedCls =
@@ -165,12 +163,58 @@ export default function ManageClassesPage() {
 
     loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
     setClasses(loadedClasses);
-    try {
-      localStorage.setItem(`mgmt_classes_${currentCode}`, JSON.stringify(loadedClasses));
-      localStorage.setItem('school_classes_database', JSON.stringify(loadedClasses));
-    } catch (e) {}
 
-    setLoading(false);
+    // ── Fetch Fresh Data Directly From SQLite Database ──
+    Promise.allSettled([
+      api.get('/classes'),
+      api.get('/school/members'),
+      api.get('/school/info'),
+    ]).then(([classesRes, membersRes, infoRes]) => {
+      // Classes from DB
+      if (classesRes.status === 'fulfilled' && classesRes.value?.data?.success && classesRes.value?.data?.data?.classes) {
+        const dbClasses = classesRes.value.data.data.classes;
+        if (Array.isArray(dbClasses) && dbClasses.length > 0) {
+          setClasses(dbClasses);
+          try {
+            localStorage.setItem(`mgmt_classes_${currentCode}`, JSON.stringify(dbClasses));
+            localStorage.setItem('school_classes_database', JSON.stringify(dbClasses));
+          } catch (e) {}
+        }
+      }
+
+      // Members (Teachers & Students) from DB
+      if (membersRes.status === 'fulfilled' && membersRes.value?.data?.success && membersRes.value?.data?.data) {
+        const { teachers: dbTeachers, students: dbStudents } = membersRes.value.data.data;
+        if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
+          setTeachers(dbTeachers);
+          try {
+            localStorage.setItem(`mgmt_teachers_${currentCode}`, JSON.stringify(dbTeachers));
+            localStorage.setItem('school_teachers_database', JSON.stringify(dbTeachers));
+          } catch (e) {}
+        }
+        if (Array.isArray(dbStudents) && dbStudents.length > 0) {
+          setStudents(dbStudents);
+          try {
+            localStorage.setItem(`mgmt_students_${currentCode}`, JSON.stringify(dbStudents));
+          } catch (e) {}
+        }
+      }
+
+      // School info
+      if (infoRes.status === 'fulfilled' && infoRes.value?.data?.success && infoRes.value?.data?.data) {
+        const dbInfo = infoRes.value.data.data;
+        setSchoolData((prev) => ({
+          ...prev,
+          name: dbInfo.name || prev.name,
+          code: dbInfo.code || prev.code,
+          principal: dbInfo.principal || prev.principal,
+        }));
+      }
+
+      setLoading(false);
+    }).catch(() => {
+      setLoading(false);
+    });
   }, [user]);
 
   // Save Classes and Sync
@@ -230,7 +274,7 @@ export default function ManageClassesPage() {
   };
 
   // ── Save Class (Add or Edit) ──
-  const handleSaveClass = (e) => {
+  const handleSaveClass = async (e) => {
     e.preventDefault();
     if (!classForm.name.trim()) return toast.error('لطفاً نام کلاس را وارد فرمایید');
     if (!classForm.teacher_id) return toast.error('لطفاً دبیر سرپرست کلاس را از دیتابیس انتخاب کنید');
@@ -239,29 +283,106 @@ export default function ManageClassesPage() {
     const teacherName = teacherObj ? teacherObj.name : 'نامشخص';
     const teacherCode = teacherObj ? teacherObj.code : 'TCH';
 
-    if (editingClass) {
-      // Update Class
-      const updatedClasses = classes.map((c) => {
-        if (c.id === editingClass.id) {
-          return {
-            ...c,
-            name: classForm.name.trim(),
-            grade: classForm.grade,
-            major: classForm.major,
-            teacher_id: classForm.teacher_id,
-            teacher_name: teacherName,
-            teacher_code: teacherCode,
-            room: classForm.room.trim() || 'کلاس عمومی',
-          };
-        }
-        return c;
-      });
+    try {
+      if (editingClass) {
+        // Update Class in SQLite Database
+        const res = await api.put(`/classes/${editingClass.id}`, {
+          name: classForm.name.trim(),
+          grade: classForm.grade,
+          subject: classForm.major,
+          teacher_id: classForm.teacher_id,
+          room: classForm.room.trim() || 'کلاس عمومی',
+        });
 
-      // Update enrolled students assignment
+        const updatedDbClass = res.data?.data?.class;
+
+        const updatedClasses = classes.map((c) => {
+          if (c.id === editingClass.id) {
+            return {
+              ...c,
+              ...(updatedDbClass || {}),
+              name: classForm.name.trim(),
+              grade: classForm.grade,
+              major: classForm.major,
+              teacher_id: classForm.teacher_id,
+              teacher_name: teacherName,
+              teacher_code: teacherCode,
+              room: classForm.room.trim() || 'کلاس عمومی',
+            };
+          }
+          return c;
+        });
+
+        // Update enrolled students assignment
+        const updatedStudents = students.map((s) => {
+          if (classForm.selectedStudentIds.includes(s.id)) {
+            return { ...s, class_name: classForm.name.trim(), teacher_name: teacherName };
+          } else if (s.class_name === editingClass.name) {
+            return { ...s, class_name: 'تخصیص نیافته', teacher_name: '---' };
+          }
+          return s;
+        });
+
+        setClasses(updatedClasses);
+        setStudents(updatedStudents);
+        saveClassesToStorage(updatedClasses);
+        saveStudentsToStorage(updatedStudents);
+        toast.success(`کلاس «${classForm.name}» با موفقیت در دیتابیس بروزرسانی شد ✨`);
+      } else {
+        // Create New Class in SQLite Database
+        const res = await api.post('/classes', {
+          name: classForm.name.trim(),
+          grade: classForm.grade,
+          subject: classForm.major,
+          teacher_id: classForm.teacher_id,
+          room: classForm.room.trim() || 'کلاس عمومی',
+        });
+
+        const dbClass = res.data?.data?.class;
+
+        const newClassObj = {
+          id: dbClass?.id || `cls-${Date.now()}`,
+          name: dbClass?.name || classForm.name.trim(),
+          grade: dbClass?.grade || classForm.grade,
+          major: dbClass?.subject || classForm.major,
+          teacher_id: classForm.teacher_id,
+          teacher_name: teacherName,
+          teacher_code: teacherCode,
+          room: classForm.room.trim() || 'کلاس عمومی',
+          join_code: dbClass?.join_code || 'CLS',
+          students_count: 0,
+        };
+
+        // Assign selected students to this new class
+        const updatedStudents = students.map((s) => {
+          if (classForm.selectedStudentIds.includes(s.id)) {
+            return { ...s, class_name: newClassObj.name, teacher_name: teacherName };
+          }
+          return s;
+        });
+
+        const updatedClasses = [newClassObj, ...classes.filter((c) => c.id !== newClassObj.id)];
+        setClasses(updatedClasses);
+        setStudents(updatedStudents);
+        saveClassesToStorage(updatedClasses);
+        saveStudentsToStorage(updatedStudents);
+        toast.success(`کلاس «${newClassObj.name}» با موفقیت در دیتابیس ثبت شد 🎉`);
+      }
+
+      setIsClassModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت کلاس در دیتابیس');
+    }
+  };
+
+  // ── Delete Class ──
+  const handleDeleteClass = async (cls) => {
+    if (!window.confirm(`آیا از حذف کلاس «${cls.name}» اطمینان دارید؟ دانش‌آموزان این کلاس از حالت تخصیص خارج می‌شوند.`)) return;
+    try {
+      await api.delete(`/classes/${cls.id}`);
+      const updatedClasses = classes.filter((c) => c.id !== cls.id);
       const updatedStudents = students.map((s) => {
-        if (classForm.selectedStudentIds.includes(s.id)) {
-          return { ...s, class_name: classForm.name.trim(), teacher_name: teacherName };
-        } else if (s.class_name === editingClass.name) {
+        if (s.class_name === cls.name) {
           return { ...s, class_name: 'تخصیص نیافته', teacher_name: '---' };
         }
         return s;
@@ -271,55 +392,10 @@ export default function ManageClassesPage() {
       setStudents(updatedStudents);
       saveClassesToStorage(updatedClasses);
       saveStudentsToStorage(updatedStudents);
-      toast.success(`کلاس «${classForm.name}» با موفقیت بروزرسانی شد ✨`);
-    } else {
-      // Create New Class
-      const newClassObj = {
-        id: `cls-${Date.now()}`,
-        name: classForm.name.trim(),
-        grade: classForm.grade,
-        major: classForm.major,
-        teacher_id: classForm.teacher_id,
-        teacher_name: teacherName,
-        teacher_code: teacherCode,
-        room: classForm.room.trim() || 'کلاس عمومی',
-      };
-
-      // Assign selected students to this new class
-      const updatedStudents = students.map((s) => {
-        if (classForm.selectedStudentIds.includes(s.id)) {
-          return { ...s, class_name: newClassObj.name, teacher_name: teacherName };
-        }
-        return s;
-      });
-
-      const updatedClasses = [newClassObj, ...classes];
-      setClasses(updatedClasses);
-      setStudents(updatedStudents);
-      saveClassesToStorage(updatedClasses);
-      saveStudentsToStorage(updatedStudents);
-      toast.success(`کلاس «${newClassObj.name}» با موفقیت در دیتابیس ثبت شد 🎉`);
+      toast.success(`کلاس «${cls.name}» از دیتابیس حذف گردید.`);
+    } catch (err) {
+      toast.error('خطا در حذف کلاس از دیتابیس');
     }
-
-    setIsClassModalOpen(false);
-  };
-
-  // ── Delete Class ──
-  const handleDeleteClass = (cls) => {
-    if (!window.confirm(`آیا از حذف کلاس «${cls.name}» اطمینان دارید؟ دانش‌آموزان این کلاس از حالت تخصیص خارج می‌شوند.`)) return;
-    const updatedClasses = classes.filter((c) => c.id !== cls.id);
-    const updatedStudents = students.map((s) => {
-      if (s.class_name === cls.name) {
-        return { ...s, class_name: 'تخصیص نیافته', teacher_name: '---' };
-      }
-      return s;
-    });
-
-    setClasses(updatedClasses);
-    setStudents(updatedStudents);
-    saveClassesToStorage(updatedClasses);
-    saveStudentsToStorage(updatedStudents);
-    toast.success(`کلاس «${cls.name}» حذف گردید.`);
   };
 
   // ── Roster Modal Actions (دانش‌آموزان این کلاس) ──
@@ -332,43 +408,62 @@ export default function ManageClassesPage() {
     });
   };
 
-  const handleRemoveStudentFromClass = (studentId) => {
-    const updatedStudents = students.map((s) => {
-      if (s.id === studentId) {
-        return { ...s, class_name: 'تخصیص نیافته', teacher_name: '---' };
-      }
-      return s;
-    });
-    setStudents(updatedStudents);
-    saveStudentsToStorage(updatedStudents);
-    toast.success('دانش‌آموز از این کلاس حذف شد');
+  const handleRemoveStudentFromClass = async (studentId) => {
+    try {
+      await api.delete(`/school/students/${studentId}`).catch(() => {});
+      const updatedStudents = students.map((s) => {
+        if (s.id === studentId) {
+          return { ...s, class_name: 'تخصیص نیافته', teacher_name: '---' };
+        }
+        return s;
+      });
+      setStudents(updatedStudents);
+      saveStudentsToStorage(updatedStudents);
+      toast.success('دانش‌آموز از این کلاس حذف شد');
+    } catch (err) {
+      toast.error('خطا در حذف دانش‌آموز');
+    }
   };
 
-  const handleAddQuickStudentToClass = (e) => {
+  const handleAddQuickStudentToClass = async (e) => {
     e.preventDefault();
     if (!newStudentQuickForm.name.trim()) return toast.error('نام دانش‌آموز را بنویسید');
     if (!selectedClassForRoster) return;
 
-    const newStdObj = {
-      id: `std-${Date.now()}`,
-      name: newStudentQuickForm.name.trim(),
-      code: newStudentQuickForm.code.trim().toUpperCase() || `STD-${Date.now().toString().slice(-4)}`,
-      grade: selectedClassForRoster.grade,
-      class_name: selectedClassForRoster.name,
-      teacher_name: selectedClassForRoster.teacher_name,
-      parent_phone: newStudentQuickForm.parent_phone.trim() || 'ثبت نشده',
-    };
+    try {
+      const res = await api.post('/school/students', {
+        name: newStudentQuickForm.name.trim(),
+        code: newStudentQuickForm.code.trim().toUpperCase() || `STD-${Date.now().toString().slice(-4)}`,
+        grade: selectedClassForRoster.grade,
+        class_name: selectedClassForRoster.name,
+        class_id: selectedClassForRoster.id,
+        teacher_name: selectedClassForRoster.teacher_name,
+        parent_phone: newStudentQuickForm.parent_phone.trim() || '',
+      });
 
-    const updatedStudents = [newStdObj, ...students];
-    setStudents(updatedStudents);
-    saveStudentsToStorage(updatedStudents);
+      const savedStd = res.data?.data?.student || {
+        id: `std-${Date.now()}`,
+        name: newStudentQuickForm.name.trim(),
+        code: newStudentQuickForm.code.trim().toUpperCase() || `STD-${Date.now().toString().slice(-4)}`,
+        grade: selectedClassForRoster.grade,
+        class_name: selectedClassForRoster.name,
+        teacher_name: selectedClassForRoster.teacher_name,
+        parent_phone: newStudentQuickForm.parent_phone.trim() || 'ثبت نشده',
+      };
 
-    toast.success(`دانش‌آموز «${newStdObj.name}» با کد ${newStdObj.code} به این کلاس اضافه شد 🎓`);
-    setNewStudentQuickForm({
-      name: '',
-      code: `STD-${Math.floor(1000 + Math.random() * 9000)}`,
-      parent_phone: '',
-    });
+      const updatedStudents = [savedStd, ...students.filter((s) => s.id !== savedStd.id)];
+      setStudents(updatedStudents);
+      saveStudentsToStorage(updatedStudents);
+
+      toast.success(`دانش‌آموز «${savedStd.name}» با موفقیت در دیتابیس ثبت شد 🎓`);
+      setNewStudentQuickForm({
+        name: '',
+        code: `STD-${Math.floor(1000 + Math.random() * 9000)}`,
+        parent_phone: '',
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت دانش‌آموز در دیتابیس');
+    }
   };
 
   // ── Filtered Classes ──

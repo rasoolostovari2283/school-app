@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import useAuthStore from '../../../stores/authStore';
+import api from '../../../lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -106,7 +107,7 @@ export default function TeachersDatabasePage() {
       principal: principalName,
     });
 
-    // Load Teachers from persistent storage
+    // Load Teachers from persistent storage fallback
     const storageKey = `mgmt_teachers_${currentCode}`;
     const saved = localStorage.getItem(storageKey);
     let loaded = [];
@@ -134,9 +135,23 @@ export default function TeachersDatabasePage() {
       ];
     }
     setTeachers(loaded);
-    saveTeachersToStorage(loaded, currentCode);
 
-    setLoading(false);
+    // ── Fetch persistent teachers from SQLite Database ──
+    api
+      .get('/school/members')
+      .then((res) => {
+        if (res.data?.success && res.data?.data?.teachers) {
+          const dbTeachers = res.data.data.teachers;
+          if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
+            setTeachers(dbTeachers);
+            saveTeachersToStorage(dbTeachers, currentCode);
+          }
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
   }, [user]);
 
   // Save to storage and sync database across system
@@ -208,7 +223,7 @@ export default function TeachersDatabasePage() {
   };
 
   // ── Save Teacher (Add or Edit) ──
-  const handleSaveTeacher = (e) => {
+  const handleSaveTeacher = async (e) => {
     e.preventDefault();
     const cleanName = teacherForm.name.trim();
     if (!cleanName) {
@@ -224,60 +239,80 @@ export default function TeachersDatabasePage() {
         ? teacherForm.customSubject.trim() || 'عمومی'
         : teacherForm.subject;
 
-    const cleanPhone = teacherForm.phone.trim() || 'ثبت نشده';
-    const cleanPersonnel = teacherForm.personnel_code.trim() || '---';
+    const cleanPhone = teacherForm.phone.trim() || '';
+    const cleanPersonnel = teacherForm.personnel_code.trim() || cleanCode;
 
-    if (editingTeacher) {
-      // Update existing
-      const updatedList = teachers.map((t) => {
-        if (t.id === editingTeacher.id) {
-          return {
-            ...t,
-            name: cleanName,
-            code: cleanCode,
-            subject: finalSubject,
-            phone: cleanPhone,
-            personnel_code: cleanPersonnel,
-            grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
-            status: teacherForm.status || 'active',
-          };
-        }
-        return t;
-      });
-
-      setTeachers(updatedList);
-      saveTeachersToStorage(updatedList);
-      toast.success(`اطلاعات دبیر «${cleanName}» با موفقیت در دیتابیس بروزرسانی شد ✨`);
-    } else {
-      // Add new
-      const newTeacherObj = {
-        id: `tch-${Date.now()}`,
+    try {
+      const res = await api.post('/school/teachers', {
         name: cleanName,
         code: cleanCode,
         subject: finalSubject,
         phone: cleanPhone,
-        personnel_code: cleanPersonnel,
         grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
-        status: teacherForm.status || 'active',
-        classes_count: 0,
-      };
+      });
 
-      const updatedList = [newTeacherObj, ...teachers];
-      setTeachers(updatedList);
-      saveTeachersToStorage(updatedList);
-      toast.success(`دبیر «${newTeacherObj.name}» با کد ${newTeacherObj.code} به دیتابیس مدرسه افزوده شد 🎉`);
+      const dbTeacher = res.data?.data?.teacher;
+
+      if (editingTeacher) {
+        // Update existing
+        const updatedList = teachers.map((t) => {
+          if (t.id === editingTeacher.id) {
+            return {
+              ...t,
+              ...(dbTeacher || {}),
+              name: cleanName,
+              code: cleanCode,
+              subject: finalSubject,
+              phone: cleanPhone || 'ثبت نشده',
+              personnel_code: cleanPersonnel,
+              grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
+              status: teacherForm.status || 'active',
+            };
+          }
+          return t;
+        });
+
+        setTeachers(updatedList);
+        saveTeachersToStorage(updatedList);
+        toast.success(`اطلاعات دبیر «${cleanName}» با موفقیت در دیتابیس بروزرسانی شد ✨`);
+      } else {
+        // Add new
+        const newTeacherObj = dbTeacher || {
+          id: `tch-${Date.now()}`,
+          name: cleanName,
+          code: cleanCode,
+          subject: finalSubject,
+          phone: cleanPhone || 'ثبت نشده',
+          personnel_code: cleanPersonnel,
+          grades: teacherForm.grades && teacherForm.grades.length > 0 ? teacherForm.grades : ['پایه دهم'],
+          status: teacherForm.status || 'active',
+          classes_count: 0,
+        };
+
+        const updatedList = [newTeacherObj, ...teachers.filter((t) => t.id !== newTeacherObj.id)];
+        setTeachers(updatedList);
+        saveTeachersToStorage(updatedList);
+        toast.success(`دبیر «${newTeacherObj.name}» با کد ${newTeacherObj.code} با موفقیت در دیتابیس ذخیره شد 🎉`);
+      }
+
+      setIsModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ذخیره دبیر در دیتابیس');
     }
-
-    setIsModalOpen(false);
   };
 
   // ── Delete Teacher ──
-  const handleDeleteTeacher = (id, name) => {
+  const handleDeleteTeacher = async (id, name) => {
     if (!window.confirm(`آیا از حذف دبیر «${name}» از دیتابیس مدرسه اطمینان دارید؟`)) return;
-    const updatedList = teachers.filter((t) => t.id !== id);
-    setTeachers(updatedList);
-    saveTeachersToStorage(updatedList);
-    toast.success(`دبیر «${name}» از دیتابیس حذف شد.`);
+    try {
+      await api.delete(`/school/teachers/${id}`);
+      const updatedList = teachers.filter((t) => t.id !== id);
+      setTeachers(updatedList);
+      saveTeachersToStorage(updatedList);
+      toast.success(`دبیر «${name}» از دیتابیس حذف شد.`);
+    } catch (err) {
+      toast.error('خطا در حذف دبیر از دیتابیس');
+    }
   };
 
   // ── Reset to Standard Seed ──

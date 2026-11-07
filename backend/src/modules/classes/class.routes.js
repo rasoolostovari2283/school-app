@@ -8,6 +8,7 @@ const { authenticate, authorize, requireClassMember } = require('../../middlewar
 router.use(authenticate);
 
 router.post('/', authorize('teacher', 'admin', 'manager'), classController.createClass);
+router.put('/:id', authorize('teacher', 'admin', 'manager'), classController.updateClass);
 router.get('/', classController.getClasses);
 router.get('/parent/children', classController.getParentChildren);
 router.post('/join', authorize('student', 'parent'), classController.joinClass);

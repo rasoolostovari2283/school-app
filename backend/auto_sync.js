@@ -67,6 +67,11 @@ function checkAndSync() {
     try {
       const dbPath = path.join(BACKEND_DIR, 'educonnect.db');
       if (fs.existsSync(dbPath)) {
+        // Flush WAL checkpoint to disk prior to backup and reload
+        try {
+          execSync('sqlite3 educonnect.db "PRAGMA wal_checkpoint(TRUNCATE);"', { cwd: BACKEND_DIR, stdio: 'pipe' });
+        } catch (sqliteCmdErr) {}
+
         const backupDir = path.join(BACKEND_DIR, 'db_backups');
         if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
         const timeStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);

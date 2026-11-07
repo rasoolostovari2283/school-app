@@ -19,6 +19,23 @@ class ClassController {
   }
 
   /**
+   * PUT /api/v1/classes/:id — Update a class
+   */
+  async updateClass(req, res, next) {
+    try {
+      const cls = await classService.updateClass(req.params.id, req.user.id, req.body);
+      res.json({
+        success: true,
+        message: 'کلاس با موفقیت به‌روزرسانی شد',
+        messageEn: 'Class updated successfully',
+        data: { class: cls },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/v1/classes — Get user's classes
    */
   async getClasses(req, res, next) {
