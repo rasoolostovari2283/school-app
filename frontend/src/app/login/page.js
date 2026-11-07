@@ -21,6 +21,7 @@ import {
 } from 'react-icons/hi2';
 import styles from './login.module.css';
 import ServerConnectionBar from '../../components/system/ServerConnectionBar';
+import AutoUpdateChecker from '../../components/system/AutoUpdateChecker';
 
 // Persian Name to Latin Handle Generator for instant frontend live preview
 const nameDictionary = {
@@ -623,6 +624,7 @@ export default function LoginPage() {
         <div className={styles.formWrapper}>
           {/* Server Connection Status & Quick Switcher */}
           <ServerConnectionBar />
+          <AutoUpdateChecker />
 
           {/* Header */}
           <div className={styles.formHeader}>

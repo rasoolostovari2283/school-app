@@ -1,8 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
-import api, { autoDetectServer } from '../../lib/api';
+import api, { autoDetectServer, getApiBaseUrl } from '../../lib/api';
 import toast from 'react-hot-toast';
-import { HiOutlineArrowPath, HiOutlineCheckCircle, HiOutlineSparkles } from 'react-icons/hi2';
+import { HiOutlineArrowPath, HiOutlineArrowDownTray, HiOutlineSparkles } from 'react-icons/hi2';
+
+export const APP_PACKAGE_BUILD = '1c1b239';
 
 export default function AutoUpdateChecker() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -11,10 +13,10 @@ export default function AutoUpdateChecker() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Check for updates on mount after 2.5 seconds
+    // Check for updates on mount after 2 seconds
     const timer = setTimeout(() => {
       checkUpdate();
-    }, 2500);
+    }, 2000);
 
     // Listen for manual update check events
     const handleManualCheck = () => checkUpdate(true);
@@ -40,15 +42,9 @@ export default function AutoUpdateChecker() {
 
       if (res?.data?.success && res.data.build) {
         const remoteBuild = res.data.build;
-        const savedBuild = localStorage.getItem('educonnect_active_build');
+        const savedBuild = localStorage.getItem('educonnect_active_build') || APP_PACKAGE_BUILD;
 
-        if (!savedBuild) {
-          // First run: save current remote build as base
-          localStorage.setItem('educonnect_active_build', remoteBuild);
-          if (manual) {
-            toast.success(`شما در حال استفاده از آخرین نسخه هستید (${remoteBuild.substring(0, 7)}) ✅`);
-          }
-        } else if (remoteBuild !== savedBuild) {
+        if (remoteBuild !== savedBuild) {
           setRemoteInfo(res.data);
           setUpdateAvailable(true);
           setDismissed(false);
@@ -97,6 +93,21 @@ export default function AutoUpdateChecker() {
     }
   };
 
+  const handleDownloadApk = () => {
+    const currentBase = getApiBaseUrl() || '';
+    const clean = currentBase.replace(/\/api\/v1\/?$/, '');
+    const downloadUrl = remoteInfo?.apk_download_url
+      ? (remoteInfo.apk_download_url.startsWith('http') ? remoteInfo.apk_download_url : `${clean}${remoteInfo.apk_download_url}`)
+      : `${clean}/api/v1/system/download-apk`;
+
+    if (downloadUrl.startsWith('http')) {
+      toast.success('در حال شروع دانلود فایل نصبی جدید...');
+      window.open(downloadUrl, '_system');
+    } else {
+      toast.error('آدرس دانلود از سرور دریافت نشد');
+    }
+  };
+
   if (!updateAvailable || dismissed) return null;
 
   return (
@@ -105,14 +116,14 @@ export default function AutoUpdateChecker() {
       bottom: '80px',
       left: '16px',
       right: '16px',
-      zIndex: 9999,
+      zIndex: 99999,
       maxWidth: '440px',
       margin: '0 auto',
-      background: 'rgba(23, 23, 35, 0.95)',
+      background: 'rgba(23, 23, 35, 0.98)',
       backdropFilter: 'blur(16px)',
       WebkitBackdropFilter: 'blur(16px)',
-      border: '1px solid rgba(99, 102, 241, 0.4)',
-      boxShadow: '0 20px 40px rgba(0,0,0,0.4), 0 0 20px rgba(99, 102, 241, 0.25)',
+      border: '1px solid rgba(99, 102, 241, 0.5)',
+      boxShadow: '0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(99, 102, 241, 0.3)',
       borderRadius: '20px',
       padding: '16px 20px',
       display: 'flex',
@@ -140,7 +151,7 @@ export default function AutoUpdateChecker() {
               به‌روزرسانی جدید سرور آماده است
             </h4>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              نسخه {remoteInfo?.build?.substring(0, 7) || 'جدید'} • بدون نیاز به نصب مجدد
+              نسخه {remoteInfo?.build?.substring(0, 7) || 'جدید'}
             </span>
           </div>
         </div>
@@ -161,6 +172,28 @@ export default function AutoUpdateChecker() {
 
       <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
         <button
+          onClick={handleDownloadApk}
+          style={{
+            flex: 1,
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '12px',
+            padding: '10px 14px',
+            fontWeight: 600,
+            fontSize: '0.82rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px'
+          }}
+        >
+          <HiOutlineArrowDownTray style={{ fontSize: '1.1rem' }} />
+          دانلود APK جدید
+        </button>
+
+        <button
           onClick={handleApplyUpdate}
           disabled={isUpdating}
           style={{
@@ -169,9 +202,9 @@ export default function AutoUpdateChecker() {
             color: '#fff',
             border: 'none',
             borderRadius: '12px',
-            padding: '10px 16px',
+            padding: '10px 14px',
             fontWeight: 600,
-            fontSize: '0.85rem',
+            fontSize: '0.82rem',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -180,7 +213,7 @@ export default function AutoUpdateChecker() {
           }}
         >
           <HiOutlineArrowPath className={isUpdating ? 'spin' : ''} style={{ fontSize: '1.1rem' }} />
-          {isUpdating ? 'در حال اعمال...' : 'اعمال خودکار تغییرات'}
+          {isUpdating ? 'در حال اعمال...' : 'اعمال OTA'}
         </button>
 
         <button
@@ -190,8 +223,8 @@ export default function AutoUpdateChecker() {
             color: '#94a3b8',
             border: 'none',
             borderRadius: '12px',
-            padding: '10px 14px',
-            fontSize: '0.85rem',
+            padding: '10px 12px',
+            fontSize: '0.82rem',
             cursor: 'pointer'
           }}
         >

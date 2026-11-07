@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-export const DEFAULT_LOCAL_API = 'http://192.168.1.108/api/v1';
-export const DEFAULT_TUNNEL_API = 'https://uywtc-89-43-93-194.run.pinggy-free.link/api/v1';
+export const DEFAULT_LOCAL_API = 'http://192.168.1.103:3000/api/v1';
+export const DEFAULT_TUNNEL_API = 'https://ubpqb-89-43-89-222.run.pinggy-free.link/api/v1';
 export const REGISTRY_GIST_RAW = 'https://gist.githubusercontent.com/rasoolostovari2283/dc4b18cafa978e951913e8b4b832d817/raw/tunnel.json';
 export const REGISTRY_GIST_API = 'https://api.github.com/gists/dc4b18cafa978e951913e8b4b832d817';
 
@@ -116,12 +116,15 @@ export async function autoDetectServer() {
   const candidates = [
     current,
     ...hostCandidates,
-    'http://localhost:5000/api/v1',
-    'http://192.168.1.108:5000/api/v1',
-    'http://192.168.1.108/api/v1',
-    'http://192.168.1.104/api/v1',
-    'http://192.168.1.102/api/v1',
     DEFAULT_LOCAL_API,
+    'http://192.168.1.103:3000/api/v1',
+    'http://192.168.1.102:3000/api/v1',
+    'http://192.168.1.108:3000/api/v1',
+    'http://192.168.1.104:3000/api/v1',
+    'http://192.168.1.103/api/v1',
+    'http://192.168.1.102/api/v1',
+    'http://192.168.1.108/api/v1',
+    'http://localhost:3000/api/v1',
     DEFAULT_TUNNEL_API,
   ].filter(Boolean);
 
