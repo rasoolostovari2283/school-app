@@ -247,10 +247,21 @@ a:hover {
   color: var(--primary-300);
 }
 
-/* ── App Layout ── */
+/* ── App Layout & Top/Bottom Clearance ── */
+:root {
+  --header-height: 70px;
+  --bottom-nav-height: 64px;
+}
+
+html {
+  scroll-padding-top: calc(var(--header-height, 70px) + env(safe-area-inset-top, 0px) + 20px);
+  scroll-behavior: smooth;
+}
+
 .app-layout {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   z-index: 1;
 }
@@ -265,11 +276,12 @@ a:hover {
 
 .content-inner {
   flex: 1;
-  padding: var(--space-8);
-  padding-bottom: 56px;
+  padding: 24px var(--space-8);
+  padding-bottom: 72px;
   max-width: 1540px;
   width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 @media (max-width: 992px) {
@@ -293,10 +305,12 @@ a:hover {
   }
 
   .content-inner {
-    padding: var(--space-4) var(--space-3) !important;
-    padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 20px var(--space-4) !important;
+    /* Generous bottom clearance: bottom nav (64px) + breathing room (44px) + iOS home bar */
+    padding-bottom: calc(var(--bottom-nav-height, 64px) + 44px + env(safe-area-inset-bottom, 0px)) !important;
     max-width: 100% !important;
     overflow-x: hidden !important;
+    box-sizing: border-box !important;
   }
 }
 
@@ -307,28 +321,51 @@ a:hover {
   }
 
   .content-inner {
-    padding: 12px 10px !important;
-    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 18px 12px !important;
+    /* Extra clearance for mobile viewports to prevent any overlap with bottom bar */
+    padding-bottom: calc(var(--bottom-nav-height, 64px) + 52px + env(safe-area-inset-bottom, 0px)) !important;
+    box-sizing: border-box !important;
   }
 }
 
-/* ── Global Modal Clearance & Layering (Prevent Bottom Nav Collision) ── */
+/* ── Universal Clearance: Prevent Floating Action Buttons & Fixed Bottom Bars from colliding with Bottom Nav ── */
+@media (max-width: 992px) {
+  [class*="floatingBtn"],
+  [class*="fab"],
+  [class*="Fab"],
+  [class*="fixedBottom"],
+  [class*="stickyBottom"],
+  [class*="bottomAction"],
+  [class*="actionBar"] {
+    bottom: calc(var(--bottom-nav-height, 64px) + env(safe-area-inset-bottom, 0px) + 16px) !important;
+  }
+}
+
+/* ── Global Modal Clearance & Layering (Prevent Bottom Nav & Header Collision) ── */
 [class*="modalBackdrop"],
 [class*="modalOverlay"],
 [class*="modalWrapper"] {
   z-index: 99999 !important;
+  box-sizing: border-box !important;
 }
 
 @media (max-width: 992px) {
   [class*="modalBackdrop"],
   [class*="modalOverlay"],
   [class*="modalWrapper"] {
-    padding-bottom: calc(75px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 18px) !important;
+    padding-bottom: calc(var(--bottom-nav-height, 64px) + env(safe-area-inset-bottom, 0px) + 20px) !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
 
   [class*="modalContent"],
-  [class*="modalCard"] {
-    max-height: calc(100dvh - 85px) !important;
+  [class*="modalCard"],
+  [class*="modalDialog"] {
+    max-height: calc(100dvh - var(--bottom-nav-height, 64px) - env(safe-area-inset-bottom, 0px) - 50px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
   }
 }
 

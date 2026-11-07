@@ -151,6 +151,8 @@ export default function DashboardLayout({ children }) {
 
   if (!isAuthenticated) return null;
 
+  const isLiveRoom = pathname?.includes('/live');
+
   return (
     <div className="app-layout">
       <Toaster
@@ -251,22 +253,26 @@ export default function DashboardLayout({ children }) {
           </ToastBar>
         )}
       </Toaster>
-      <MandatoryAnnouncementModal />
+      {!isLiveRoom && <MandatoryAnnouncementModal />}
       <AutoUpdateChecker />
-      <Sidebar
-        isOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
-      />
-      <div className="main-content">
-        <Header
-          onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
-          isMobileMenuOpen={isMobileMenuOpen}
+      {!isLiveRoom && (
+        <Sidebar
+          isOpen={isMobileMenuOpen}
+          onClose={() => setIsMobileMenuOpen(false)}
         />
-        <main className="content-inner">
+      )}
+      <div className="main-content" style={isLiveRoom ? { padding: 0, margin: 0 } : undefined}>
+        {!isLiveRoom && (
+          <Header
+            onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+            isMobileMenuOpen={isMobileMenuOpen}
+          />
+        )}
+        <main className={isLiveRoom ? undefined : "content-inner"} style={isLiveRoom ? { padding: 0, margin: 0, width: '100vw', height: '100vh' } : undefined}>
           {children}
         </main>
       </div>
-      <MobileBottomNav onOpenMenu={() => setIsMobileMenuOpen(true)} />
+      {!isLiveRoom && <MobileBottomNav onOpenMenu={() => setIsMobileMenuOpen(true)} />}
     </div>
   );
 }

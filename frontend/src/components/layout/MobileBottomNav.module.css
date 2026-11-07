@@ -12,16 +12,17 @@
     bottom: 0;
     left: 0;
     right: 0;
-    height: 60px;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(64px + env(safe-area-inset-bottom, 0px));
     background: var(--bg-glass-heavy);
     backdrop-filter: var(--glass-blur-heavy);
     -webkit-backdrop-filter: var(--glass-blur-heavy);
     border-top: 1px solid var(--border-color);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.15);
     z-index: 850;
-    padding: 0 4px;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)) 6px;
     transition: all var(--transition-normal);
+    box-sizing: border-box;
   }
 
   [data-theme='dark'] .bottomNav {
