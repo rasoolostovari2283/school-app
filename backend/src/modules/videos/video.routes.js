@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const os = require('os');
 const crypto = require('crypto');
+const { cacheMiddleware, cache } = require('../../utils/cache');
 
 /**
  * POST /api/v1/videos/convert-pptx — converts a PowerPoint presentation into a vector PDF using PowerPoint COM
@@ -140,6 +141,102 @@ try {
   }
 });
 
+/**
+ * Helper to stream video/audio files with HTTP 206 Partial Content & Range request support
+ */
+function streamMediaFile(req, res, filePath) {
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: 'فایل چندرسانه‌ای یافت نشد' });
+  }
+
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const ext = path.extname(filePath).toLowerCase();
+
+  const mimeMap = {
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.ogg': 'video/ogg',
+    '.mov': 'video/quicktime',
+    '.mkv': 'video/x-matroska',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+  };
+  const mimeType = mimeMap[ext] || 'video/mp4';
+
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    // Stream in optimized chunks (max 3MB per chunk to prevent network saturation on mobile)
+    const maxChunk = 3 * 1024 * 1024;
+    const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunk - 1, fileSize - 1);
+
+    if (start >= fileSize) {
+      res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
+      return res.end();
+    }
+
+    const chunksize = end - start + 1;
+    const fileStream = fs.createReadStream(filePath, { start, end });
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': mimeType,
+      'Cache-Control': 'public, max-age=604800, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    fileStream.pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': mimeType,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=604800, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    fs.createReadStream(filePath).pipe(res);
+  }
+}
+
+/**
+ * GET /api/v1/videos/stream/:filename — High-speed video streaming by filename
+ * Publicly accessible by HTML5 <video> / <audio> players with instant range seek
+ */
+router.get('/stream/:filename', (req, res) => {
+  const cleanName = path.basename(req.params.filename);
+  const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
+  const filePath = path.join(uploadsDir, cleanName);
+  streamMediaFile(req, res, filePath);
+});
+
+/**
+ * GET /api/v1/videos/:id/stream — High-speed video streaming by video ID
+ */
+router.get('/:id/stream', async (req, res, next) => {
+  try {
+    const video = await db('videos').where({ id: req.params.id }).first();
+    if (!video || !video.file_url) {
+      return res.status(404).json({ success: false, message: 'ویدیو یافت نشد' });
+    }
+
+    const filename = path.basename(video.file_url);
+    const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
+    const filePath = path.join(uploadsDir, filename);
+
+    // Increment view count asynchronously in background
+    db('videos').where({ id: req.params.id }).increment('views_count', 1).catch(() => {});
+
+    streamMediaFile(req, res, filePath);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.use(authenticate);
 
 let targetAudienceChecked = false;
@@ -159,9 +256,9 @@ async function ensureTargetAudienceColumn() {
 }
 
 /**
- * GET /api/v1/videos/folders — list all folders with video counts
+ * GET /api/v1/videos/folders — list all folders with video counts (cached for 30s)
  */
-router.get('/folders', async (req, res, next) => {
+router.get('/folders', cacheMiddleware(30, () => 'all_video_folders'), async (req, res, next) => {
   try {
     let customFolders = [];
     try {
@@ -230,6 +327,7 @@ router.post('/folders', async (req, res, next) => {
     };
 
     await db('video_folders').insert(newFolder);
+    cache.delByPattern('*video_folders*');
     res.status(201).json({ success: true, data: { folder: newFolder }, message: 'پوشه جدید ایجاد شد' });
   } catch (err) {
     next(err);
@@ -247,6 +345,7 @@ router.delete('/folders/:name', async (req, res, next) => {
     }
     await db('video_folders').where({ name: folderName, teacher_id: req.user.id }).del();
     await db('videos').where({ folder_name: folderName, teacher_id: req.user.id }).update({ folder_name: 'عمومی' });
+    cache.delByPattern('*video_folders*');
     res.json({ success: true, message: 'پوشه حذف شد و رسانه‌ها به پوشه عمومی منتقل شدند' });
   } catch (err) {
     next(err);
@@ -313,7 +412,11 @@ router.get('/', async (req, res, next) => {
     }
 
     const videos = await query;
-    res.json({ success: true, data: { videos } });
+    const enrichedVideos = videos.map((v) => ({
+      ...v,
+      stream_url: v.file_url ? `/api/v1/videos/stream/${path.basename(v.file_url)}` : null,
+    }));
+    res.json({ success: true, data: { videos: enrichedVideos } });
   } catch (err) {
     next(err);
   }
@@ -342,6 +445,7 @@ router.get('/:id', async (req, res, next) => {
     // Increment views
     await db('videos').where('id', req.params.id).increment('views_count', 1);
     video.views_count += 1;
+    video.stream_url = video.file_url ? `/api/v1/videos/stream/${path.basename(video.file_url)}` : null;
 
     res.json({ success: true, data: { video } });
   } catch (err) {

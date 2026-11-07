@@ -40,6 +40,8 @@ const announcementRoutes = require('./modules/announcements/announcement.routes'
 const schoolRoutes = require('./modules/school/school.routes');
 
 const { initSocket, activeClassrooms } = require('./socket');
+const { startScheduledMaintenance, listBackups, createBackup, BACKUP_DIR } = require('./services/dbMaintenance');
+const { getAuditLogs, logAudit } = require('./utils/auditLogger');
 
 const app = express();
 
@@ -300,6 +302,66 @@ app.get('/api/v1/system/download-apk', (req, res) => {
   }
 });
 
+// ── System Database Backups API ──
+app.get('/api/v1/system/backups', authenticate, (req, res) => {
+  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  }
+  const backups = listBackups();
+  res.json({ success: true, data: { backups } });
+});
+
+app.post('/api/v1/system/backup-now', authenticate, async (req, res) => {
+  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  }
+  const result = await createBackup('manual');
+  if (result.success) {
+    logAudit({
+      userId: req.user.id,
+      userName: req.user.display_name,
+      userRole: req.user.role,
+      action: 'CREATE_BACKUP',
+      module: 'SYSTEM',
+      details: `پشتیبان‌گیری دستی ایجاد شد: ${result.filename}`,
+      ip: req.ip,
+    });
+    return res.json({ success: true, message: 'نسخه پشتیبان با موفقیت ایجاد شد', data: result });
+  }
+  res.status(500).json({ success: false, message: 'خطا در ایجاد نسخه پشتیبان', error: result.error });
+});
+
+app.get('/api/v1/system/download-backup/:filename', authenticate, (req, res) => {
+  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  }
+  const cleanName = path.basename(req.params.filename);
+  const filePath = path.join(BACKUP_DIR, cleanName);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, cleanName);
+  } else {
+    res.status(404).json({ success: false, message: 'فایل پشتیبان یافت نشد' });
+  }
+});
+
+// ── System Audit Logs API ──
+app.get('/api/v1/system/audit-logs', authenticate, async (req, res, next) => {
+  try {
+    if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+    }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const moduleFilter = req.query.module || null;
+    const actionFilter = req.query.action || null;
+
+    const data = await getAuditLogs({ limit, offset, module: moduleFilter, action: actionFilter });
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Top-level Global Routers ──
 const globalAssignmentRouter = express.Router();
 globalAssignmentRouter.use(authenticate);
@@ -466,6 +528,7 @@ app.use(errorHandler);
 // ── Start Server ──
 const PORT = config.port;
 server.listen(PORT, () => {
+  startScheduledMaintenance();
   console.log(`
   ╔══════════════════════════════════════════════════════════════╗
   ║                                                              ║

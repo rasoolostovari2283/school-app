@@ -1,11 +1,12 @@
 const { Server } = require('socket.io');
+const { loadClassroomSnapshot, scheduleSave, clearSession } = require('./services/classroomPersistence');
 
 // In-memory active live classrooms manager
 const activeClassrooms = new Map();
 
 function getOrCreateClassroom(classId) {
   if (!activeClassrooms.has(classId)) {
-    activeClassrooms.set(classId, {
+    const room = {
       classId,
       isLive: false,
       startedAt: null,
@@ -20,7 +21,29 @@ function getOrCreateClassroom(classId) {
       boardPages: null,
       currentPage: 1,
       chatMessages: [],
-    });
+    };
+    activeClassrooms.set(classId, room);
+
+    // Asynchronously restore persisted state from SQLite
+    loadClassroomSnapshot(classId).then((snapshot) => {
+      if (snapshot && activeClassrooms.has(classId)) {
+        const currentRoom = activeClassrooms.get(classId);
+        if (currentRoom.whiteboardStrokes.length === 0 && snapshot.strokes?.length > 0) {
+          currentRoom.whiteboardStrokes = snapshot.strokes;
+        }
+        if (currentRoom.chatMessages.length === 0 && snapshot.chatMessages?.length > 0) {
+          currentRoom.chatMessages = snapshot.chatMessages;
+        }
+        if (!currentRoom.docState && snapshot.docState) {
+          currentRoom.docState = snapshot.docState;
+        }
+        if (!currentRoom.boardPages && snapshot.boardPages) {
+          currentRoom.boardPages = snapshot.boardPages;
+        }
+        if (snapshot.boardType) currentRoom.boardType = snapshot.boardType;
+        if (snapshot.currentPage) currentRoom.currentPage = snapshot.currentPage;
+      }
+    }).catch(() => {});
   }
   return activeClassrooms.get(classId);
 }
@@ -134,6 +157,7 @@ function initSocket(server, config) {
         teacherName: room.teacherName,
         teacherSocketId: socket.id,
       });
+      scheduleSave(classId, room);
     });
 
     // ── Teacher Ends Live Class ──
@@ -150,6 +174,7 @@ function initSocket(server, config) {
       });
 
       room.startedAt = null;
+      clearSession(classId);
       room.whiteboardStrokes = []; // reset for next session
     });
 
@@ -180,6 +205,7 @@ function initSocket(server, config) {
         if (room.whiteboardStrokes.length > 2000) {
           room.whiteboardStrokes.shift();
         }
+        scheduleSave(classId, room);
       }
       // Broadcast to everyone else in the room
       socket.to(`class:${classId}`).emit('wb_draw', stroke);
@@ -190,6 +216,7 @@ function initSocket(server, config) {
       if (!canUserDraw(room)) return;
       if (room) {
         room.whiteboardStrokes = [];
+        scheduleSave(classId, room);
       }
       socket.to(`class:${classId}`).emit('wb_clear');
     });
@@ -199,6 +226,7 @@ function initSocket(server, config) {
       if (!canUserDraw(room)) return;
       if (room && room.whiteboardStrokes.length > 0) {
         room.whiteboardStrokes.pop();
+        scheduleSave(classId, room);
         io.to(`class:${classId}`).emit('wb_sync_all', {
           strokes: room.whiteboardStrokes,
         });
@@ -210,6 +238,7 @@ function initSocket(server, config) {
       if (!canUserDraw(room)) return;
       if (room) {
         room.boardType = boardType;
+        scheduleSave(classId, room);
       }
       socket.to(`class:${classId}`).emit('wb_change_bg', { boardType });
     });
@@ -223,6 +252,7 @@ function initSocket(server, config) {
         if (docState !== undefined) room.docState = docState;
         if (boardPages !== undefined) room.boardPages = boardPages;
         if (currentPage !== undefined) room.currentPage = currentPage;
+        scheduleSave(classId, room);
       }
       socket.to(`class:${classId}`).emit('wb_sync_all', {
         strokes: room?.whiteboardStrokes,
@@ -238,6 +268,7 @@ function initSocket(server, config) {
       if (!canUserDraw(room)) return;
       if (room) {
         room.docState = docState;
+        scheduleSave(classId, room);
       }
       socket.to(`class:${classId}`).emit('wb_doc_change', docState);
     });
@@ -248,6 +279,7 @@ function initSocket(server, config) {
       if (room) {
         room.currentPage = pageNum;
         if (boardPages) room.boardPages = boardPages;
+        scheduleSave(classId, room);
       }
       socket.to(`class:${classId}`).emit('wb_page_change', { pageNum, boardPages });
     });
@@ -474,6 +506,7 @@ function initSocket(server, config) {
       if (room.chatMessages.length > 100) {
         room.chatMessages.shift();
       }
+      scheduleSave(classId, room);
 
       io.to(`class:${classId}`).emit('new_chat_message', msg);
     });
