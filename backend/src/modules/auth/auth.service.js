@@ -117,6 +117,7 @@ class AuthService {
           code: school_code,
           city: city || 'تهران',
           created_by: user.id,
+          created_at: new Date(),
         });
       } catch (err) {
         schoolRecord = await db('schools').where({ name: school_name.trim() }).first();
@@ -136,6 +137,7 @@ class AuthService {
       city: city || 'تهران',
       principal: admin_name || 'مدیر مدرسه',
       phone: cleanPhone,
+      is_registered: true,
     };
 
     return { user, school, ...tokens };
@@ -150,6 +152,42 @@ class AuthService {
       dbSchools = await db('schools').select('*').orderBy('created_at', 'desc');
     } catch (e) {
       dbSchools = [];
+    }
+
+    // Also sync and harvest schools from admin user settings if not yet in schools table
+    try {
+      const adminUsers = await db('users').where({ role: 'admin' }).select('id', 'settings', 'school_id');
+      for (const admin of adminUsers) {
+        let s = {};
+        try {
+          s = typeof admin.settings === 'string' ? JSON.parse(admin.settings) : (admin.settings || {});
+        } catch (e) {}
+
+        const sName = (s.school_name || '').trim();
+        if (sName && !dbSchools.some((ds) => (ds.name || '').trim().toLowerCase() === sName.toLowerCase())) {
+          const sCode = s.school_code || `SCH-${Math.floor(1000 + Math.random() * 9000)}`;
+          try {
+            const inserted = await insertAndReturn(db, 'schools', {
+              id: generateId(),
+              name: sName,
+              code: sCode,
+              city: s.city || 'تهران',
+              created_by: admin.id,
+              created_at: new Date(),
+            });
+            if (inserted) {
+              dbSchools.unshift(inserted);
+              if (!admin.school_id) {
+                await db('users').where({ id: admin.id }).update({ school_id: inserted.id });
+              }
+            }
+          } catch (err) {
+            // Already exists or duplicate code
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not sync admin schools:', e.message);
     }
 
     const defaultSchools = [

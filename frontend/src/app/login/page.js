@@ -155,25 +155,51 @@ export default function LoginPage() {
   // Load and merge schools
   const loadSchools = async () => {
     try {
+      let localRegs = [];
+      let lastReg = null;
+      if (typeof window !== 'undefined') {
+        try {
+          localRegs = JSON.parse(localStorage.getItem('registered_schools') || '[]');
+          lastReg = JSON.parse(localStorage.getItem('last_registered_school') || 'null');
+        } catch (e) {}
+      }
+
+      let combined = [];
       if (fetchSchools) {
         const list = await fetchSchools();
         if (Array.isArray(list) && list.length > 0) {
           const nameSet = new Set(list.map((s) => (s.name || '').trim()));
-          const combined = [...list];
+          combined = [...list];
           DEFAULT_LOGIN_SCHOOLS.forEach((ds) => {
             if (!nameSet.has(ds.name.trim())) {
               combined.push(ds);
               nameSet.add(ds.name.trim());
             }
           });
-          setAvailableSchools(combined);
-          setSmartForm((prev) => {
-            if (!prev.school_name && combined[0]?.name) {
-              return { ...prev, school_name: combined[0].name, school_code: combined[0].code || '' };
-            }
-            return prev;
-          });
         }
+      }
+
+      if (combined.length === 0) {
+        combined = [...localRegs, ...DEFAULT_LOGIN_SCHOOLS];
+      }
+
+      // Sort: registered schools first!
+      combined.sort((a, b) => (b.is_registered ? 1 : 0) - (a.is_registered ? 1 : 0));
+      setAvailableSchools(combined);
+
+      // Preferred school: last_registered_school > any registered school > first school
+      const preferred = lastReg || combined.find((s) => s.is_registered) || combined[0];
+      if (preferred?.name) {
+        setSmartForm((prev) => {
+          if (!prev.school_name || prev.school_name === DEFAULT_LOGIN_SCHOOLS[0].name) {
+            return {
+              ...prev,
+              school_name: preferred.name,
+              school_code: preferred.code || preferred.school_code || '',
+            };
+          }
+          return prev;
+        });
       }
     } catch (e) {
       console.warn('Could not load schools:', e);
@@ -202,8 +228,8 @@ export default function LoginPage() {
     phone: '',
     role: 'student',
     password: '',
-    school_name: DEFAULT_LOGIN_SCHOOLS[0].name,
-    school_code: DEFAULT_LOGIN_SCHOOLS[0].code,
+    school_name: '',
+    school_code: '',
   });
   const [showSmartPassword, setShowSmartPassword] = useState(false);
   const [smartTeacherGrades, setSmartTeacherGrades] = useState(['پایه دهم ریاضی', 'پایه دهم تجربی']);
@@ -389,16 +415,29 @@ export default function LoginPage() {
         admin_password: schoolForm.admin_password.trim() || 'admin123',
       });
 
-      setRegisteredSchoolResult(res.school);
-      await loadSchools();
+      const schoolObj = {
+        ...res.school,
+        code: res.school.school_code || res.school.code || '',
+        school_code: res.school.school_code || res.school.code || '',
+        is_registered: true,
+      };
+      setRegisteredSchoolResult(schoolObj);
+      setAvailableSchools((prev) => [
+        schoolObj,
+        ...prev.filter((s) => (s.name || '').trim() !== schoolObj.name.trim()),
+      ]);
       setSmartForm((prev) => ({
         ...prev,
-        role: 'admin',
-        school_name: res.school.name,
-        school_code: res.school.school_code,
+        school_name: schoolObj.name,
+        school_code: schoolObj.code,
       }));
+      setCustomSchoolName(schoolObj.name);
+      try {
+        localStorage.setItem('last_registered_school', JSON.stringify(schoolObj));
+      } catch (e) {}
+      await loadSchools();
       setIsCustomSchoolSelected(false);
-      toast.success(`مدرسه «${res.school.name}» با موفقیت ثبت شد! کد اختصاصی: ${res.school.school_code} 🎉`, { duration: 6000 });
+      toast.success(`مدرسه «${schoolObj.name}» با موفقیت ثبت شد! کد اختصاصی: ${schoolObj.code} 🎉`, { duration: 6000 });
     } catch (err) {
       toast.error(err.response?.data?.message || 'خطا در ثبت‌نام مدرسه');
     } finally {
@@ -742,7 +781,17 @@ export default function LoginPage() {
                   <button
                     type="button"
                     className={`${styles.roleChip} ${styles.roleChipTeacher} ${smartForm.role === 'teacher' ? styles.roleChipActive : ''}`}
-                    onClick={() => setSmartForm({ ...smartForm, role: 'teacher' })}
+                    onClick={() => {
+                      setSmartForm((prev) => {
+                        const regSchool = availableSchools.find((s) => s.is_registered);
+                        return {
+                          ...prev,
+                          role: 'teacher',
+                          school_name: prev.school_name || regSchool?.name || '',
+                          school_code: prev.school_code || regSchool?.code || '',
+                        };
+                      });
+                    }}
                   >
                     <span className={styles.roleChipEmoji}>👨‍🏫</span>
                     <span>معلم / دبیر</span>
@@ -793,14 +842,89 @@ export default function LoginPage() {
               <div className={styles.inputGroup}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label className={styles.inputLabel} htmlFor="smart_school_input">
-                    🏛️ نام مدرسه {smartForm.role === 'teacher' ? 'اصلی محل تدریس دبیر' : 'تحصیلی شما'} (هم قابل تایپ، هم انتخاب از لیست): *
+                    🏛️ نام مدرسه یا کد اختصاصی مدرسه {smartForm.role === 'teacher' ? '(جهت اتصال به کادر آموزشی مدرسه)' : '(محل تحصیل)'}: *
                   </label>
                   {smartForm.school_name && (
-                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
-                      مدرسه: {smartForm.school_name}
+                    <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 800 }}>
+                      مدرسه: {smartForm.school_name} {smartForm.school_code ? `[${smartForm.school_code}]` : ''}
                     </span>
                   )}
                 </div>
+
+                {/* Quick Selection for Registered Schools (مدارس ثبت‌شده سامانه) */}
+                {availableSchools.some((s) => s.is_registered) && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.09) 0%, rgba(99, 102, 241, 0.09) 100%)',
+                    border: '1.5px solid rgba(16, 185, 129, 0.35)',
+                    borderRadius: '12px',
+                    padding: '10px 14px',
+                    marginBottom: '8px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>✨</span>
+                        <span>مدارس ثبت‌شده در سامانه (کلیک جهت انتخاب و اتصال مستقیم معلم):</span>
+                      </span>
+                      {smartForm.school_name && (
+                        <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
+                          انتخاب شده: {smartForm.school_name}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {availableSchools.filter((s) => s.is_registered).map((sch) => {
+                        const isSelected = smartForm.school_name === sch.name || (smartForm.school_code && smartForm.school_code === sch.code);
+                        return (
+                          <button
+                            key={sch.code || sch.id || sch.name}
+                            type="button"
+                            onClick={() => {
+                              setSmartForm({
+                                ...smartForm,
+                                school_name: sch.name,
+                                school_code: sch.code || '',
+                              });
+                              setCustomSchoolName(sch.name);
+                              toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
+                            }}
+                            style={{
+                              background: isSelected ? 'linear-gradient(135deg, #10b981, #059669)' : 'var(--bg-surface)',
+                              color: isSelected ? '#ffffff' : 'var(--text-primary)',
+                              border: isSelected ? '1.5px solid #059669' : '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '6px 12px',
+                              fontSize: '0.8rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: isSelected ? '0 2px 8px rgba(16,185,129,0.3)' : 'none',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <span>🏛️</span>
+                            <span>{sch.name}</span>
+                            {sch.code && (
+                              <span style={{
+                                fontFamily: 'monospace',
+                                fontSize: '0.74rem',
+                                opacity: isSelected ? 0.95 : 0.75,
+                                background: isSelected ? 'rgba(255,255,255,0.25)' : 'var(--bg-hover)',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                letterSpacing: '0.5px',
+                              }}>
+                                {sch.code}
+                              </span>
+                            )}
+                            {isSelected && <span>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Direct Text Input with Datalist Autocomplete */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -809,7 +933,7 @@ export default function LoginPage() {
                     type="text"
                     list="available-schools-datalist"
                     className="input"
-                    placeholder="نام کامل مدرسه خود را تایپ فرمایید یا از گزینه‌های زیر انتخاب نمایید..."
+                    placeholder="نام کامل یا کد اختصاصی مدرسه (مانند SCH-1001) را وارد فرمایید..."
                     value={smartForm.school_name}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -876,11 +1000,22 @@ export default function LoginPage() {
                     style={{ flex: 1, fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer' }}
                   >
                     <option value="">-- برای انتخاب از مدارس ثبت‌شده و نمونه کلیک کنید --</option>
-                    {availableSchools.map((sch) => (
-                      <option key={sch.id || sch.name} value={sch.name}>
-                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
-                      </option>
-                    ))}
+                    {availableSchools.some((s) => s.is_registered) && (
+                      <optgroup label="✨ مدارس ثبت‌شده شما (انتخاب سریع)">
+                        {availableSchools.filter((s) => s.is_registered).map((sch) => (
+                          <option key={sch.id || sch.name} value={sch.name}>
+                            🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} ✨ (مدرسه ثبت‌شده)
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="🏢 سایر مدارس و نمونه‌ها">
+                      {availableSchools.filter((s) => !s.is_registered).map((sch) => (
+                        <option key={sch.id || sch.name} value={sch.name}>
+                          🏫 {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
 
@@ -1668,16 +1803,17 @@ export default function LoginPage() {
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
+                      const code = sch.school_code || sch.code || '';
                       setRegisteredSchoolResult(null);
                       setActiveTab('smart');
                       setSmartForm((prev) => ({
                         ...prev,
                         role: 'admin',
                         school_name: sch.name,
-                        school_code: sch.school_code,
+                        school_code: code,
                       }));
                       setIsCustomSchoolSelected(false);
-                      toast.success(`مدرسه «${sch.name}» با کد ${sch.school_code} انتخاب شد! نام مدیر/معاون جدید شعبه را وارد فرمایید 🏛️`, { duration: 6000 });
+                      toast.success(`مدرسه «${sch.name}» با کد ${code} انتخاب شد! نام مدیر/معاون جدید شعبه را وارد فرمایید 🏛️`, { duration: 6000 });
                     }}
                   >
                     👔 ثبت مدیر یا شعبه زیرمجموعه این مدرسه (مدرسه و مدیر)
@@ -1687,25 +1823,29 @@ export default function LoginPage() {
                     type="button"
                     className="btn btn-secondary"
                     style={{
-                      fontWeight: 750,
+                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.15))',
+                      border: '1.5px solid #10b981',
+                      color: '#059669',
+                      fontWeight: 800,
                       width: '100%',
-                      padding: '11px',
+                      padding: '12px',
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
+                      const code = sch.school_code || sch.code || '';
                       setRegisteredSchoolResult(null);
                       setActiveTab('smart');
                       setSmartForm((prev) => ({
                         ...prev,
                         role: 'teacher',
                         school_name: sch.name,
-                        school_code: sch.school_code,
+                        school_code: code,
                       }));
                       setIsCustomSchoolSelected(false);
-                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام خود را وارد فرمایید تا به عنوان دبیر متصل شوید 👨‍🏫`, { duration: 6000 });
+                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام دبیر را وارد فرمایید تا متصل شود 👨‍🏫`, { duration: 6000 });
                     }}
                   >
-                    👨‍🏫 ورود معلمان به عنوان زیرشاخه این مدرسه
+                    👨‍🏫 ورود و اتصال معلمان به عنوان زیرشاخه این مدرسه
                   </button>
 
                   <button
@@ -1718,13 +1858,14 @@ export default function LoginPage() {
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
+                      const code = sch.school_code || sch.code || '';
                       setRegisteredSchoolResult(null);
                       setActiveTab('smart');
                       setSmartForm((prev) => ({
                         ...prev,
                         role: 'student',
                         school_name: sch.name,
-                        school_code: sch.school_code,
+                        school_code: code,
                       }));
                       setIsCustomSchoolSelected(false);
                       toast.success(`مدرسه «${sch.name}» انتخاب شد! نام دانش‌آموز را جهت اتصال به این مدرسه وارد فرمایید 🎓`, { duration: 6000 });

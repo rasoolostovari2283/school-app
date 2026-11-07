@@ -83,26 +83,34 @@ const useAuthStore = create((set, get) => ({
       localStorage.setItem('cached_user', JSON.stringify(user));
       try {
         const existing = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-        if (!existing.some(s => s.school_code === school.school_code)) {
-          existing.unshift(school);
-          localStorage.setItem('registered_schools', JSON.stringify(existing));
-        }
+        const cleanSchool = {
+          ...school,
+          code: school.school_code || school.code || '',
+          school_code: school.school_code || school.code || '',
+          is_registered: true,
+        };
+        const filtered = existing.filter((s) => (s.name || s.school_name) !== cleanSchool.name);
+        filtered.unshift(cleanSchool);
+        localStorage.setItem('registered_schools', JSON.stringify(filtered));
+        localStorage.setItem('last_registered_school', JSON.stringify(cleanSchool));
       } catch (e) {}
 
       set({ user, isAuthenticated: true, isLoading: false });
-      return { success: true, school, user };
+      return { success: true, school: { ...school, is_registered: true }, user };
     } catch (err) {
       // Offline / Local fallback:
       const schoolCode = 'SCH-' + Math.floor(1000 + Math.random() * 9000);
       const newSchool = {
         id: 'sch-' + Date.now(),
         school_code: schoolCode,
+        code: schoolCode,
         name: schoolData.school_name,
         level: schoolData.school_level || 'متوسطه دوم',
         city: schoolData.city || 'تهران',
         principal: schoolData.admin_name,
         phone: schoolData.admin_phone,
         created_at: new Date().toISOString(),
+        is_registered: true,
       };
       const user = {
         id: 'admin-' + Date.now(),
@@ -119,8 +127,10 @@ const useAuthStore = create((set, get) => ({
 
       try {
         const existing = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-        existing.unshift(newSchool);
-        localStorage.setItem('registered_schools', JSON.stringify(existing));
+        const filtered = existing.filter((s) => (s.name || s.school_name) !== newSchool.name);
+        filtered.unshift(newSchool);
+        localStorage.setItem('registered_schools', JSON.stringify(filtered));
+        localStorage.setItem('last_registered_school', JSON.stringify(newSchool));
       } catch (e) {}
 
       localStorage.setItem('accessToken', 'mock_token_' + Date.now());
@@ -131,16 +141,6 @@ const useAuthStore = create((set, get) => ({
   },
   // Fetch Registered Schools List
   fetchSchools: async () => {
-    let apiSchools = [];
-    try {
-      const res = await api.get('/auth/schools');
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        apiSchools = res.data.data;
-      }
-    } catch (e) {
-      console.warn('Could not fetch schools from API:', e.message);
-    }
-
     let localSchools = [];
     try {
       localSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
@@ -148,12 +148,43 @@ const useAuthStore = create((set, get) => ({
       localSchools = [];
     }
 
+    try {
+      const lastReg = JSON.parse(localStorage.getItem('last_registered_school') || 'null');
+      if (lastReg && (lastReg.name || lastReg.school_name)) {
+        const name = lastReg.name || lastReg.school_name;
+        if (!localSchools.some((s) => (s.name || s.school_name) === name)) {
+          localSchools.unshift(lastReg);
+        }
+      }
+      const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
+      if (cached && cached.school_name) {
+        if (!localSchools.some((s) => (s.name || s.school_name) === cached.school_name)) {
+          localSchools.unshift({
+            name: cached.school_name,
+            code: cached.school_code || '',
+            is_registered: true,
+          });
+        }
+      }
+    } catch (e) {}
+
+    let apiSchools = [];
+    try {
+      const res = await api.get('/auth/schools', { timeout: 2500 });
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        apiSchools = res.data.data;
+      }
+    } catch (e) {
+      // Server offline / network delay
+    }
+
     const schoolMap = new Map();
+    // 1. Put user locally registered schools FIRST at top
     localSchools.forEach((s) => {
-      const cleanName = s.name || s.school_name;
+      const cleanName = (s.name || s.school_name || '').trim();
       if (cleanName) {
-        schoolMap.set(cleanName, {
-          id: s.school_code || s.id || cleanName,
+        schoolMap.set(cleanName.toLowerCase(), {
+          id: s.school_code || s.code || s.id || cleanName,
           name: cleanName,
           code: s.school_code || s.code || '',
           city: s.city || 'ایران',
@@ -163,13 +194,38 @@ const useAuthStore = create((set, get) => ({
       }
     });
 
+    // 2. Put API returned schools
     apiSchools.forEach((s) => {
-      if (s.name && !schoolMap.has(s.name)) {
-        schoolMap.set(s.name, s);
+      const cleanName = (s.name || '').trim();
+      if (cleanName) {
+        const key = cleanName.toLowerCase();
+        if (!schoolMap.has(key)) {
+          schoolMap.set(key, {
+            ...s,
+            code: s.code || s.school_code || '',
+            is_registered: s.is_registered || false,
+          });
+        } else {
+          const existing = schoolMap.get(key);
+          schoolMap.set(key, {
+            ...existing,
+            ...s,
+            code: s.code || existing.code,
+            is_registered: true,
+          });
+        }
       }
     });
 
-    return Array.from(schoolMap.values());
+    const result = Array.from(schoolMap.values());
+    try {
+      const registeredOnly = result.filter((s) => s.is_registered);
+      if (registeredOnly.length > 0) {
+        localStorage.setItem('registered_schools', JSON.stringify(registeredOnly));
+      }
+    } catch (e) {}
+
+    return result;
   },
 
   // Quick Entry (Name + Phone -> Auto-generated ID)
