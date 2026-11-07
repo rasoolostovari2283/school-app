@@ -473,12 +473,14 @@
 
 .entryTabBtn {
   padding: 10px 6px;
+  min-height: 52px;
   border-radius: 13px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 750;
+  line-height: 1.35;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -488,6 +490,10 @@
   gap: 5px;
   text-align: center;
   position: relative;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .entryTabBtn:hover {
@@ -553,12 +559,14 @@
 
 .roleChip {
   padding: 10px 6px;
+  min-height: 58px;
   border-radius: 14px;
   border: 1.5px solid var(--border-color);
   background: var(--bg-body);
   color: var(--text-secondary);
   font-size: 0.8rem;
   font-weight: 750;
+  line-height: 1.35;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -567,6 +575,10 @@
   justify-content: center;
   gap: 5px;
   text-align: center;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .roleChipEmoji {
@@ -784,14 +796,24 @@
   position: relative;
   overflow: hidden;
   width: 100%;
+  min-height: 48px;
   margin-top: var(--space-2, 0.5rem);
-  padding: 13px 22px;
+  padding: 12px 20px;
   font-size: 1rem;
   font-weight: 800;
+  line-height: 1.45;
   border-radius: 14px;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 16px -2px rgba(79, 70, 229, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .submitBtn::before {
@@ -1328,5 +1350,19 @@
   .heroStatDivider {
     width: 60%;
     height: 1px;
+  }
+  .entryTabBtn {
+    font-size: 0.72rem;
+    padding: 8px 4px;
+    min-height: 48px;
+  }
+  .roleChip {
+    font-size: 0.74rem;
+    padding: 8px 4px;
+    min-height: 50px;
+  }
+  .submitBtn {
+    font-size: 0.95rem;
+    padding: 10px 14px;
   }
 }

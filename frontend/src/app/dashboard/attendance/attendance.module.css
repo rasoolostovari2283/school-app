@@ -778,13 +778,18 @@
   color: var(--text-secondary);
   font-size: 0.875rem;
   font-weight: 750;
+  line-height: 1.4;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   transition: all 0.2s ease;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .modeTabBtn:hover {

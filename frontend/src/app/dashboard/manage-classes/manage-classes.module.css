@@ -238,6 +238,7 @@
 .btnGroup {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -252,10 +253,15 @@
   padding: 11px 22px;
   font-size: 0.875rem;
   font-weight: 800;
+  line-height: 1.4;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3);
   transition: all 0.2s ease;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .primaryAddBtn:hover {

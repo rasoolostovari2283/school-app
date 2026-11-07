@@ -1779,8 +1779,11 @@ export default function LoginPage() {
                       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                       fontWeight: 800,
                       width: '100%',
-                      padding: '13px',
-                      fontSize: '0.95rem',
+                      padding: '12px 14px',
+                      fontSize: '0.92rem',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.45,
+                      textAlign: 'center',
                     }}
                     onClick={() => {
                       setRegisteredSchoolResult(null);
@@ -1799,7 +1802,10 @@ export default function LoginPage() {
                       color: '#4f46e5',
                       fontWeight: 800,
                       width: '100%',
-                      padding: '11px',
+                      padding: '11px 14px',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.45,
+                      textAlign: 'center',
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
@@ -1828,7 +1834,10 @@ export default function LoginPage() {
                       color: '#059669',
                       fontWeight: 800,
                       width: '100%',
-                      padding: '12px',
+                      padding: '11px 14px',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.45,
+                      textAlign: 'center',
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
@@ -1854,7 +1863,10 @@ export default function LoginPage() {
                     style={{
                       fontWeight: 750,
                       width: '100%',
-                      padding: '11px',
+                      padding: '11px 14px',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.45,
+                      textAlign: 'center',
                     }}
                     onClick={() => {
                       const sch = registeredSchoolResult;
