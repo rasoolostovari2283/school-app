@@ -138,7 +138,7 @@ const DEFAULT_LOGIN_SCHOOLS = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, quickEntry, parentLogin, registerSchool, demoLogin, fetchSchools } = useAuthStore();
+  const { login, quickEntry, parentLogin, registerSchool, demoLogin, fetchSchools, lookupSchoolByCode } = useAuthStore();
 
   // Demo Selection Modal State
   const [showDemoModal, setShowDemoModal] = useState(false);
@@ -151,6 +151,81 @@ export default function LoginPage() {
   const [availableSchools, setAvailableSchools] = useState(DEFAULT_LOGIN_SCHOOLS);
   const [customSchoolName, setCustomSchoolName] = useState('');
   const [isCustomSchoolSelected, setIsCustomSchoolSelected] = useState(false);
+
+  // Dedicated School Code Lookup & Verification State
+  const [schoolCodeInput, setSchoolCodeInput] = useState('');
+  const [isCheckingSchoolCode, setIsCheckingSchoolCode] = useState(false);
+  const [detectedSchool, setDetectedSchool] = useState(null);
+  const [schoolLookupError, setSchoolLookupError] = useState('');
+
+  // Handle Dynamic School Code Verification
+  const handleVerifySchoolCode = async (codeToVerify) => {
+    const raw = (codeToVerify !== undefined ? codeToVerify : schoolCodeInput).trim();
+    if (!raw) {
+      setDetectedSchool(null);
+      setSchoolLookupError('');
+      return;
+    }
+
+    setIsCheckingSchoolCode(true);
+    setSchoolLookupError('');
+
+    try {
+      let match = null;
+      if (lookupSchoolByCode) {
+        match = await lookupSchoolByCode(raw);
+      }
+      if (!match) {
+        match = availableSchools.find((s) => {
+          const sCode = (s.code || s.school_code || '').trim().toLowerCase();
+          const sName = (s.name || s.school_name || '').trim().toLowerCase();
+          return sCode === raw.toLowerCase() || sName === raw.toLowerCase();
+        });
+      }
+
+      if (match) {
+        const resolved = {
+          ...match,
+          code: match.code || match.school_code || raw,
+          school_code: match.code || match.school_code || raw,
+          name: match.name || match.school_name,
+        };
+        setDetectedSchool(resolved);
+        setSchoolCodeInput(resolved.code);
+        setSchoolLookupError('');
+        setSmartForm((prev) => ({
+          ...prev,
+          school_name: resolved.name,
+          school_code: resolved.code,
+        }));
+        setCustomSchoolName(resolved.name);
+        toast.success(`مدرسه «${resolved.name}» شناسایی و متصل شد ✅`, { duration: 4500 });
+      } else {
+        setDetectedSchool(null);
+        setSchoolLookupError(`مدرسه‌ای با کد «${raw}» در سامانه یافت نشد. لطفاً کد را مجدداً بررسی فرمایید یا از لیست زیر انتخاب کنید.`);
+      }
+    } catch (e) {
+      setDetectedSchool(null);
+      setSchoolLookupError('خطا در استعلام کد اختصاصی مدرسه');
+    } finally {
+      setIsCheckingSchoolCode(false);
+    }
+  };
+
+  // Handle Quick Selection from School List
+  const handleSelectSchool = (sch) => {
+    const code = sch.code || sch.school_code || '';
+    setSmartForm((prev) => ({
+      ...prev,
+      school_name: sch.name,
+      school_code: code,
+    }));
+    setSchoolCodeInput(code);
+    setDetectedSchool(sch);
+    setSchoolLookupError('');
+    setCustomSchoolName(sch.name);
+    toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
+  };
 
   // Load and merge schools
   const loadSchools = async () => {
@@ -200,6 +275,11 @@ export default function LoginPage() {
           }
           return prev;
         });
+        const prefCode = preferred.code || preferred.school_code || '';
+        if (prefCode) {
+          setSchoolCodeInput(prefCode);
+          setDetectedSchool(preferred);
+        }
       }
     } catch (e) {
       console.warn('Could not load schools:', e);
@@ -432,6 +512,9 @@ export default function LoginPage() {
         school_code: schoolObj.code,
       }));
       setCustomSchoolName(schoolObj.name);
+      setSchoolCodeInput(schoolObj.code);
+      setDetectedSchool(schoolObj);
+      setSchoolLookupError('');
       try {
         localStorage.setItem('last_registered_school', JSON.stringify(schoolObj));
       } catch (e) {}
@@ -838,11 +921,11 @@ export default function LoginPage() {
                 )}
               </div>
 
-              {/* ── School Selection for Student & Teacher ── */}
+              {/* ── School Selection & Code Verification for Student, Teacher & Admin ── */}
               <div className={styles.inputGroup}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className={styles.inputLabel} htmlFor="smart_school_input">
-                    🏛️ نام مدرسه یا کد اختصاصی مدرسه {smartForm.role === 'teacher' ? '(جهت اتصال به کادر آموزشی مدرسه)' : '(محل تحصیل)'}: *
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className={styles.inputLabel} htmlFor="smart_school_code_input">
+                    🏛️ اتصال به مدرسه و ستاد آموزشی {smartForm.role === 'teacher' ? '(جهت اتصال معلم به کادر مدرسه)' : smartForm.role === 'admin' ? '(مدیریت و شعب مدرسه)' : '(محل تحصیل دانش‌آموز)'}: *
                   </label>
                   {smartForm.school_name && (
                     <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 800 }}>
@@ -851,19 +934,169 @@ export default function LoginPage() {
                   )}
                 </div>
 
-                {/* Quick Selection for Registered Schools (مدارس ثبت‌شده سامانه) */}
+                {/* ── 1. PRIMARY: Dedicated Special School Code Input Box (وارد کردن کد مخصوص مدرسه جهت شناسایی هوشمند) ── */}
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%)',
+                  border: detectedSchool ? '1.5px solid #10b981' : '1.5px solid rgba(99, 102, 241, 0.35)',
+                  borderRadius: '16px',
+                  padding: '12px 14px',
+                  marginBottom: '10px',
+                  boxShadow: detectedSchool ? '0 4px 16px -2px rgba(16, 185, 129, 0.2)' : 'none',
+                  transition: 'all 0.25s ease',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🔑</span>
+                      <span>کد اختصاصی مدرسه (کد مخصوص صادرشده برای مدرسه شما):</span>
+                    </span>
+                    {detectedSchool && (
+                      <span style={{ fontSize: '0.74rem', color: '#059669', fontWeight: 800, background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '6px' }}>
+                        ✓ مدرسه متصل است
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      id="smart_school_code_input"
+                      type="text"
+                      className="input"
+                      style={{
+                        flex: 1,
+                        fontFamily: 'monospace, var(--font-fa)',
+                        fontWeight: 800,
+                        fontSize: '0.92rem',
+                        letterSpacing: '0.75px',
+                        background: 'var(--bg-card)',
+                        border: detectedSchool ? '1.5px solid #10b981' : undefined,
+                      }}
+                      placeholder="کد اختصاصی مدرسه (مانند SCH-1001 یا SCH-4821) را وارد نمایید..."
+                      value={schoolCodeInput}
+                      onChange={(e) => {
+                        const val = e.target.value.trim().toUpperCase();
+                        setSchoolCodeInput(val);
+                        if (!val) {
+                          setDetectedSchool(null);
+                          setSchoolLookupError('');
+                        }
+                      }}
+                      onBlur={() => {
+                        if (schoolCodeInput.trim() && (!detectedSchool || detectedSchool.code !== schoolCodeInput.trim())) {
+                          handleVerifySchoolCode(schoolCodeInput);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleVerifySchoolCode(schoolCodeInput);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => handleVerifySchoolCode(schoolCodeInput)}
+                      disabled={isCheckingSchoolCode || !schoolCodeInput.trim()}
+                      style={{
+                        padding: '10px 14px',
+                        fontSize: '0.84rem',
+                        fontWeight: 800,
+                        minWidth: '135px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {isCheckingSchoolCode ? 'در حال بررسی...' : '🔍 شناسایی مدرسه'}
+                    </button>
+                    {schoolCodeInput && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setSchoolCodeInput('');
+                          setDetectedSchool(null);
+                          setSchoolLookupError('');
+                          setSmartForm((prev) => ({ ...prev, school_name: '', school_code: '' }));
+                          setCustomSchoolName('');
+                        }}
+                        style={{ padding: '8px 10px', fontSize: '0.78rem' }}
+                        title="پاک کردن کد"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* کارت وضعیت شناسایی موفق مدرسه */}
+                  {detectedSchool && (
+                    <div style={{
+                      marginTop: '10px',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1.5px solid #10b981',
+                      borderRadius: '12px',
+                      padding: '10px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                      animation: 'fadeIn 0.25s ease',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 850, color: '#059669', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>🏛️</span>
+                          <span>مدرسه شناسایی شد: <strong>{detectedSchool.name}</strong></span>
+                        </span>
+                        <span style={{
+                          background: '#10b981',
+                          color: '#ffffff',
+                          fontSize: '0.75rem',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontFamily: 'monospace',
+                          fontWeight: 800,
+                          letterSpacing: '0.5px',
+                        }}>
+                          کد: {detectedSchool.code || detectedSchool.school_code}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '2px' }}>
+                        <span>📍 شهر: {detectedSchool.city || 'ثبت شده'}</span>
+                        <span>📚 مقطع: {detectedSchool.level || 'متوسطه دوم'}</span>
+                        <span style={{ color: '#059669', fontWeight: 750 }}>
+                          👥 شما با ثبت‌نام به عنوان زیرمجموعه این مدرسه متصل می‌گردید
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* خطا در صورت عدم تطابق کد اختصاصی */}
+                  {schoolLookupError && (
+                    <div style={{
+                      marginTop: '8px',
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#ef4444',
+                      borderRadius: '10px',
+                      padding: '8px 12px',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                    }}>
+                      ⚠️ {schoolLookupError}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── 2. Quick Selection for Registered Schools (مدارس ثبت‌شده سامانه) ── */}
                 {availableSchools.some((s) => s.is_registered) && (
                   <div style={{
-                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.09) 0%, rgba(99, 102, 241, 0.09) 100%)',
-                    border: '1.5px solid rgba(16, 185, 129, 0.35)',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.07) 0%, rgba(99, 102, 241, 0.07) 100%)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
                     borderRadius: '12px',
-                    padding: '10px 14px',
+                    padding: '10px 12px',
                     marginBottom: '8px',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span>✨</span>
-                        <span>مدارس ثبت‌شده در سامانه (کلیک جهت انتخاب و اتصال مستقیم معلم):</span>
+                        <span>مدارس ثبت‌شده در سامانه (کلیک جهت انتخاب و درج خودکار کد):</span>
                       </span>
                       {smartForm.school_name && (
                         <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
@@ -878,15 +1111,7 @@ export default function LoginPage() {
                           <button
                             key={sch.code || sch.id || sch.name}
                             type="button"
-                            onClick={() => {
-                              setSmartForm({
-                                ...smartForm,
-                                school_name: sch.name,
-                                school_code: sch.code || '',
-                              });
-                              setCustomSchoolName(sch.name);
-                              toast.success(`مدرسه «${sch.name}» انتخاب شد 👍`);
-                            }}
+                            onClick={() => handleSelectSchool(sch)}
                             style={{
                               background: isSelected ? 'linear-gradient(135deg, #10b981, #059669)' : 'var(--bg-surface)',
                               color: isSelected ? '#ffffff' : 'var(--text-primary)',
@@ -926,14 +1151,14 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* Direct Text Input with Datalist Autocomplete */}
+                {/* ── 3. Direct Text Input by School Name or Autocomplete ── */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     id="smart_school_input"
                     type="text"
                     list="available-schools-datalist"
                     className="input"
-                    placeholder="نام کامل یا کد اختصاصی مدرسه (مانند SCH-1001) را وارد فرمایید..."
+                    placeholder="یا نام کامل مدرسه (مانند علامه حلی) را تایپ نمایید..."
                     value={smartForm.school_name}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -943,12 +1168,18 @@ export default function LoginPage() {
                         (s.code && s.code.toLowerCase() === cleanVal.toLowerCase()) ||
                         (s.id && s.id.toLowerCase() === cleanVal.toLowerCase())
                       );
+                      const resolvedCode = found ? (found.code || '') : (cleanVal.toUpperCase().startsWith('SCH-') ? cleanVal.toUpperCase() : smartForm.school_code);
                       setSmartForm({
                         ...smartForm,
                         school_name: found ? found.name : val,
-                        school_code: found ? (found.code || '') : (cleanVal.toUpperCase().startsWith('SCH-') ? cleanVal.toUpperCase() : smartForm.school_code),
+                        school_code: resolvedCode,
                       });
                       setCustomSchoolName(val);
+                      if (found) {
+                        setDetectedSchool(found);
+                        setSchoolCodeInput(found.code || '');
+                        setSchoolLookupError('');
+                      }
                     }}
                     style={{ flex: 1, fontWeight: 750 }}
                     required
@@ -960,6 +1191,9 @@ export default function LoginPage() {
                       onClick={() => {
                         setSmartForm({ ...smartForm, school_name: '', school_code: '' });
                         setCustomSchoolName('');
+                        setSchoolCodeInput('');
+                        setDetectedSchool(null);
+                        setSchoolLookupError('');
                       }}
                       style={{ fontSize: '0.75rem', padding: '8px 10px', whiteSpace: 'nowrap' }}
                       title="پاک کردن متن"
@@ -989,12 +1223,16 @@ export default function LoginPage() {
                     onChange={(e) => {
                       if (e.target.value) {
                         const found = availableSchools.find((s) => s.name === e.target.value);
-                        setSmartForm({
-                          ...smartForm,
-                          school_name: e.target.value,
-                          school_code: found?.code || '',
-                        });
-                        setCustomSchoolName(e.target.value);
+                        if (found) {
+                          handleSelectSchool(found);
+                        } else {
+                          setSmartForm({
+                            ...smartForm,
+                            school_name: e.target.value,
+                            school_code: '',
+                          });
+                          setCustomSchoolName(e.target.value);
+                        }
                       }
                     }}
                     style={{ flex: 1, fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer' }}
@@ -1818,6 +2056,9 @@ export default function LoginPage() {
                         school_name: sch.name,
                         school_code: code,
                       }));
+                      setSchoolCodeInput(code);
+                      setDetectedSchool({ ...sch, code });
+                      setSchoolLookupError('');
                       setIsCustomSchoolSelected(false);
                       toast.success(`مدرسه «${sch.name}» با کد ${code} انتخاب شد! نام مدیر/معاون جدید شعبه را وارد فرمایید 🏛️`, { duration: 6000 });
                     }}
@@ -1850,8 +2091,11 @@ export default function LoginPage() {
                         school_name: sch.name,
                         school_code: code,
                       }));
+                      setSchoolCodeInput(code);
+                      setDetectedSchool({ ...sch, code });
+                      setSchoolLookupError('');
                       setIsCustomSchoolSelected(false);
-                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام دبیر را وارد فرمایید تا متصل شود 👨‍🏫`, { duration: 6000 });
+                      toast.success(`مدرسه «${sch.name}» با کد ${code} انتخاب شد! نام دبیر را وارد فرمایید تا متصل شود 👨‍🏫`, { duration: 6000 });
                     }}
                   >
                     👨‍🏫 ورود و اتصال معلمان به عنوان زیرشاخه این مدرسه
@@ -1879,8 +2123,11 @@ export default function LoginPage() {
                         school_name: sch.name,
                         school_code: code,
                       }));
+                      setSchoolCodeInput(code);
+                      setDetectedSchool({ ...sch, code });
+                      setSchoolLookupError('');
                       setIsCustomSchoolSelected(false);
-                      toast.success(`مدرسه «${sch.name}» انتخاب شد! نام دانش‌آموز را جهت اتصال به این مدرسه وارد فرمایید 🎓`, { duration: 6000 });
+                      toast.success(`مدرسه «${sch.name}» با کد ${code} انتخاب شد! نام دانش‌آموز را جهت اتصال به این مدرسه وارد فرمایید 🎓`, { duration: 6000 });
                     }}
                   >
                     🎓 ورود دانش‌آموزان به عنوان زیرشاخه این مدرسه

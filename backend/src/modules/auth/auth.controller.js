@@ -239,6 +239,29 @@ class AuthController {
   }
 
   /**
+   * GET /api/v1/auth/schools/lookup
+   * Dynamic lookup of a school by its special code or name
+   */
+  async lookupSchool(req, res, next) {
+    try {
+      const { code, name } = req.query;
+      const school = await authService.lookupSchool({ code, name });
+      if (!school) {
+        return res.status(404).json({
+          success: false,
+          message: 'مدرسه‌ای با این کد یا نام یافت نشد',
+        });
+      }
+      res.json({
+        success: true,
+        data: school,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/v1/auth/schools
    * Public list of registered schools for login page and dropdowns
    */

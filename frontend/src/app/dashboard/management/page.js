@@ -100,27 +100,46 @@ export default function ManagementDashboardPage() {
 
   // Load School Identity and Seed / Stored Data
   useEffect(() => {
-    // Determine active school info
-    let currentSchoolCode = user?.school_code || 'SCH-4821';
-    let currentSchoolName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-    let principalName = user?.display_name || user?.name || 'دکتر تقوی';
-    let schoolLevel = user?.school_level || 'دوره دوم متوسطه';
-    let schoolCity = user?.city || 'تهران';
+    // Determine active school info from user, settings, or registered schools
+    let userSettings = {};
+    if (user?.settings) {
+      try {
+        userSettings = typeof user.settings === 'string' ? JSON.parse(user.settings) : user.settings;
+      } catch (e) {}
+    }
 
-    // If registered via login recently, check localStorage.registered_schools
+    let currentSchoolCode = user?.school_code || userSettings.school_code || '';
+    let currentSchoolName = user?.school_name || userSettings.school_name || '';
+    let principalName = user?.display_name || user?.name || userSettings.admin_name || 'مدیریت مدرسه';
+    let schoolLevel = user?.school_level || userSettings.school_level || 'دوره دوم متوسطه';
+    let schoolCity = user?.city || userSettings.city || 'تهران';
+
+    // If registered via login recently, check localStorage.last_registered_school & registered_schools
     try {
+      const lastReg = JSON.parse(localStorage.getItem('last_registered_school') || 'null');
+      if (lastReg && (lastReg.school_code || lastReg.code)) {
+        currentSchoolCode = lastReg.school_code || lastReg.code;
+        currentSchoolName = lastReg.name || lastReg.school_name || currentSchoolName;
+        schoolLevel = lastReg.level || lastReg.school_level || schoolLevel;
+        schoolCity = lastReg.city || schoolCity;
+        principalName = lastReg.principal || lastReg.admin_name || principalName;
+      }
+
       const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
       if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentSchoolCode) || savedSchools[0];
+        const matched = savedSchools.find((s) => (s.school_code || s.code) === currentSchoolCode) || (!currentSchoolCode ? savedSchools[0] : null);
         if (matched) {
-          currentSchoolCode = matched.school_code;
-          currentSchoolName = matched.school_name;
-          schoolLevel = matched.school_level || schoolLevel;
+          currentSchoolCode = matched.school_code || matched.code || currentSchoolCode;
+          currentSchoolName = matched.name || matched.school_name || currentSchoolName;
+          schoolLevel = matched.school_level || matched.level || schoolLevel;
           schoolCity = matched.city || schoolCity;
-          principalName = matched.admin_name || principalName;
+          principalName = matched.admin_name || matched.principal || principalName;
         }
       }
     } catch (e) {}
+
+    if (!currentSchoolCode) currentSchoolCode = 'SCH-1001';
+    if (!currentSchoolName) currentSchoolName = 'مجتمع آموزشی هوشمند علامه حلی';
 
     setSchoolData({
       name: currentSchoolName,

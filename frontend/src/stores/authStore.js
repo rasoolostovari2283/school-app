@@ -228,6 +228,56 @@ const useAuthStore = create((set, get) => ({
     return result;
   },
 
+  // Dynamic Lookup for School by its Special Code or Name
+  lookupSchoolByCode: async (codeOrName) => {
+    if (!codeOrName || !codeOrName.trim()) return null;
+    const clean = codeOrName.trim();
+
+    // 1. Try local storage registered schools first for instant offline/fast hit
+    try {
+      const localSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
+      const lastReg = JSON.parse(localStorage.getItem('last_registered_school') || 'null');
+      const allLocal = lastReg ? [lastReg, ...localSchools] : localSchools;
+      const found = allLocal.find((s) => {
+        const sCode = (s.school_code || s.code || '').trim().toLowerCase();
+        const sName = (s.name || s.school_name || '').trim().toLowerCase();
+        return sCode === clean.toLowerCase() || sName === clean.toLowerCase();
+      });
+      if (found) {
+        return {
+          id: found.id || found.school_code || found.code,
+          name: found.name || found.school_name,
+          code: found.school_code || found.code,
+          school_code: found.school_code || found.code,
+          city: found.city || 'ایران',
+          level: found.level || found.school_level || 'متوسطه دوم',
+          is_registered: true,
+        };
+      }
+    } catch (e) {}
+
+    // 2. Try API lookup endpoint
+    try {
+      const res = await api.get(`/auth/schools/lookup?code=${encodeURIComponent(clean)}&name=${encodeURIComponent(clean)}`, { timeout: 3000 });
+      if (res.data?.success && res.data.data) {
+        return res.data.data;
+      }
+    } catch (e) {}
+
+    // 3. Fallback: Query all schools from fetchSchools and filter
+    try {
+      const schools = await get().fetchSchools();
+      const match = schools.find((s) => {
+        const sCode = (s.code || s.school_code || '').trim().toLowerCase();
+        const sName = (s.name || s.school_name || '').trim().toLowerCase();
+        return sCode === clean.toLowerCase() || sName === clean.toLowerCase();
+      });
+      if (match) return match;
+    } catch (e) {}
+
+    return null;
+  },
+
   // Quick Entry (Name + Phone -> Auto-generated ID)
   quickEntry: async (entryData) => {
     try {

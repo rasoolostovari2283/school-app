@@ -97,13 +97,20 @@ export default function ManageClassesPage() {
     let principalName = user?.display_name || user?.name || 'مدیر / دبیر گرامی';
 
     try {
+      const lastReg = JSON.parse(localStorage.getItem('last_registered_school') || 'null');
+      if (lastReg && (lastReg.school_code || lastReg.code)) {
+        currentCode = lastReg.school_code || lastReg.code;
+        currentName = lastReg.name || lastReg.school_name || currentName;
+        principalName = lastReg.principal || lastReg.admin_name || principalName;
+      }
+
       const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
       if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentCode) || savedSchools[0];
+        const matched = savedSchools.find((s) => (s.school_code || s.code) === currentCode) || (!currentCode ? savedSchools[0] : null);
         if (matched) {
-          currentCode = matched.school_code;
-          currentName = matched.school_name;
-          principalName = matched.admin_name || principalName;
+          currentCode = matched.school_code || matched.code || currentCode;
+          currentName = matched.name || matched.school_name || currentName;
+          principalName = matched.admin_name || matched.principal || principalName;
         }
       }
     } catch (e) {}

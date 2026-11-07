@@ -129,6 +129,9 @@ class AuthService {
       user.school_id = schoolRecord.id;
     }
 
+    user.school_name = school_name.trim();
+    user.school_code = schoolRecord?.code || school_code;
+
     const school = {
       id: schoolRecord?.id || `sch-${Date.now()}`,
       school_code: schoolRecord?.code || school_code,
@@ -141,6 +144,119 @@ class AuthService {
     };
 
     return { user, school, ...tokens };
+  }
+
+  /**
+   * Lookup a school dynamically by code or name
+   */
+  async lookupSchool({ code, name }) {
+    const cleanCode = code ? code.trim() : null;
+    const cleanName = name ? name.trim() : null;
+
+    if (!cleanCode && !cleanName) return null;
+
+    let school = null;
+
+    // 1. Search in schools table by code
+    if (cleanCode) {
+      school = await db('schools')
+        .where({ code: cleanCode })
+        .orWhereRaw('LOWER(code) = ?', [cleanCode.toLowerCase()])
+        .first();
+    }
+
+    // 2. Search in schools table by name
+    if (!school && cleanName) {
+      school = await db('schools')
+        .where({ name: cleanName })
+        .orWhereRaw('LOWER(name) = ?', [cleanName.toLowerCase()])
+        .first();
+    }
+
+    // 3. Search in admin users settings
+    if (!school) {
+      try {
+        const admins = await db('users').where({ role: 'admin' }).select('id', 'settings', 'school_id');
+        for (const admin of admins) {
+          let s = {};
+          try {
+            s = typeof admin.settings === 'string' ? JSON.parse(admin.settings) : (admin.settings || {});
+          } catch (e) {}
+
+          const sCode = (s.school_code || '').trim();
+          const sName = (s.school_name || '').trim();
+
+          const codeMatch = cleanCode && sCode && sCode.toLowerCase() === cleanCode.toLowerCase();
+          const nameMatch = cleanName && sName && sName.toLowerCase() === cleanName.toLowerCase();
+
+          if (codeMatch || nameMatch) {
+            school = {
+              id: admin.school_id || `sch-${admin.id}`,
+              name: sName || 'مدرسه ثبت‌شده',
+              code: sCode || cleanCode || `SCH-${Math.floor(1000 + Math.random() * 9000)}`,
+              city: s.city || 'تهران',
+              level: s.school_level || 'متوسطه دوم',
+              is_registered: true,
+            };
+            // Ensure persisted in schools table
+            try {
+              const existing = await db('schools').where({ name: school.name }).first();
+              if (!existing) {
+                const inserted = await insertAndReturn(db, 'schools', {
+                  id: generateId(),
+                  name: school.name,
+                  code: school.code,
+                  city: school.city,
+                  created_by: admin.id,
+                });
+                if (inserted) {
+                  school.id = inserted.id;
+                  await db('users').where({ id: admin.id }).update({ school_id: inserted.id });
+                }
+              } else {
+                school.id = existing.id;
+                school.code = existing.code || school.code;
+              }
+            } catch (err) {}
+            break;
+          }
+        }
+      } catch (err) {}
+    }
+
+    // 4. Search in default schools
+    if (!school) {
+      const defaultSchools = [
+        { id: 'sch-1', name: 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)', code: 'SCH-1001', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+        { id: 'sch-2', name: 'دبیرستان فرزانگان ۱ (تهران)', code: 'SCH-1002', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+        { id: 'sch-3', name: 'مجتمع آموزشی هوشمند ادیبان', code: 'SCH-1003', city: 'تهران', level: 'مجتمع آموزشی کامل' },
+        { id: 'sch-4', name: 'دبیرستان نمونه دولتی رشد', code: 'SCH-1004', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+        { id: 'sch-5', name: 'دبیرستان ماندگار البرز', code: 'SCH-1005', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
+        { id: 'sch-6', name: 'مدرسه هوشمند دانشمند', code: 'SCH-1006', city: 'تهران', level: 'دبستان (ابتدایی)' },
+        { id: 'sch-7', name: 'هنرستان فنی نمونه شهید بهشتی', code: 'SCH-1007', city: 'تهران', level: 'هنرستان فنی و حرفه‌ای' },
+      ];
+      const match = defaultSchools.find((ds) => 
+        (cleanCode && ds.code.toLowerCase() === cleanCode.toLowerCase()) ||
+        (cleanName && ds.name.toLowerCase() === cleanName.toLowerCase())
+      );
+      if (match) {
+        school = { ...match, is_registered: false };
+      }
+    }
+
+    if (school) {
+      return {
+        id: school.id,
+        name: school.name,
+        code: school.code || school.school_code,
+        school_code: school.code || school.school_code,
+        city: school.city || 'تهران',
+        level: school.level || school.school_level || 'متوسطه دوم',
+        is_registered: school.is_registered !== undefined ? school.is_registered : true,
+      };
+    }
+
+    return null;
   }
 
   /**
@@ -246,26 +362,28 @@ class AuthService {
       user = await db('users').where({ display_name: cleanName, role: role || 'student' }).first();
     }
 
-    // Resolve school if provided
+    // Resolve school if provided (by school_code OR school_name)
     let matchedSchool = null;
-    if (school_name && school_name.trim()) {
-      const cleanSchoolName = school_name.trim();
-      matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-      if (!matchedSchool && school_code) {
-        matchedSchool = await db('schools').where({ code: school_code.trim() }).first();
-      }
-      if (!matchedSchool) {
-        try {
-          const randSuffix = Math.floor(1000 + Math.random() * 9000);
-          matchedSchool = await insertAndReturn(db, 'schools', {
-            id: generateId(),
-            name: cleanSchoolName,
-            code: school_code || `SCH-${randSuffix}`,
-            city: 'تهران',
-          });
-        } catch (e) {
-          matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-        }
+    const cleanSchoolCode = school_code ? school_code.trim() : null;
+    const cleanSchoolName = school_name ? school_name.trim() : null;
+
+    if (cleanSchoolCode) {
+      matchedSchool = await this.lookupSchool({ code: cleanSchoolCode });
+    }
+    if (!matchedSchool && cleanSchoolName) {
+      matchedSchool = await this.lookupSchool({ name: cleanSchoolName });
+    }
+    if (!matchedSchool && cleanSchoolName) {
+      try {
+        const randSuffix = Math.floor(1000 + Math.random() * 9000);
+        matchedSchool = await insertAndReturn(db, 'schools', {
+          id: generateId(),
+          name: cleanSchoolName,
+          code: cleanSchoolCode || `SCH-${randSuffix}`,
+          city: 'تهران',
+        });
+      } catch (e) {
+        matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
       }
     }
 
@@ -304,6 +422,7 @@ class AuthService {
 
       user.school_id = matchedSchool ? matchedSchool.id : user.school_id;
       user.school_name = matchedSchool ? matchedSchool.name : (settings.school_name || null);
+      user.school_code = matchedSchool ? matchedSchool.code : (settings.school_code || null);
       user.settings = JSON.stringify(settings);
 
       delete user.password_hash;
@@ -350,6 +469,7 @@ class AuthService {
     });
 
     newUser.school_name = matchedSchool ? matchedSchool.name : null;
+    newUser.school_code = matchedSchool ? matchedSchool.code : null;
     delete newUser.password_hash;
     const tokens = this.generateTokens(newUser.id, newUser.role);
     return { user: newUser, isNew: true, ...tokens };
@@ -359,7 +479,7 @@ class AuthService {
     const cleanId = (identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
 
-    const user = await db('users')
+    let user = await db('users')
       .where({ email: cleanId })
       .orWhere({ phone: cleanId })
       .orWhere({ student_code: cleanId })
@@ -367,6 +487,14 @@ class AuthService {
       .orWhereRaw('LOWER(username) = ?', [cleanUsername])
       .orWhereRaw('LOWER(display_name) = ?', [cleanId.toLowerCase()])
       .first();
+
+    // If still not found, check if identifier is a school code (e.g. SCH-1234)
+    if (!user) {
+      const sch = await db('schools').where({ code: cleanId }).orWhereRaw('LOWER(code) = ?', [cleanId.toLowerCase()]).first();
+      if (sch) {
+        user = await db('users').where({ school_id: sch.id, role: 'admin' }).first();
+      }
+    }
 
     if (!user) {
       const error = new Error('کاربری با این شناسه کاربری، آیدی یا شماره تلفن یافت نشد');
@@ -383,6 +511,22 @@ class AuthService {
         error.statusCode = 401;
         throw error;
       }
+    }
+
+    // Populate user's school_name and school_code
+    if (user.school_id) {
+      const sch = await db('schools').where({ id: user.school_id }).first();
+      if (sch) {
+        user.school_name = sch.name;
+        user.school_code = sch.code;
+      }
+    }
+    if (!user.school_name || !user.school_code) {
+      try {
+        const s = typeof user.settings === 'string' ? JSON.parse(user.settings) : (user.settings || {});
+        if (!user.school_name && s.school_name) user.school_name = s.school_name;
+        if (!user.school_code && s.school_code) user.school_code = s.school_code;
+      } catch (e) {}
     }
 
     delete user.password_hash;
