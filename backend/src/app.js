@@ -129,6 +129,7 @@ const limiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: {
     success: false,
     message: 'تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند دقیقه صبر کنید.',
@@ -143,6 +144,7 @@ const authLimiter = rateLimit({
   max: 30, // max 30 attempts per 15 min per IP
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: {
     success: false,
     message: 'تعداد تلاش‌های ورود بیش از حد مجاز است. لطفاً ۱۵ دقیقه دیگر تلاش فرمایید.',
@@ -270,7 +272,9 @@ const getActiveTunnelUrl = () => {
 
 const appUpdateHandler = (req, res) => {
   const syncData = getSyncStatusData();
-  const commitHash = syncData?.commit_hash || 'e66b9a9';
+  const commitHash = syncData?.commit_hash || '81da599';
+  const reqHost = req.get('host') || '192.168.1.103:3000';
+  const protocol = req.protocol || 'http';
   res.json({
     success: true,
     version: '1.2.0',
@@ -280,7 +284,7 @@ const appUpdateHandler = (req, res) => {
     commit_author: syncData?.commit_author || 'EduConnect Team',
     commit_date: syncData?.commit_date || new Date().toISOString(),
     last_sync: syncData?.last_sync || new Date().toISOString(),
-    live_url: 'http://192.168.1.108',
+    live_url: reqHost.includes('pinggy') ? 'http://192.168.1.103:3000' : `${protocol}://${reqHost}`,
     tunnel_url: getActiveTunnelUrl(),
     ota_mode: 'hybrid_live_switch',
     apk_download_url: '/api/v1/system/download-apk'

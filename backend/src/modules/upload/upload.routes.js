@@ -2,7 +2,29 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const sharp = require('sharp');
+
+let sharp = null;
+try {
+  // On Linux x86_64, prebuilt libvips requires SSSE3 / SSE4.2 instructions (x86-64-v2).
+  // Older host CPUs (e.g. AMD Phenom II / Athlon) will instantly crash the entire process with SIGILL (Illegal instruction).
+  let isCpuCompatible = true;
+  if (process.platform === 'linux' && fs.existsSync('/proc/cpuinfo')) {
+    const cpuInfo = fs.readFileSync('/proc/cpuinfo', 'utf8');
+    if (!cpuInfo.includes('ssse3')) {
+      isCpuCompatible = false;
+    }
+  }
+
+  if (isCpuCompatible) {
+    sharp = require('sharp');
+  } else {
+    console.warn('⚠️ [Image Optimization] Host CPU lacks SSSE3 instructions. Bypassing native Sharp to prevent SIGILL crash.');
+  }
+} catch (e) {
+  console.warn('⚠️ [Image Optimization] Sharp could not be loaded:', e.message);
+  sharp = null;
+}
+
 const upload = require('../../middleware/upload');
 const { authenticate } = require('../../middleware/auth');
 
@@ -16,7 +38,7 @@ router.use(authenticate);
  * - Generates a companion thumbnail for lightning-fast preview rendering
  */
 async function processImageOptimization(file) {
-  if (!file || !file.mimetype || !file.mimetype.startsWith('image/')) {
+  if (!sharp || !file || !file.mimetype || !file.mimetype.startsWith('image/')) {
     return { thumbUrl: null };
   }
   if (file.mimetype === 'image/svg+xml' || file.mimetype === 'image/gif') {
