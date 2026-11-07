@@ -47,7 +47,7 @@ $installDir = "C:\EduConnect"
 Write-Host "[3/5] در حال دریافت آخرین نسخه کدهای پروژه از گیت‌هاب..." -ForegroundColor Yellow
 if (-not (Test-Path "$installDir\.git")) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    git clone https://github.com/rasoolostovari2283/school-app.git $installDir
+    git clone https://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@github.com/rasoolostovari2283/school-app.git $installDir
 } else {
     Set-Location $installDir
     git pull origin main
@@ -98,3 +98,4 @@ Write-Host "اکنون تونل کلودفلر راه‌اندازی می‌شو
 Write-Host "==========================================================" -ForegroundColor Green
 
 & "$cfDir\cloudflared.exe" tunnel --url http://localhost:3000
+
