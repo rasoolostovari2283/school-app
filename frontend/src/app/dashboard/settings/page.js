@@ -80,10 +80,109 @@ export default function SettingsPage() {
   const [serverStatus, setServerStatus] = useState(null);
   const [isDetectingServer, setIsDetectingServer] = useState(false);
 
+  // OTA Live Update State
+  const [updateInfo, setUpdateInfo] = useState({
+    currentBuild: '',
+    remoteBuild: '',
+    commitMessage: '',
+    commitAuthor: '',
+    commitDate: '',
+    lastSync: '',
+    hasUpdate: false,
+    hasChecked: false,
+  });
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+
+  const checkLatestUpdate = async (showFeedback = true) => {
+    setIsCheckingUpdate(true);
+    let toastId = null;
+    if (showFeedback) {
+      toastId = toast.loading('در حال بررسی سریع نسخه سرور (حداکثر ۲ ثانیه)...');
+    }
+
+    try {
+      let res = null;
+      try {
+        res = await api.get('/system/app-version', { timeout: 3000 });
+      } catch (err) {
+        const detected = await autoDetectServer();
+        if (detected.success && detected.data) {
+          res = { data: detected.data };
+          setServerUrl(detected.url);
+        }
+      }
+
+      if (res?.data?.success && res.data.build) {
+        const remoteBuild = res.data.build;
+        const savedBuild = localStorage.getItem('educonnect_active_build') || remoteBuild;
+        if (!localStorage.getItem('educonnect_active_build')) {
+          localStorage.setItem('educonnect_active_build', remoteBuild);
+        }
+
+        const hasNew = remoteBuild !== savedBuild;
+        setUpdateInfo({
+          currentBuild: savedBuild,
+          remoteBuild: remoteBuild,
+          commitMessage: res.data.commit_message || 'به‌روزرسانی و پایداری عملکرد سامانه',
+          commitAuthor: res.data.commit_author || 'EduConnect Team',
+          commitDate: res.data.commit_date || res.data.last_sync,
+          lastSync: res.data.last_sync,
+          hasUpdate: hasNew,
+          hasChecked: true,
+        });
+
+        if (showFeedback) {
+          if (hasNew) {
+            toast.success(`نسخه جدیدتر (${remoteBuild.substring(0, 7)}) بر روی سرور موجود است! 🚀`, { id: toastId, duration: 4000 });
+          } else {
+            toast.success(`شما در حال استفاده از آخرین نسخه هستید (${remoteBuild.substring(0, 7)}) ✅`, { id: toastId });
+          }
+        }
+      } else {
+        if (showFeedback) {
+          toast.error('سرور پاسخ نداد. لطفاً وضعیت وای‌فای یا اینترنت را بررسی فرمایید.', { id: toastId });
+        }
+      }
+    } catch (e) {
+      if (showFeedback) {
+        toast.error('خطا در ارتباط با سرور.', { id: toastId });
+      }
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    setIsApplyingUpdate(true);
+    const toastId = toast.loading('در حال دریافت پچ و پاکسازی حافظه موقت...');
+    try {
+      if (updateInfo.remoteBuild) {
+        localStorage.setItem('educonnect_active_build', updateInfo.remoteBuild);
+      }
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        } catch (e) {}
+      }
+      toast.success('پچ با موفقیت اعمال شد! در حال راه‌اندازی مجدد... 🚀', { id: toastId });
+      setTimeout(() => {
+        window.location.reload(true);
+      }, 800);
+    } catch (err) {
+      toast.error('خطا در اعمال پچ', { id: toastId });
+      setIsApplyingUpdate(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const active = localStorage.getItem('server_api_url') || getApiBaseUrl();
       setServerUrl(active);
+      const savedBuild = localStorage.getItem('educonnect_active_build') || '';
+      setUpdateInfo((prev) => ({ ...prev, currentBuild: savedBuild }));
+      checkLatestUpdate(false);
     }
   }, []);
 
@@ -722,53 +821,173 @@ export default function SettingsPage() {
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
 
-          {/* OTA Update Trigger */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <h4 style={{ fontWeight: 600 }}>به‌روزرسانی زنده ظاهر و امکانات (OTA)</h4>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                دریافت آخرین تغییرات پنل‌ها و کدها از سرور بدون نیاز به دانلود فایل APK جدید
-              </p>
+          {/* OTA Update Center */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(6, 182, 212, 0.06) 100%)',
+            border: '1px solid rgba(99, 102, 241, 0.22)',
+            borderRadius: 'var(--radius-2xl)',
+            padding: '20px 22px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+            marginTop: '8px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #4f46e5, #06b6d4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontSize: '1.35rem',
+                  boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)',
+                }}>
+                  <HiOutlineSparkles />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    مرکز دریافت و بررسی آخرین آپدیت سامانه (OTA)
+                  </h4>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.8125rem', color: 'var(--text-tertiary)' }}>
+                    دریافت بلادرنگ آخرین تغییرات و پچ‌های ثبت‌شده از سرور بدون نیاز به دانلود فایل نصبی جدید
+                  </p>
+                </div>
+              </div>
+
+              {/* Version Comparison Badge */}
+              {updateInfo.hasChecked && (
+                <div style={{
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-full)',
+                  fontSize: '0.8125rem',
+                  fontWeight: 750,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: updateInfo.hasUpdate ? 'rgba(16, 185, 129, 0.15)' : 'rgba(99, 102, 241, 0.12)',
+                  color: updateInfo.hasUpdate ? '#10b981' : '#6366f1',
+                  border: `1px solid ${updateInfo.hasUpdate ? 'rgba(16, 185, 129, 0.35)' : 'rgba(99, 102, 241, 0.25)'}`,
+                }}>
+                  <span>{updateInfo.hasUpdate ? '🚀 آپدیت جدیدتر موجود است' : '✅ سامانه شما کاملاً به‌روز است'}</span>
+                </div>
+              )}
             </div>
 
-            <button
-              type="button"
-              className={styles.saveBtn}
-              style={{
-                width: 'auto',
-                padding: '10px 22px',
-                whiteSpace: 'nowrap',
-                background: 'linear-gradient(135deg, #4f46e5, #06b6d4)'
-              }}
-              onClick={async () => {
-                const loadId = toast.loading('در حال بررسی و دریافت آخرین نسخه سرور...');
-                try {
-                  // 1. Try directly
-                  let res = null;
-                  try {
-                    res = await api.get('/system/app-version');
-                  } catch (e) {
-                    const detected = await autoDetectServer();
-                    if (detected.success) res = { data: detected.data };
-                  }
+            {/* Version Information Grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '10px',
+              background: 'var(--bg-body)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius-xl)',
+              padding: '12px 16px',
+            }}>
+              <div>
+                <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', display: 'block' }}>
+                  نسخه فعال در مرورگر شما:
+                </span>
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.95rem',
+                  fontWeight: 800,
+                  color: 'var(--text-primary)',
+                  direction: 'ltr',
+                  display: 'inline-block',
+                }}>
+                  {updateInfo.currentBuild ? updateInfo.currentBuild.substring(0, 7) : 'نسخه اولیه'}
+                </span>
+              </div>
 
-                  if (res?.data?.success) {
-                    const buildName = res.data.build?.substring(0, 7) || 'جدید';
-                    toast.success(`به‌روزرسانی موفق! نسخه ${buildName} اعمال شد.`, { id: loadId });
-                    localStorage.setItem('educonnect_active_build', res.data.build || 'latest');
-                    setTimeout(() => {
-                      window.location.reload(true);
-                    }, 1000);
-                  } else {
-                    toast.error('پاسخی از سرور دریافت نشد. لطفاً دکمه «شناسایی خودکار» را بزنید.', { id: loadId });
-                  }
-                } catch (e) {
-                  toast.error('خطا در برقراری ارتباط با سرور. لطفاً آدرس سرور را تنظیم فرمایید.', { id: loadId });
-                }
-              }}
-            >
-              بررسی و دریافت آپدیت زنده
-            </button>
+              <div>
+                <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', display: 'block' }}>
+                  آخرین نسخه موجود در سرور:
+                </span>
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.95rem',
+                  fontWeight: 800,
+                  color: updateInfo.hasUpdate ? '#10b981' : 'var(--primary-500)',
+                  direction: 'ltr',
+                  display: 'inline-block',
+                }}>
+                  {updateInfo.remoteBuild ? updateInfo.remoteBuild.substring(0, 7) : 'در حال استعلام...'}
+                </span>
+              </div>
+
+              {updateInfo.lastSync && (
+                <div>
+                  <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)', display: 'block' }}>
+                    زمان آخرین انتشار پچ:
+                  </span>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {new Date(updateInfo.lastSync).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) + ' - ' + new Date(updateInfo.lastSync).toLocaleDateString('fa-IR')}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Commit Message Box */}
+            {updateInfo.commitMessage && (
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRight: '3px solid #6366f1',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                fontSize: '0.82rem',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.5,
+              }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>عنوان آخرین پچ گیت‌هاب: </span>
+                <span>{updateInfo.commitMessage}</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={isCheckingUpdate}
+                onClick={() => checkLatestUpdate(true)}
+                style={{
+                  width: 'auto',
+                  padding: '10px 20px',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                }}
+              >
+                <HiOutlineArrowPath className={isCheckingUpdate ? 'spin' : ''} style={{ fontSize: '1rem' }} />
+                <span>{isCheckingUpdate ? 'در حال بررسی سریع...' : 'بررسی مجدد آخرین نسخه 🔄'}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={isApplyingUpdate}
+                onClick={handleApplyUpdate}
+                style={{
+                  width: 'auto',
+                  padding: '10px 20px',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: updateInfo.hasUpdate
+                    ? 'linear-gradient(135deg, #059669, #10b981)'
+                    : 'linear-gradient(135deg, #0284c7, #06b6d4)',
+                }}
+              >
+                <span>{updateInfo.hasUpdate ? '🚀 اعمال آنی پچ جدید' : '⚡ پاکسازی کش و رفرش برنامه'}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

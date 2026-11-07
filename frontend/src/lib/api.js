@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export const DEFAULT_LOCAL_API = 'http://192.168.1.102/api/v1';
+export const DEFAULT_LOCAL_API = 'http://192.168.1.108/api/v1';
 export const DEFAULT_TUNNEL_API = 'https://uywtc-89-43-93-194.run.pinggy-free.link/api/v1';
 export const REGISTRY_GIST_RAW = 'https://gist.githubusercontent.com/rasoolostovari2283/dc4b18cafa978e951913e8b4b832d817/raw/tunnel.json';
 export const REGISTRY_GIST_API = 'https://api.github.com/gists/dc4b18cafa978e951913e8b4b832d817';
@@ -47,23 +47,26 @@ export function resetToDefaultWifi() {
   return DEFAULT_LOCAL_API;
 }
 
-export async function probeServer(url) {
+export async function probeServer(url, timeoutMs = 2500) {
+  if (!url || typeof url !== 'string') return { success: false };
   try {
     const clean = url.trim().replace(/\/+$/, '');
     const testUrl = clean.endsWith('/api/v1') ? `${clean}/system/app-version` : `${clean}/api/v1/system/app-version`;
     const res = await axios.get(testUrl, {
-      timeout: 8000,
+      timeout: timeoutMs,
     });
     if (res.status === 200 || (res.data && res.data.success)) {
-      return { success: true, data: res.data };
+      const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+      return { success: true, data: res.data, url: finalUrl };
     }
   } catch (e) {
     try {
       const clean = url.trim().replace(/\/+$/, '');
       const healthUrl = clean.endsWith('/api/v1') ? clean.replace('/api/v1', '/api/health') : `${clean}/api/health`;
-      const res2 = await axios.get(healthUrl, { timeout: 6000 });
+      const res2 = await axios.get(healthUrl, { timeout: Math.min(timeoutMs, 2000) });
       if (res2.status === 200 || (res2.data && res2.data.success)) {
-        return { success: true, data: res2.data };
+        const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+        return { success: true, data: res2.data, url: finalUrl };
       }
     } catch (e2) {}
     return { success: false, error: e.message };
@@ -79,7 +82,7 @@ export async function fetchLiveTunnelFromRegistry() {
 
   for (const src of sources) {
     try {
-      const res = await axios.get(src, { timeout: 6000 });
+      const res = await axios.get(src, { timeout: 3500 });
       let liveUrl = null;
       if (res.data) {
         if (res.data.api_url) {
@@ -101,45 +104,66 @@ export async function fetchLiveTunnelFromRegistry() {
 
 export async function autoDetectServer() {
   if (typeof window === 'undefined') return { success: false };
-  const current = localStorage.getItem('server_api_url');
+  const current = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
+
+  // Dynamic host candidate if accessing from a browser on the local network
+  const hostCandidates = [];
+  if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    hostCandidates.push(`http://${window.location.hostname}:5000/api/v1`);
+    hostCandidates.push(`http://${window.location.hostname}/api/v1`);
+  }
+
   const candidates = [
-    DEFAULT_LOCAL_API,
-    'http://192.168.1.102:3000/api/v1',
-    'http://192.168.1.104/api/v1',
-    'http://192.168.1.108/api/v1',
-    DEFAULT_TUNNEL_API,
     current,
+    ...hostCandidates,
+    'http://localhost:5000/api/v1',
+    'http://192.168.1.108:5000/api/v1',
+    'http://192.168.1.108/api/v1',
+    'http://192.168.1.104/api/v1',
+    'http://192.168.1.102/api/v1',
+    DEFAULT_LOCAL_API,
+    DEFAULT_TUNNEL_API,
   ].filter(Boolean);
 
   // Remove duplicates
   const uniqueCandidates = [...new Set(candidates)];
 
-  for (const url of uniqueCandidates) {
-    const result = await probeServer(url);
-    if (result.success) {
-      const clean = url.trim().replace(/\/+$/, '');
-      const finalBase = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
-      setApiBaseUrl(finalBase);
-      return { success: true, url: finalBase, data: result.data };
+  // Fast parallel probe: test all candidates concurrently so it finishes in < 2.5 seconds
+  try {
+    const probePromises = uniqueCandidates.map((url) =>
+      probeServer(url, 2500).then((result) => {
+        if (result && result.success) return result;
+        throw new Error('Unreachable');
+      })
+    );
+
+    const fastest = await Promise.any(probePromises);
+    if (fastest && fastest.success) {
+      setApiBaseUrl(fastest.url);
+      return { success: true, url: fastest.url, data: fastest.data };
     }
+  } catch (err) {
+    // All direct candidates failed or timed out
   }
 
   // Fallback: fetch dynamic tunnel from cloud registry
-  const liveTunnel = await fetchLiveTunnelFromRegistry();
-  if (liveTunnel) {
-    const result = await probeServer(liveTunnel);
-    if (result.success) {
-      setApiBaseUrl(liveTunnel);
-      return { success: true, url: liveTunnel, data: result.data };
+  try {
+    const liveTunnel = await fetchLiveTunnelFromRegistry();
+    if (liveTunnel) {
+      const result = await probeServer(liveTunnel, 3000);
+      if (result.success) {
+        setApiBaseUrl(liveTunnel);
+        return { success: true, url: liveTunnel, data: result.data };
+      }
     }
-  }
+  } catch (regErr) {}
 
   return { success: false };
 }
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 30000,
+  timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
   },

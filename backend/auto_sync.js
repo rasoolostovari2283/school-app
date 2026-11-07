@@ -5,7 +5,7 @@ const path = require('path');
 const REPO_DIR = path.join(process.env.HOME, 'school-app-repo');
 const BACKEND_DIR = path.join(process.env.HOME, 'educonnect-backend');
 const STATUS_FILE = path.join(BACKEND_DIR, 'sync_status.json');
-const POLL_INTERVAL_MS = 30 * 1000; // Poll GitHub every 30 seconds
+const POLL_INTERVAL_MS = 15 * 1000; // Poll GitHub every 15 seconds for rapid updates
 
 function log(msg) {
   const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -61,6 +61,21 @@ function checkAndSync() {
       } catch (npmErr) {
         log(`Notice on npm install: ${npmErr.message}`);
       }
+    }
+
+    // 4.1 Update live frontend files if present on server
+    try {
+      const frontendRepo = path.join(REPO_DIR, 'frontend');
+      const frontendLive = path.join(process.env.HOME, 'educonnect-frontend');
+      if (fs.existsSync(frontendLive) && fs.existsSync(frontendRepo)) {
+        log('Updating live frontend files...');
+        execSync(`cp -ru ${frontendRepo}/* ${frontendLive}/`, { stdio: 'pipe' });
+        try {
+          execSync('pm2 reload educonnect-frontend || pm2 reload next-frontend', { stdio: 'pipe' });
+        } catch (pm2fErr) {}
+      }
+    } catch (fErr) {
+      log(`Notice on frontend sync: ${fErr.message}`);
     }
 
     // 5. Automatic Database Backup & Zero-Loss Protection

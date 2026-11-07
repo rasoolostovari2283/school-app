@@ -4,8 +4,6 @@ import api, { autoDetectServer } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { HiOutlineArrowPath, HiOutlineCheckCircle, HiOutlineSparkles } from 'react-icons/hi2';
 
-const CURRENT_LOCAL_BUILD = 'e59160c';
-
 export default function AutoUpdateChecker() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [remoteInfo, setRemoteInfo] = useState(null);
@@ -13,53 +11,86 @@ export default function AutoUpdateChecker() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Check for updates on mount after 3 seconds
+    // Check for updates on mount after 2.5 seconds
     const timer = setTimeout(() => {
       checkUpdate();
-    }, 3000);
-    return () => clearTimeout(timer);
+    }, 2500);
+
+    // Listen for manual update check events
+    const handleManualCheck = () => checkUpdate(true);
+    window.addEventListener('educonnect_check_update', handleManualCheck);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('educonnect_check_update', handleManualCheck);
+    };
   }, []);
 
-  const checkUpdate = async () => {
+  const checkUpdate = async (manual = false) => {
     try {
       let res = null;
       try {
-        res = await api.get('/system/app-version');
+        res = await api.get('/system/app-version', { timeout: 3500 });
       } catch (err) {
         const detected = await autoDetectServer();
-        if (detected.success) {
+        if (detected.success && detected.data) {
           res = { data: detected.data };
         }
       }
 
       if (res?.data?.success && res.data.build) {
         const remoteBuild = res.data.build;
-        const savedBuild = localStorage.getItem('educonnect_active_build') || CURRENT_LOCAL_BUILD;
-        
-        if (remoteBuild !== savedBuild && remoteBuild !== CURRENT_LOCAL_BUILD) {
+        const savedBuild = localStorage.getItem('educonnect_active_build');
+
+        if (!savedBuild) {
+          // First run: save current remote build as base
+          localStorage.setItem('educonnect_active_build', remoteBuild);
+          if (manual) {
+            toast.success(`شما در حال استفاده از آخرین نسخه هستید (${remoteBuild.substring(0, 7)}) ✅`);
+          }
+        } else if (remoteBuild !== savedBuild) {
           setRemoteInfo(res.data);
           setUpdateAvailable(true);
+          setDismissed(false);
+          if (manual) {
+            toast.success(`نسخه جدید (${remoteBuild.substring(0, 7)}) یافت شد! 🚀`);
+          }
+        } else {
+          if (manual) {
+            toast.success(`سامانه کاملاً به‌روز است (${remoteBuild.substring(0, 7)}) ✅`);
+          }
         }
+      } else if (manual) {
+        toast.error('پاسخی از سرور دریافت نشد. لطفاً از اتصال اینترنت یا وای‌فای اطمینان حاصل فرمایید.');
       }
     } catch (e) {
-      // Offline or network error - ignore silently
+      if (manual) {
+        toast.error('خطا در بررسی نسخه جدید سرور');
+      }
     }
   };
 
-  const handleApplyUpdate = () => {
+  const handleApplyUpdate = async () => {
     setIsUpdating(true);
-    toast.loading('در حال بارگذاری تغییرات جدید...', { id: 'ota-update' });
+    const toastId = toast.loading('در حال بارگذاری تغییرات جدید و پاکسازی حافظه موقت...', { id: 'ota-update' });
 
     try {
       if (remoteInfo?.build) {
         localStorage.setItem('educonnect_active_build', remoteInfo.build);
       }
-      
-      // Clear cache and reload application with fresh assets
+
+      // Clear Service Worker and browser caches if supported
+      if ('caches' in window) {
+        try {
+          const cacheKeys = await caches.keys();
+          await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+        } catch (cErr) {}
+      }
+
       setTimeout(() => {
-        toast.success('برنامه با موفقیت به‌روزرسانی شد!', { id: 'ota-update' });
+        toast.success('برنامه با موفقیت به‌روزرسانی شد! در حال راه‌اندازی مجدد...', { id: 'ota-update' });
         window.location.reload(true);
-      }, 1200);
+      }, 900);
     } catch (err) {
       toast.error('خطا در اعمال به‌روزرسانی', { id: 'ota-update' });
       setIsUpdating(false);
