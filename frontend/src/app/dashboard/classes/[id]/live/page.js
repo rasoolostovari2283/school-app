@@ -2789,6 +2789,18 @@ export default function LiveClassroomPage() {
     setChatInput('');
   };
 
+  // ── 15. Copy Direct Live Class Invite Link ──
+  const handleCopyClassLink = () => {
+    if (typeof window !== 'undefined') {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url);
+      toast.success('لینک ورود مستقیم به کلاس آنلاین کپی شد! می‌توانید آن را برای دانش‌آموزان بفرستید 📋', {
+        duration: 5000,
+        icon: '🔗',
+      });
+    }
+  };
+
   return (
     <div className={styles.liveContainer}>
 
@@ -2907,6 +2919,17 @@ export default function LiveClassroomPage() {
               </button>
             </>
           )}
+
+          {/* Copy Direct Class Invite Link (Google Meet Style) */}
+          <button
+            className={styles.headerBtn}
+            onClick={handleCopyClassLink}
+            title="کپی لینک ورود مستقیم به کلاس برای ارسال به دانش‌آموزان"
+            style={{ borderColor: 'rgba(56, 189, 248, 0.4)', background: 'rgba(56, 189, 248, 0.12)' }}
+          >
+            <HiOutlineSparkles style={{ color: '#38bdf8', fontSize: '1.1rem' }} />
+            <span>لینک دعوت 🔗</span>
+          </button>
 
           {/* Microphone Toggle (Teacher or Student) */}
           <button
