@@ -542,30 +542,77 @@ export default function LoginPage() {
         )}
       </Toaster>
 
+      {/* Background Decorative Ambient Glow Orbs */}
+      <div className={styles.ambientOrb1} aria-hidden="true" />
+      <div className={styles.ambientOrb2} aria-hidden="true" />
+      <div className={styles.ambientOrb3} aria-hidden="true" />
+
       {/* Left Side — Hero */}
       <div className={styles.hero}>
         <div className={styles.heroContent}>
-          <div className={styles.heroEmoji}>🎓</div>
-          <h1 className={styles.heroTitle}>EduConnect</h1>
+          <div className={styles.heroPillBadge}>
+            <span className={styles.heroPillPulse}></span>
+            <span>نسل نوین آموزش هوشمند و سامانه ابری مدارس</span>
+          </div>
+
+          <div className={styles.heroHeaderWrap}>
+            <div className={styles.heroEmoji}>🎓</div>
+            <h1 className={styles.heroTitle}>EduConnect</h1>
+          </div>
+
           <p className={styles.heroSubtitle}>
-            سامانه یکپارچه مدیریت هوشمند مدارس و شبکه پیام‌رسانی سازمانی
+            سامانه یکپارچه مدیریت هوشمند مدارس، برگزاری کلاس‌های زنده تعاملی و شبکه پیام‌رسانی امن سازمانی
           </p>
+
           <div className={styles.heroFeatures}>
             <div className={styles.heroFeature}>
-              <span>✨</span>
-              <span>تولید خودکار آیدی اختصاصی ورودی بر اساس نام و نام خانوادگی</span>
+              <div className={`${styles.featureIconBox} ${styles.featureIconBlue}`}>✨</div>
+              <div className={styles.featureTextBox}>
+                <span className={styles.featureTitle}>تولید خودکار آیدی اختصاصی ورودی</span>
+                <span className={styles.featureDesc}>ایجاد هوشمند نام کاربری بر اساس نام و نام خانوادگی جهت ورود سریع</span>
+              </div>
             </div>
+
             <div className={styles.heroFeature}>
-              <span>💬</span>
-              <span>یافتن مستقیم مخاطبان و ارسال پیام در سامانه فقط با جستجوی آیدی</span>
+              <div className={`${styles.featureIconBox} ${styles.featureIconTeal}`}>💬</div>
+              <div className={styles.featureTextBox}>
+                <span className={styles.featureTitle}>پیام‌رسانی و تعامل مستقیم</span>
+                <span className={styles.featureDesc}>یافتن معلمان، دانش‌آموزان و کادر مدرسه فقط با جستجوی آیدی</span>
+              </div>
             </div>
+
             <div className={styles.heroFeature}>
-              <span>📊</span>
-              <span>دفتر نمرات، کارنامه الکترونیکی، برنامه مطالعاتی و آزمون‌ها</span>
+              <div className={`${styles.featureIconBox} ${styles.featureIconPurple}`}>📊</div>
+              <div className={styles.featureTextBox}>
+                <span className={styles.featureTitle}>کارنامه، آزمون و کلاس آنلاین</span>
+                <span className={styles.featureDesc}>دفتر نمرات الکترونیکی، تخته هوشمند تعاملی و کلاس‌های صوتی-تصویری</span>
+              </div>
             </div>
+
             <div className={styles.heroFeature}>
-              <span>🔒</span>
-              <span>۱۰۰٪ امن، بدون قطعی و سازگار با شبکه ملی اطلاعات</span>
+              <div className={`${styles.featureIconBox} ${styles.featureIconAmber}`}>🔒</div>
+              <div className={styles.featureTextBox}>
+                <span className={styles.featureTitle}>۱۰۰٪ امن، بدون قطعی و پایدار</span>
+                <span className={styles.featureDesc}>سازگار با شبکه ملی اطلاعات، امنیت داده و ارتباطات رمزنگاری‌شده</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats / Highlights Bar */}
+          <div className={styles.heroStatsRow}>
+            <div className={styles.heroStatItem}>
+              <span className={styles.heroStatValue}>۱۰۰٪</span>
+              <span className={styles.heroStatLabel}>ابری و بلادرنگ</span>
+            </div>
+            <div className={styles.heroStatDivider}></div>
+            <div className={styles.heroStatItem}>
+              <span className={styles.heroStatValue}>WebRTC</span>
+              <span className={styles.heroStatLabel}>کلاس زنده و آنلاین</span>
+            </div>
+            <div className={styles.heroStatDivider}></div>
+            <div className={styles.heroStatItem}>
+              <span className={styles.heroStatValue}>AES-256</span>
+              <span className={styles.heroStatLabel}>امنیت داده و پیام‌ها</span>
             </div>
           </div>
         </div>
@@ -578,7 +625,11 @@ export default function LoginPage() {
           <ServerConnectionBar />
 
           {/* Header */}
-          <div className={styles.formHeader} style={{ textAlign: 'center' }}>
+          <div className={styles.formHeader}>
+            <div className={styles.formHeaderBadge}>
+              <HiOutlineSparkles style={{ fontSize: '1rem' }} />
+              <span>پرتال جامع کاربران، اولیا و کادر آموزشی</span>
+            </div>
             <h2>ورود به سامانه مدرسه</h2>
             <p>مشخصات خود را وارد کنید تا آیدی اختصاصی شما صادر گردد</p>
           </div>
@@ -587,34 +638,34 @@ export default function LoginPage() {
           <div className={styles.entryTabs}>
             <button
               type="button"
-              className={`${styles.entryTabBtn} ${activeTab === 'smart' ? styles.entryTabBtnActive : ''}`}
+              className={`${styles.entryTabBtn} ${styles.tabBtnSmart} ${activeTab === 'smart' ? styles.entryTabBtnActive : ''}`}
               onClick={() => setActiveTab('smart')}
             >
-              <HiOutlineSparkles style={{ fontSize: '1.1rem' }} />
+              <HiOutlineSparkles style={{ fontSize: '1.2rem' }} />
               <span>ثبت‌نام و صدور آیدی</span>
             </button>
             <button
               type="button"
-              className={`${styles.entryTabBtn} ${activeTab === 'login' ? styles.entryTabBtnActive : ''}`}
+              className={`${styles.entryTabBtn} ${styles.tabBtnLogin} ${activeTab === 'login' ? styles.entryTabBtnActive : ''}`}
               onClick={() => setActiveTab('login')}
             >
-              <HiOutlineIdentification style={{ fontSize: '1.1rem' }} />
+              <HiOutlineIdentification style={{ fontSize: '1.2rem' }} />
               <span>ورود با آیدی / شماره</span>
             </button>
             <button
               type="button"
-              className={`${styles.entryTabBtn} ${activeTab === 'parent' ? styles.entryTabBtnActive : ''}`}
+              className={`${styles.entryTabBtn} ${styles.tabBtnParent} ${activeTab === 'parent' ? styles.entryTabBtnActive : ''}`}
               onClick={() => setActiveTab('parent')}
             >
-              <HiOutlineUserGroup style={{ fontSize: '1.1rem' }} />
+              <HiOutlineUserGroup style={{ fontSize: '1.2rem' }} />
               <span>ورود اولیا</span>
             </button>
             <button
               type="button"
-              className={`${styles.entryTabBtn} ${activeTab === 'school' ? styles.entryTabBtnActive : ''}`}
+              className={`${styles.entryTabBtn} ${styles.tabBtnSchool} ${activeTab === 'school' ? styles.entryTabBtnActive : ''}`}
               onClick={() => setActiveTab('school')}
             >
-              <HiOutlineBuildingOffice2 style={{ fontSize: '1.1rem' }} />
+              <HiOutlineBuildingOffice2 style={{ fontSize: '1.2rem' }} />
               <span>ثبت مدرسه جدید</span>
             </button>
           </div>
@@ -680,35 +731,34 @@ export default function LoginPage() {
                 <div className={styles.roleChipsGrid}>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${smartForm.role === 'admin' ? styles.roleChipActive : ''}`}
+                    className={`${styles.roleChip} ${styles.roleChipAdmin} ${smartForm.role === 'admin' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'admin' })}
-                    style={smartForm.role === 'admin' ? { borderColor: '#4f46e5', background: 'rgba(79, 70, 229, 0.15)', color: '#4f46e5', fontWeight: 800 } : {}}
                   >
-                    <span>🏛️</span>
+                    <span className={styles.roleChipEmoji}>🏛️</span>
                     <span>مدرسه و مدیر</span>
                   </button>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${smartForm.role === 'teacher' ? styles.roleChipActive : ''}`}
+                    className={`${styles.roleChip} ${styles.roleChipTeacher} ${smartForm.role === 'teacher' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'teacher' })}
                   >
-                    <span>👨‍🏫</span>
+                    <span className={styles.roleChipEmoji}>👨‍🏫</span>
                     <span>معلم / دبیر</span>
                   </button>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${smartForm.role === 'student' ? styles.roleChipActive : ''}`}
+                    className={`${styles.roleChip} ${styles.roleChipStudent} ${smartForm.role === 'student' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'student' })}
                   >
-                    <span>👨‍🎓</span>
+                    <span className={styles.roleChipEmoji}>👨‍🎓</span>
                     <span>دانش‌آموز</span>
                   </button>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${smartForm.role === 'parent' ? styles.roleChipActive : ''}`}
+                    className={`${styles.roleChip} ${styles.roleChipParent} ${smartForm.role === 'parent' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'parent' })}
                   >
-                    <span>👪</span>
+                    <span className={styles.roleChipEmoji}>👪</span>
                     <span>اولیا</span>
                   </button>
                 </div>
@@ -1191,7 +1241,7 @@ export default function LoginPage() {
                 className={`btn btn-primary ${styles.submitBtn}`}
                 disabled={isLoading}
                 style={{
-                  background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
                   fontWeight: 800,
                   fontSize: '1rem',
                   padding: '14px',
@@ -1252,6 +1302,12 @@ export default function LoginPage() {
                 type="submit"
                 className={`btn btn-primary ${styles.submitBtn}`}
                 disabled={isLoading}
+                style={{
+                  background: 'linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)',
+                  fontWeight: 800,
+                  fontSize: '1rem',
+                  padding: '14px',
+                }}
               >
                 {isLoading ? 'در حال بررسی اطلاعات...' : 'ورود به حساب کاربری 🔑'}
               </button>
@@ -1469,10 +1525,10 @@ export default function LoginPage() {
                 className={`btn btn-primary ${styles.submitBtn}`}
                 disabled={isLoading}
                 style={{
-                  background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
+                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
                   fontWeight: 800,
-                  fontSize: '0.95rem',
-                  padding: '13px',
+                  fontSize: '0.98rem',
+                  padding: '14px',
                 }}
               >
                 {isLoading ? 'در حال صدور کد و ثبت...' : '🏛️ ثبت رسمی مدرسه و صدور کد اختصاصی'}
