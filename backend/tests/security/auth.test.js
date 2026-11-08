@@ -221,7 +221,7 @@ test('[A1] a self-registered account keeps its non-privileged role and can sign 
   assert.equal(signedIn.body.data.user.role, 'teacher');
 });
 
-expectFailure('[A2] POST /auth/quick-entry must not authenticate an existing account without a password', async () => {
+test('[A2] POST /auth/quick-entry must not authenticate an existing account without a password', async () => {
   const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
     body: {
       display_name: 'A teacher',
@@ -235,6 +235,64 @@ expectFailure('[A2] POST /auth/quick-entry must not authenticate an existing acc
     401,
     `quick entry must not issue tokens for an existing account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
   );
+});
+
+test('[A2] POST /auth/quick-entry must not authenticate an existing account with a wrong password', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'A teacher',
+      phone: phoneFor('a', 'teacher'),
+      role: 'teacher',
+      password: 'not-the-fixture-password',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    401,
+    `quick entry must not issue tokens for a wrong password, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[A2] POST /auth/quick-entry authenticates an existing account with its own password', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'A teacher',
+      phone: phoneFor('a', 'teacher'),
+      role: 'teacher',
+      password: FIXTURE_PASSWORD,
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `quick entry must still work for the owner of an account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.isNew, false);
+  assert.equal(res.body.data.user.id, 'a-teacher');
+  assert.ok(res.body.data.accessToken);
+  assert.ok(res.body.data.refreshToken);
+});
+
+test('[A2] POST /auth/quick-entry still creates a new non-privileged account', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'Brand New Student',
+      phone: '09127776666',
+      role: 'student',
+      password: 'Str0ngFixturePass!2026',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `quick entry must still create a new account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.isNew, true);
+  assert.equal(res.body.data.user.role, 'student');
+  assert.ok(res.body.data.accessToken);
 });
 
 expectFailure('[A3] POST /auth/parent-login must not accept a partial student code', async () => {

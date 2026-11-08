@@ -280,6 +280,27 @@ class AuthService {
     }
 
     if (user) {
+      // An existing account is only ever authenticated with its own password.
+      // A quick entry must not hand out tokens for an account the caller cannot
+      // prove it owns, and it must not touch the account either (report
+      // finding A2).
+      if (!password || !password.trim()) {
+        const error = new Error('برای ورود به حساب کاربری موجود، رمز عبور الزامی است');
+        error.messageEn = 'Password is required to sign in to an existing account';
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const isMatch = user.password_hash
+        ? await bcrypt.compare(password, user.password_hash)
+        : false;
+      if (!isMatch) {
+        const error = new Error('رمز عبور اشتباه است');
+        error.messageEn = 'Invalid password';
+        error.statusCode = 401;
+        throw error;
+      }
+
       // Ensure user has a username
       if (!user.username) {
         const generatedUser = await generateUniqueUsername(db, user.display_name, user.id);
