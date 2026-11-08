@@ -12,6 +12,7 @@
  * meaningless.
  */
 const bcrypt = require('bcryptjs');
+const { cache } = require('../../src/utils/cache');
 
 /** Password used by every fixture account. Deliberately NOT `123456`. */
 const FIXTURE_PASSWORD = 'Fixture#2026!';
@@ -39,6 +40,7 @@ const USERS = {
     admin: 'a-admin',
     teacher: 'a-teacher',
     student: 'a-student',
+    student2: 'a-student-2',
     parent: 'a-parent',
   },
   b: {
@@ -47,6 +49,15 @@ const USERS = {
     student: 'b-student',
     parent: 'b-parent',
   },
+};
+
+/** Phone number suffix of each fixture role. */
+const SUFFIXES = {
+  admin: '0001',
+  teacher: '0002',
+  student: '1001',
+  student2: '1002',
+  parent: '1003',
 };
 
 const CLASSES = {
@@ -74,61 +85,84 @@ const ANNOUNCEMENTS = {
   b: 'announcement-b',
 };
 
+const QUIZZES = {
+  b: 'quiz-b',
+};
+
+const QUIZ_QUESTIONS = {
+  b: 'quiz-question-b-1',
+};
+
+const TICKETS = {
+  b: 'ticket-b',
+};
+
+const STUDY_LOGS = {
+  b: 'study-log-b',
+};
+
+const MESSAGE_GROUPS = {
+  b: 'group-b',
+};
+
+const VIDEOS = {
+  b: 'video-b',
+};
+
 /**
- * Login identifier (e-mail) of a fixture user.
- * @param {'a'|'b'} school
- * @param {'admin'|'teacher'|'student'|'parent'} role
+ * Name of the media file the video fixture row points at.
+ * The uploads test writes this file into `backend/uploads`, which is the
+ * hardcoded directory the video streaming route reads from.
  */
+const VIDEO_FIXTURE_FILE = 'phase0-video-fixture.mp4';
+
+/** Login identifier (e-mail) of a fixture user. */
 const emailFor = (school, role) => `${school}.${role}@school.test`;
+
+/** Phone number of a fixture user. */
+const phoneFor = (school, role) => `0912${school === 'a' ? '0000' : '1111'}${SUFFIXES[role]}`;
 
 /**
  * Build the fixture rows.
  * @param {string} passwordHash - bcrypt hash shared by every fixture user
  */
 function buildRows(passwordHash) {
-  const user = (school, role, suffix) => ({
-    id: USERS[school][role],
-    email: emailFor(school, role),
-    phone: `0912${school === 'a' ? '0000' : '1111'}${suffix}`,
-    password_hash: passwordHash,
-    role,
-    display_name: `${school.toUpperCase()} ${role}`,
-    username: `${school}_${role}`,
-    school_id: SCHOOLS[school].id,
-    personnel_code: role === 'student' || role === 'parent' ? null : `EMP-${school.toUpperCase()}-${suffix}`,
-    student_code: role === 'student' ? `STD-${school.toUpperCase()}-${suffix}` : (role === 'parent' ? `STD-${school.toUpperCase()}-${suffix}` : null),
-    department: 'پایه دهم',
-    job_title: role === 'admin' ? 'مدیر مدرسه' : (role === 'teacher' ? 'دبیر' : (role === 'student' ? 'دانش‌آموز' : 'ولی')),
-    locale: 'fa',
-    is_verified: true,
-    settings: JSON.stringify({ school_id: SCHOOLS[school].id, school_code: SCHOOLS[school].code }),
-  });
+  const user = (school, role) => {
+    const suffix = SUFFIXES[role];
+    const isStudent = role === 'student' || role === 'student2';
+    const isParent = role === 'parent';
 
-  const schoolSettings = (school) => JSON.stringify({
-    school_name: SCHOOLS[school].name,
-    school_code: SCHOOLS[school].code,
-  });
+    return {
+      id: USERS[school][role],
+      email: emailFor(school, role),
+      phone: phoneFor(school, role),
+      password_hash: passwordHash,
+      role: isStudent ? 'student' : role,
+      display_name: `${school.toUpperCase()} ${role}`,
+      username: `${school}_${role}`,
+      school_id: SCHOOLS[school].id,
+      personnel_code: isStudent || isParent ? null : `EMP-${school.toUpperCase()}-${suffix}`,
+      student_code: isStudent || isParent
+        ? `STD-${school.toUpperCase()}-${isStudent ? suffix : SUFFIXES.student}`
+        : null,
+      department: 'پایه دهم',
+      job_title: role === 'admin'
+        ? 'مدیر مدرسه'
+        : (role === 'teacher' ? 'دبیر' : (isStudent ? 'دانش‌آموز' : 'ولی')),
+      locale: 'fa',
+      is_verified: true,
+      settings: JSON.stringify({
+        school_name: SCHOOLS[school].name,
+        school_code: SCHOOLS[school].code,
+      }),
+    };
+  };
 
-  const aStudent = {
-    ...user('a', 'student', '1001'),
-    student_code: 'STD-A-1001',
-    department: 'پایه دهم',
-  };
-  const bStudent = {
-    ...user('b', 'student', '2002'),
-    student_code: 'STD-B-2002',
-    department: 'پایه دهم',
-  };
-  const aParent = {
-    ...user('a', 'parent', '1003'),
-    student_code: 'STD-A-1001',
-    department: 'پایه دهم',
-  };
-  const bParent = {
-    ...user('b', 'parent', '2003'),
-    student_code: 'STD-B-2002',
-    department: 'پایه دهم',
-  };
+  const aStudent = { ...user('a', 'student'), student_code: 'STD-A-1001' };
+  const aStudent2 = { ...user('a', 'student2'), student_code: 'STD-A-1002' };
+  const aParent = { ...user('a', 'parent'), student_code: 'STD-A-1001' };
+  const bStudent = { ...user('b', 'student'), student_code: 'STD-B-2002' };
+  const bParent = { ...user('b', 'parent'), student_code: 'STD-B-2002' };
 
   return {
     schools: [
@@ -137,12 +171,13 @@ function buildRows(passwordHash) {
     ],
 
     users: [
-      { ...user('a', 'admin', '0001'), settings: schoolSettings('a') },
-      { ...user('a', 'teacher', '0002'), settings: schoolSettings('a') },
+      user('a', 'admin'),
+      user('a', 'teacher'),
       aStudent,
+      aStudent2,
       aParent,
-      { ...user('b', 'admin', '0001'), settings: schoolSettings('b') },
-      { ...user('b', 'teacher', '0002'), settings: schoolSettings('b') },
+      user('b', 'admin'),
+      user('b', 'teacher'),
       bStudent,
       bParent,
     ],
@@ -172,6 +207,7 @@ function buildRows(passwordHash) {
 
     classMembers: [
       { id: 'member-a-student', class_id: CLASSES.a, user_id: USERS.a.student, role: 'student' },
+      { id: 'member-a-student-2', class_id: CLASSES.a, user_id: USERS.a.student2, role: 'student' },
       { id: 'member-b-student', class_id: CLASSES.b, user_id: USERS.b.student, role: 'student' },
     ],
 
@@ -187,6 +223,7 @@ function buildRows(passwordHash) {
 
     gradebookScores: [
       { id: 'score-a-1', category_id: GRADEBOOK_CATEGORIES.a, student_id: USERS.a.student, score: 18 },
+      { id: 'score-a-2', category_id: GRADEBOOK_CATEGORIES.a, student_id: USERS.a.student2, score: 16 },
       { id: 'score-b-1', category_id: GRADEBOOK_CATEGORIES.b, student_id: USERS.b.student, score: 15 },
     ],
 
@@ -266,6 +303,127 @@ function buildRows(passwordHash) {
         is_pinned: 0,
       },
     ],
+
+    disciplineRecords: [
+      {
+        id: 'discipline-b-1',
+        student_id: USERS.b.student,
+        issuer_id: USERS.b.admin,
+        type: 'warning',
+        category: 'ethics',
+        title: 'تذکر مدرسه ب',
+        description: 'سوابق انضباطی محرمانه مدرسه ب',
+        points: -1,
+        date: '۱۴۰۳/۰۸/۰۱',
+        is_parent_viewable: true,
+      },
+    ],
+
+    counselingCases: [
+      {
+        id: 'counseling-b-1',
+        student_id: USERS.b.student,
+        counselor_id: USERS.b.admin,
+        session_title: 'مشاوره محرمانه مدرسه ب',
+        session_date: '۱۴۰۳/۰۸/۰۱',
+        student_concerns: 'مشکلات دانش‌آموز مدرسه ب',
+        counselor_notes: 'یادداشت مشاور مدرسه ب',
+        recommendations: 'راهکار مشاور مدرسه ب',
+        status: 'completed',
+        shared_with_parent: true,
+      },
+    ],
+
+    quizzes: [
+      {
+        id: QUIZZES.b,
+        class_id: CLASSES.b,
+        teacher_id: USERS.b.teacher,
+        title: 'آزمون محرمانه مدرسه ب',
+        duration_minutes: 30,
+        is_published: false,
+      },
+    ],
+
+    quizQuestions: [
+      {
+        id: QUIZ_QUESTIONS.b,
+        quiz_id: QUIZZES.b,
+        question_text: 'پاسخ درست کدام است؟',
+        options: JSON.stringify(['الف', 'ب']),
+        correct_option: 'ب',
+        points: 1,
+        order_index: 0,
+      },
+    ],
+
+    schoolTickets: [
+      {
+        id: TICKETS.b,
+        ticket_number: 'TCK-B-0001',
+        user_id: USERS.b.student,
+        department: 'educational',
+        priority: 'normal',
+        subject: 'شکایت محرمانه مدرسه ب',
+        message: 'متن محرمانه تیکت مدرسه ب',
+        status: 'open',
+      },
+    ],
+
+    studyLogs: [
+      {
+        id: STUDY_LOGS.b,
+        student_id: USERS.b.student,
+        date: '۱۴۰۳/۰۸/۰۱',
+        subject: 'ریاضی',
+        study_minutes_descriptive: 30,
+        study_minutes_test: 20,
+        tests_count: 5,
+        tests_correct: 4,
+        tests_wrong: 1,
+        satisfaction_score: 4,
+        student_notes: 'یادداشت خصوصی دانش‌آموز مدرسه ب',
+      },
+    ],
+
+    messageGroups: [
+      {
+        id: MESSAGE_GROUPS.b,
+        name: 'گروه محرمانه مدرسه ب',
+        description: 'گروه پیام‌رسانی مدرسه ب',
+        category: 'class',
+        created_by: USERS.b.admin,
+      },
+    ],
+
+    messageGroupMembers: [
+      { id: 'group-member-b', group_id: MESSAGE_GROUPS.b, user_id: USERS.b.teacher, role: 'admin' },
+    ],
+
+    messageGroupMessages: [
+      {
+        id: 'group-message-b',
+        group_id: MESSAGE_GROUPS.b,
+        sender_id: USERS.b.teacher,
+        content: 'پیام محرمانه گروه مدرسه ب',
+      },
+    ],
+
+    videos: [
+      {
+        id: VIDEOS.b,
+        title: 'ویدیوی محرمانه مدرسه ب',
+        description: 'ویدیوی کلاس مدرسه ب',
+        class_id: CLASSES.b,
+        teacher_id: USERS.b.teacher,
+        file_url: VIDEO_FIXTURE_FILE,
+        video_url: VIDEO_FIXTURE_FILE,
+        mimetype: 'video/mp4',
+        file_size: 15,
+        duration_seconds: 10,
+        is_published: true,
+      },
+    ],
   };
 }
 
@@ -289,6 +447,16 @@ async function seedTwoSchools(db) {
   await db('tuition_ledgers').insert(rows.tuitionLedgers);
   await db('tuition_installments').insert(rows.tuitionInstallments);
   await db('announcements').insert(rows.announcements);
+  await db('discipline_records').insert(rows.disciplineRecords);
+  await db('counseling_cases').insert(rows.counselingCases);
+  await db('quizzes').insert(rows.quizzes);
+  await db('quiz_questions').insert(rows.quizQuestions);
+  await db('school_tickets').insert(rows.schoolTickets);
+  await db('study_logs').insert(rows.studyLogs);
+  await db('message_groups').insert(rows.messageGroups);
+  await db('message_group_members').insert(rows.messageGroupMembers);
+  await db('message_group_messages').insert(rows.messageGroupMessages);
+  await db('videos').insert(rows.videos);
 
   return rows;
 }
@@ -314,6 +482,10 @@ async function resetFixture(db) {
   }
   await db.raw('PRAGMA foreign_keys = ON');
 
+  // The application caches GET responses in memory (announcements, folders, ...).
+  // A stale cache entry would survive the reset and mask the real behaviour.
+  cache.flush();
+
   return seedTwoSchools(db);
 }
 
@@ -321,12 +493,21 @@ module.exports = {
   seedTwoSchools,
   resetFixture,
   emailFor,
+  phoneFor,
   FIXTURE_PASSWORD,
   SCHOOLS,
   USERS,
+  SUFFIXES,
   CLASSES,
   GRADEBOOK_CATEGORIES,
   LEDGERS,
   INSTALLMENTS,
   ANNOUNCEMENTS,
+  QUIZZES,
+  QUIZ_QUESTIONS,
+  TICKETS,
+  STUDY_LOGS,
+  MESSAGE_GROUPS,
+  VIDEOS,
+  VIDEO_FIXTURE_FILE,
 };

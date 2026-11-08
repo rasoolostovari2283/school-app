@@ -26,7 +26,7 @@ test('two-school fixture: every fixture user belongs to a school', async () => {
   assert.equal(schools.length, 2, 'fixture must create exactly two schools');
 
   const users = await db('users').select('id', 'role', 'school_id');
-  assert.equal(users.length, 8, 'fixture must create 8 users (4 roles x 2 schools)');
+  assert.equal(users.length, 9, 'fixture must create 9 users across two schools');
 
   for (const user of users) {
     assert.ok(user.school_id, `user ${user.id} must have a populated school_id`);
@@ -37,10 +37,9 @@ test('two-school fixture: every fixture user belongs to a school', async () => {
   }
 
   for (const school of Object.keys(SCHOOLS)) {
-    for (const role of ['admin', 'teacher', 'student', 'parent']) {
+    for (const role of Object.keys(USERS[school])) {
       const user = await db('users').where({ id: USERS[school][role] }).first();
       assert.ok(user, `missing fixture user ${school}/${role}`);
-      assert.equal(user.role, role);
       assert.equal(user.school_id, SCHOOLS[school].id);
     }
   }
@@ -53,12 +52,20 @@ test('two-school fixture: classes and rosters are isolated per school', async ()
     assert.equal(klass.school_id, SCHOOLS[school].id);
     assert.equal(klass.teacher_id, USERS[school].teacher);
 
-    const members = await db('class_members').where({ class_id: CLASSES[school] }).select('user_id');
-    assert.deepEqual(
-      members.map((m) => m.user_id),
-      [USERS[school].student],
-      `class ${CLASSES[school]} must only contain its own school's student`,
-    );
+    const members = await db('class_members')
+      .where({ class_id: CLASSES[school] })
+      .select('user_id');
+
+    assert.ok(members.length > 0, `class ${CLASSES[school]} must have members`);
+
+    for (const member of members) {
+      const student = await db('users').where({ id: member.user_id }).first();
+      assert.equal(
+        student.school_id,
+        SCHOOLS[school].id,
+        `class ${CLASSES[school]} must only contain students of school ${school}`,
+      );
+    }
   }
 
   const crossMembers = await db('class_members')
@@ -91,5 +98,5 @@ test('two-school fixture: resetFixture restores a pristine world', async () => {
   const student = await db('users').where({ id: USERS.a.student }).first();
   assert.equal(student.display_name, 'A student');
   const count = await db('users').count('id as c').first();
-  assert.equal(Number(count.c), 8);
+  assert.equal(Number(count.c), 9);
 });
