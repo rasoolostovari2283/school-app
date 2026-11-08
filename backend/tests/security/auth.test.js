@@ -16,9 +16,10 @@
  */
 const { test, expectFailure, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
+const bcrypt = require('bcryptjs');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const { setupHarness, teardownHarness, resetDatabase } = require('../support/harness');
+const { setupHarness, teardownHarness, resetDatabase, db } = require('../support/harness');
 const { get, post } = require('../support/http');
 const { emailFor, phoneFor, FIXTURE_PASSWORD } = require('../fixtures/twoSchools');
 const { ROLES } = require('../support/auth');
@@ -79,6 +80,64 @@ test('[F11] the correct password still authenticates every fixture role', async 
       assert.equal(res.body.data.user.role, role);
     }
   }
+});
+
+test('[F11] an account with a legacy short password can still sign in', async () => {
+  // Accounts created before the 8 character rule keep their password: only the
+  // presence of a password is required on login.
+  const passwordHash = await bcrypt.hash('old1234', 8);
+  await db('users').insert({
+    id: 'legacy-short-password',
+    email: 'legacy.short@school.test',
+    phone: '09120009999',
+    password_hash: passwordHash,
+    display_name: 'Legacy Short Password',
+    username: 'legacy_short',
+    role: 'student',
+    school_id: 'school-a',
+    locale: 'fa',
+    is_verified: true,
+  });
+
+  const res = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'legacy.short@school.test', password: 'old1234' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `a legacy short password must still sign in, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.ok(res.body.data.accessToken);
+});
+
+test('[F11] registration requires a password of at least 8 characters', async () => {
+  const tooShort = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Too Short Password',
+      email: 'too.short@example.com',
+      password: 'old1234',
+    },
+  });
+  assert.equal(
+    tooShort.status,
+    400,
+    `a 7 character password must be rejected, got ${tooShort.status}: ${String(tooShort.text).slice(0, 200)}`,
+  );
+
+  const longEnough = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Long Enough Password',
+      email: 'long.enough@example.com',
+      password: 'Passw0rd',
+    },
+  });
+  assert.equal(
+    longEnough.status,
+    201,
+    `an 8 character password must be accepted, got ${longEnough.status}: ${String(longEnough.text).slice(0, 200)}`,
+  );
+  assert.ok(longEnough.body.data.accessToken);
 });
 
 expectFailure('[A1] POST /auth/register must not accept role=admin', async () => {

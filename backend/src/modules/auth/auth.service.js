@@ -337,18 +337,25 @@ class AuthService {
       throw error;
     }
 
-    if (password && password.trim()) {
-      // bcrypt.compare is the only authority: there is no universal password and
-      // no default password that unlocks an account (report finding F11).
-      const isMatch = user.password_hash
-        ? await bcrypt.compare(password, user.password_hash)
-        : false;
-      if (!isMatch) {
-        const error = new Error('رمز عبور اشتباه است');
-        error.messageEn = 'Invalid password';
-        error.statusCode = 401;
-        throw error;
-      }
+    if (!password || !password.trim()) {
+      // The login validator no longer supplies a default value, so a request
+      // without a credential must never be authenticated (report finding F11).
+      const error = new Error('رمز عبور الزامی است');
+      error.messageEn = 'Password is required';
+      error.statusCode = 401;
+      throw error;
+    }
+
+    // bcrypt.compare is the only authority: there is no universal password and
+    // no default password that unlocks an account (report finding F11).
+    const isMatch = user.password_hash
+      ? await bcrypt.compare(password, user.password_hash)
+      : false;
+    if (!isMatch) {
+      const error = new Error('رمز عبور اشتباه است');
+      error.messageEn = 'Invalid password';
+      error.statusCode = 401;
+      throw error;
     }
 
     delete user.password_hash;
