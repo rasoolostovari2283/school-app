@@ -295,7 +295,7 @@ test('[A2] POST /auth/quick-entry still creates a new non-privileged account', a
   assert.ok(res.body.data.accessToken);
 });
 
-expectFailure('[A3] POST /auth/parent-login must not accept a partial student code', async () => {
+test('[A3] POST /auth/parent-login must not accept a partial student code', async () => {
   const res = await post(baseUrl, '/api/v1/auth/parent-login', {
     body: {
       student_code: '2002',
@@ -309,6 +309,56 @@ expectFailure('[A3] POST /auth/parent-login must not accept a partial student co
     401,
     `a partial student code must not authenticate a parent, got ${res.status}: ${String(res.text).slice(0, 200)}`,
   );
+});
+
+test('[A3] POST /auth/parent-login resolves the child from the exact student code', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: { student_code: 'STD-A-1001' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the exact student code must still resolve the child, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.student.id, 'a-student');
+  assert.ok(res.body.data.accessToken);
+});
+
+test('[A3] POST /auth/parent-login accepts the code without its STD- prefix', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: { student_code: 'A-1001' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the canonical short spelling must still resolve the child, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.student.id, 'a-student');
+});
+
+test('[A3] POST /auth/parent-login never rewrites the identity of an existing parent', async () => {
+  const before = await db('users').where({ id: 'a-parent' }).first();
+
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: {
+      student_code: 'STD-A-1001',
+      parent_name: 'Attacker',
+      phone: '09129999999',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the parent must still be able to sign in, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+
+  const after = await db('users').where({ id: 'a-parent' }).first();
+  assert.equal(after.display_name, before.display_name, 'the display name must not be rewritten');
+  assert.equal(after.phone, before.phone, 'the phone number must not be rewritten');
+  assert.equal(after.student_code, before.student_code, 'the student code must not be rewritten');
 });
 
 expectFailure('[A4] NODE_ENV must not default to "development" when it is unset', () => {

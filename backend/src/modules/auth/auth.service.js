@@ -444,18 +444,24 @@ class AuthService {
     }
 
     const rawCode = studentCode.trim();
-    // Normalize code e.g. "40301" or "STD-40301"
+    // The student code must match exactly: "40301" and "STD-40301" are the two
+    // spellings of the same code, but a partial code never resolves a student
+    // (report finding A3).
+    const normalizedCode = rawCode.toLowerCase();
     const student = await db('users')
       .where({ role: 'student' })
       .andWhere(function () {
-        this.whereRaw('LOWER(student_code) = ?', [rawCode.toLowerCase()])
-          .orWhereRaw('LOWER(student_code) LIKE ?', [`%${rawCode.toLowerCase()}%`]);
+        this.whereRaw('LOWER(student_code) = ?', [normalizedCode])
+          .orWhereRaw('LOWER(student_code) = ?', [`std-${normalizedCode}`]);
       })
       .first();
 
     if (!student) {
+      // The answer is the same for an unknown code and for a partial one, so
+      // the endpoint cannot be used to enumerate student codes.
       const error = new Error(`دانش‌آموزی با کد «${rawCode}» در سامانه مدرسه یافت نشد. لطفاً از صحت کد دانش‌آموزی اطمینان حاصل فرمایید.`);
-      error.statusCode = 404;
+      error.messageEn = 'Student code not found';
+      error.statusCode = 401;
       throw error;
     }
 
@@ -479,15 +485,10 @@ class AuthService {
       : `ولی ${student.display_name}`;
 
     if (parent) {
-      // Update parent display name and student code if needed
-      const updates = { student_code: student.student_code };
-      if (parentName && parentName.trim()) {
-        updates.display_name = `${parentName.trim()} (ولی ${student.display_name})`;
-      }
-      if (phone && phone.trim()) {
-        updates.phone = phone.trim();
-      }
-      await db('users').where({ id: parent.id }).update(updates);
+      // The identity of an existing account is never rewritten from an
+      // unauthenticated request: the display name, the phone number and the
+      // student code of the parent stay exactly as they are (report finding
+      // A3).
       parent = await db('users').where({ id: parent.id }).first();
 
       // Ensure link exists
