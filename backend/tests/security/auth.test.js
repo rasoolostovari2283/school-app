@@ -1,11 +1,16 @@
 /**
  * Authentication regression tests (Phase 0 safety net).
  *
- * Every `expectFailure` below documents a finding of the security report that
- * is still open. `expectFailure` (the `node:test` equivalent of `test.failing`)
- * inverts the expectation: the test MUST fail today. When a later remediation
- * phase fixes the finding, the test starts passing and `expectFailure` reports
- * it as an error — which is exactly the signal to remove the wrapper.
+ * `expectFailure` (the `node:test` equivalent of `test.failing`) inverts the
+ * expectation: the test MUST fail while the finding is still open. When a
+ * remediation phase fixes the finding, the test starts passing and
+ * `expectFailure` reports it as an error — which is exactly the signal to
+ * remove the wrapper.
+ *
+ * Phase 1a closed the authentication bypasses covered by this file: F11, A1,
+ * A2, A3 and A4 are ordinary tests now and their wrappers are gone. The
+ * regression tests stay in place so that a later change cannot silently
+ * reopen a finding.
  *
  * Finding ids refer to the security report:
  *   F11 — universal / default password authentication
@@ -14,7 +19,7 @@
  *   A3  — parent account takeover via a partial student code
  *   A4  — development-mode mock token authentication
  */
-const { test, expectFailure, before, after, beforeEach } = require('node:test');
+const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
 const { execFileSync, spawnSync } = require('node:child_process');
