@@ -27,26 +27,12 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    let user;
-    if (token.startsWith('mock_')) {
-      // Allow mock tokens strictly in development for offline testing
-      if (config.nodeEnv === 'development') {
-        const mockRole = token.replace('mock_', '');
-        user = await db('users').where({ role: mockRole }).first();
-        if (!user) user = await db('users').first();
-      } else {
-        return res.status(401).json({
-          success: false,
-          message: 'توکن نامعتبر است',
-          messageEn: 'Invalid token',
-        });
-      }
-    } else {
-      const decoded = jwt.verify(token, config.jwt.secret);
-      user = await db('users')
-        .where({ id: decoded.userId })
-        .first();
-    }
+    // Every token is a real JWT: there is no mock token and no environment in
+    // which a fabricated bearer token is accepted (report finding A4).
+    const decoded = jwt.verify(token, config.jwt.secret);
+    const user = await db('users')
+      .where({ id: decoded.userId })
+      .first();
 
     if (!user) {
       return res.status(401).json({

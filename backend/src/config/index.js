@@ -1,8 +1,22 @@
 require('dotenv').config();
 
+/**
+ * The environment of the running backend.
+ *
+ * `NODE_ENV` is never guessed. An unset (or blank) value used to fall back to
+ * "development", the mode in which fabricated `mock_*` bearer tokens were
+ * accepted (report finding A4). The application refuses to start without an
+ * explicit `NODE_ENV`; `nodeEnv` only carries a safe fallback for the modules
+ * that need a value.
+ */
+const rawNodeEnv = process.env.NODE_ENV;
+const nodeEnvIsSet = Boolean(rawNodeEnv && rawNodeEnv.trim());
+const nodeEnv = nodeEnvIsSet ? rawNodeEnv.trim() : 'production';
+
 module.exports = {
   port: process.env.PORT || 5000,
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv,
+  nodeEnvIsSet,
 
   db: {
     host: process.env.DB_HOST || 'localhost',

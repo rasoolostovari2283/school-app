@@ -17,7 +17,7 @@
 const { test, expectFailure, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { setupHarness, teardownHarness, resetDatabase, db } = require('../support/harness');
 const { get, post } = require('../support/http');
@@ -397,7 +397,7 @@ test('[F11] login by phone number and by user name still works', async () => {
   assert.equal(byUsername.body.data.user.id, 'a-teacher');
 });
 
-expectFailure('[A4] NODE_ENV must not default to "development" when it is unset', () => {
+test('[A4] NODE_ENV must not default to "development" when it is unset', () => {
   const reported = execFileSync(
     process.execPath,
     ['-e', "console.log(require('./src/config').nodeEnv)"],
@@ -412,6 +412,49 @@ expectFailure('[A4] NODE_ENV must not default to "development" when it is unset'
     reported,
     'development',
     'the backend must not silently run in development mode (it accepts mock_* tokens there)',
+  );
+});
+
+test('[A4] an explicit NODE_ENV is honoured', () => {
+  const reported = execFileSync(
+    process.execPath,
+    ['-e', "console.log(require('./src/config').nodeEnv)"],
+    {
+      cwd: BACKEND_DIR,
+      env: { ...process.env, NODE_ENV: 'production' },
+      encoding: 'utf8',
+    },
+  ).trim();
+
+  assert.equal(reported, 'production', 'an explicit NODE_ENV must be used as it is');
+});
+
+test('[A4] the server refuses to start when NODE_ENV is unset', () => {
+  const env = { ...process.env };
+  delete env.NODE_ENV;
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(BACKEND_DIR, 'src', 'app.js')],
+    {
+      // A directory without a .env file, so the child cannot pick up a NODE_ENV
+      // from the development environment.
+      cwd: path.join(BACKEND_DIR, '.tmp'),
+      env,
+      encoding: 'utf8',
+      timeout: 30000,
+    },
+  );
+
+  assert.notEqual(
+    result.status,
+    0,
+    `the backend must not start without NODE_ENV, it exited with ${result.status}: ${String(result.stderr).slice(0, 300)}`,
+  );
+  assert.match(
+    String(result.stderr),
+    /NODE_ENV/,
+    'the backend must explain that NODE_ENV is missing',
   );
 });
 
