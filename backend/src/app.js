@@ -104,7 +104,10 @@ app.use(cors({
   maxAge: 86400, // Cache preflight requests for 24h
 }));
 
-app.use(morgan('dev'));
+// Request logging is disabled under the test environment to keep the test output readable.
+if (config.nodeEnv !== 'test') {
+  app.use(morgan('dev'));
+}
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -532,8 +535,11 @@ app.use(errorHandler);
 // ── Start Server ──
 const PORT = config.port;
 server.listen(PORT, () => {
-  startScheduledMaintenance();
-  console.log(`
+  // Background maintenance loops and the startup banner are skipped under test so
+  // the test process can terminate cleanly once the suite finishes.
+  if (config.nodeEnv !== 'test') {
+    startScheduledMaintenance();
+    console.log(`
   ╔══════════════════════════════════════════════════════════════╗
   ║                                                              ║
   ║   🎓 EduConnect Enterprise API Server                        ║
@@ -546,16 +552,19 @@ server.listen(PORT, () => {
   ║                                                              ║
   ╚══════════════════════════════════════════════════════════════╝
   `);
+  }
 });
 
 // ── Database Persistence: Periodic SQLite WAL Checkpoint & Graceful Shutdown ──
-setInterval(() => {
-  try {
-    if (db && typeof db.raw === 'function') {
-      db.raw('PRAGMA wal_checkpoint(PASSIVE);').catch(() => {});
-    }
-  } catch (e) {}
-}, 5 * 60 * 1000);
+if (config.nodeEnv !== 'test') {
+  setInterval(() => {
+    try {
+      if (db && typeof db.raw === 'function') {
+        db.raw('PRAGMA wal_checkpoint(PASSIVE);').catch(() => {});
+      }
+    } catch (e) {}
+  }, 5 * 60 * 1000);
+}
 
 const gracefulShutdown = async (signal) => {
   console.log(`\n🛑 [EduConnect] Received ${signal}. Flushing database WAL to disk for permanent persistence...`);
