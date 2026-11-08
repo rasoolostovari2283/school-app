@@ -4,7 +4,11 @@ const config = require('../config');
  * Global error handling middleware
  */
 const errorHandler = (err, req, res, next) => {
-  console.error('❌ Error:', err.message);
+  // Handled errors are logged in every environment except the test environment,
+  // where the suite deliberately triggers them and would drown the output.
+  if (config.nodeEnv !== 'test') {
+    console.error('❌ Error:', err.message);
+  }
 
   if (config.nodeEnv === 'development') {
     console.error(err.stack);
