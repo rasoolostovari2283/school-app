@@ -140,7 +140,7 @@ test('[F11] registration requires a password of at least 8 characters', async ()
   assert.ok(longEnough.body.data.accessToken);
 });
 
-expectFailure('[A1] POST /auth/register must not accept role=admin', async () => {
+test('[A1] POST /auth/register must not accept role=admin', async () => {
   const res = await post(baseUrl, '/api/v1/auth/register', {
     body: {
       display_name: 'Attacker Account',
@@ -155,6 +155,70 @@ expectFailure('[A1] POST /auth/register must not accept role=admin', async () =>
     400,
     `self-registration must not mint an administrator, got ${res.status}: ${String(res.text).slice(0, 200)}`,
   );
+});
+
+test('[A1] POST /auth/quick-entry must not accept role=admin', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'Attacker Quick Entry',
+      phone: '09128887777',
+      role: 'admin',
+      password: 'Str0ngFixturePass!2026',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    400,
+    `quick entry must not mint an administrator, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[A1] a privileged role requested by the client is never granted', async () => {
+  // The service decides the role itself: even when the validator is bypassed,
+  // an anonymous caller can only reach a non-privileged role.
+  const authService = require('../../src/modules/auth/auth.service');
+  const result = await authService.register({
+    display_name: 'Direct Service Administrator',
+    role: 'admin',
+    password: 'Str0ngFixturePass!2026',
+    email: 'direct.admin@example.com',
+  });
+
+  assert.equal(result.user.role, 'student', 'a privileged role must never be granted');
+
+  const stored = await db('users').where({ email: 'direct.admin@example.com' }).first();
+  assert.equal(stored.role, 'student');
+});
+
+test('[A1] a self-registered account keeps its non-privileged role and can sign in', async () => {
+  const registered = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Self Registered Teacher',
+      role: 'teacher',
+      password: 'Str0ngFixturePass!2026',
+      email: 'self.teacher@example.com',
+    },
+  });
+
+  assert.equal(
+    registered.status,
+    201,
+    `a self-service registration must still work, got ${registered.status}: ${String(registered.text).slice(0, 200)}`,
+  );
+  assert.equal(registered.body.data.user.role, 'teacher');
+  assert.ok(registered.body.data.accessToken);
+
+  const signedIn = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'self.teacher@example.com', password: 'Str0ngFixturePass!2026' },
+  });
+
+  assert.equal(
+    signedIn.status,
+    200,
+    `the registered account must be able to sign in, got ${signedIn.status}: ${String(signedIn.text).slice(0, 200)}`,
+  );
+  assert.equal(signedIn.body.data.user.role, 'teacher');
 });
 
 expectFailure('[A2] POST /auth/quick-entry must not authenticate an existing account without a password', async () => {

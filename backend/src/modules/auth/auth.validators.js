@@ -1,5 +1,11 @@
 const Joi = require('joi');
 
+/**
+ * Roles a client may ask for on an unauthenticated (self-service) endpoint.
+ * A privileged role is never part of this list (report finding A1).
+ */
+const SELF_SERVICE_ROLES = ['teacher', 'student', 'parent'];
+
 const registerSchema = Joi.object({
   email: Joi.string().email().allow(null, ''),
   phone: Joi.string().allow(null, ''),
@@ -7,7 +13,7 @@ const registerSchema = Joi.object({
   password: Joi.string().min(8).required(),
   display_name: Joi.string().min(2).max(100).required(),
   username: Joi.string().allow(null, ''),
-  role: Joi.string().valid('teacher', 'student', 'parent', 'admin').default('student'),
+  role: Joi.string().valid(...SELF_SERVICE_ROLES).default('student'),
   locale: Joi.string().valid('fa', 'en').default('fa'),
 });
 
@@ -23,7 +29,7 @@ const loginSchema = Joi.object({
 const quickEntrySchema = Joi.object({
   display_name: Joi.string().min(2).max(100).required(),
   phone: Joi.string().allow(null, ''),
-  role: Joi.string().valid('teacher', 'student', 'parent', 'admin').default('student'),
+  role: Joi.string().valid(...SELF_SERVICE_ROLES).default('student'),
   password: Joi.string().allow(null, ''),
   school_name: Joi.string().allow(null, ''),
   school_code: Joi.string().allow(null, ''),

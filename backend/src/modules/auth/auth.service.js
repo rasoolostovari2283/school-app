@@ -5,8 +5,53 @@ const config = require('../../config');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
 const { generateUniqueUsername } = require('../../utils/usernameHelper');
 
+/**
+ * Roles an unauthenticated (self-service) request may end up with.
+ */
+const SELF_SERVICE_ROLES = ['student', 'teacher', 'parent'];
+
+/**
+ * Roles that grant administrative access. They are never assigned from a
+ * client supplied value on an unauthenticated endpoint (report finding A1).
+ */
+const PRIVILEGED_ROLES = [
+  'admin',
+  'manager',
+  'principal',
+  'headmaster',
+  'school_admin',
+  'superadmin',
+  'owner',
+];
+
+/** The role an unauthenticated request receives when it asks for nothing usable. */
+const DEFAULT_SELF_SERVICE_ROLE = 'student';
+
+/**
+ * Resolve the role of an unauthenticated (self-service) request.
+ *
+ * The role is always decided on the server: a privileged role requested by the
+ * client is ignored and falls back to the default non-privileged role, so an
+ * anonymous caller can never mint an administrator (report finding A1).
+ *
+ * @param {string} [requestedRole]
+ * @returns {'student'|'teacher'|'parent'}
+ */
+function resolveSelfServiceRole(requestedRole) {
+  const normalized = String(requestedRole || '').trim().toLowerCase();
+
+  if (!normalized || PRIVILEGED_ROLES.includes(normalized)) {
+    return DEFAULT_SELF_SERVICE_ROLE;
+  }
+
+  return SELF_SERVICE_ROLES.includes(normalized) ? normalized : DEFAULT_SELF_SERVICE_ROLE;
+}
+
 class AuthService {
-  async register({ email, phone, password, display_name, role, locale, username }) {
+  async register({ email, phone, password, display_name, role: requestedRole, locale, username }) {
+    // The role of an unauthenticated registration is decided on the server.
+    const role = resolveSelfServiceRole(requestedRole);
+
     const existingUser = await db('users')
       .where(function () {
         if (email) this.orWhere({ email });
@@ -44,7 +89,7 @@ class AuthService {
       password_hash,
       display_name,
       username: uniqueUsername,
-      role: role || 'student',
+      role,
       student_code,
       personnel_code,
       locale: locale || 'fa',
@@ -187,12 +232,15 @@ class AuthService {
    * Smart Quick Entry by full name and phone number
    * Generates a unique entry ID / username based on name, or logs in if already registered
    */
-  async quickEntry({ display_name, phone, role = 'student', password = null, school_name = null, school_code = null, grades = null, subject = null }) {
+  async quickEntry({ display_name, phone, role: requestedRole, password = null, school_name = null, school_code = null, grades = null, subject = null }) {
     if (!display_name || !display_name.trim()) {
       const error = new Error('نام و نام‌خانوادگی الزامی است');
       error.statusCode = 400;
       throw error;
     }
+
+    // The role of an unauthenticated quick entry is decided on the server.
+    const role = resolveSelfServiceRole(requestedRole);
 
     const cleanName = display_name.trim();
     const cleanPhone = phone ? phone.trim() : null;
@@ -205,7 +253,7 @@ class AuthService {
 
     // If not found by phone, check by exact display_name and role
     if (!user) {
-      user = await db('users').where({ display_name: cleanName, role: role || 'student' }).first();
+      user = await db('users').where({ display_name: cleanName, role }).first();
     }
 
     // Resolve school if provided
@@ -302,7 +350,7 @@ class AuthService {
       password_hash,
       display_name: cleanName,
       username: generatedUsername,
-      role: role || 'student',
+      role,
       school_id: matchedSchool ? matchedSchool.id : null,
       student_code,
       personnel_code,
