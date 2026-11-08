@@ -393,7 +393,6 @@ export default function LoginPage() {
       await loadSchools();
       setSmartForm((prev) => ({
         ...prev,
-        role: 'admin',
         school_name: res.school.name,
         school_code: res.school.school_code,
       }));
@@ -733,14 +732,6 @@ export default function LoginPage() {
                 <div className={styles.roleChipsGrid}>
                   <button
                     type="button"
-                    className={`${styles.roleChip} ${styles.roleChipAdmin} ${smartForm.role === 'admin' ? styles.roleChipActive : ''}`}
-                    onClick={() => setSmartForm({ ...smartForm, role: 'admin' })}
-                  >
-                    <span className={styles.roleChipEmoji}>🏛️</span>
-                    <span>مدرسه و مدیر</span>
-                  </button>
-                  <button
-                    type="button"
                     className={`${styles.roleChip} ${styles.roleChipTeacher} ${smartForm.role === 'teacher' ? styles.roleChipActive : ''}`}
                     onClick={() => setSmartForm({ ...smartForm, role: 'teacher' })}
                   >
@@ -764,29 +755,6 @@ export default function LoginPage() {
                     <span>اولیا</span>
                   </button>
                 </div>
-                {smartForm.role === 'admin' && (
-                  <div
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(6, 182, 212, 0.12) 100%)',
-                      border: '1px solid rgba(79, 70, 229, 0.3)',
-                      borderRadius: 'var(--radius-lg)',
-                      padding: '10px 14px',
-                      fontSize: '0.8125rem',
-                      color: '#4f46e5',
-                      fontWeight: 750,
-                      marginTop: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      textAlign: 'right',
-                    }}
-                  >
-                    <span>🏛️</span>
-                    <span>
-                      شما در حال ورود/ثبت‌نام به عنوان <strong>مدرسه و مدیر</strong> هستید. با این نقش به ستاد مدیریت، کنترل دبیران و شعب زیرمجموعه دسترسی خواهید داشت.
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* ── School Selection for Student & Teacher ── */}
@@ -1205,14 +1173,14 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Optional Password with Visibility Toggle */}
+              {/* Password with Visibility Toggle */}
               <div className={styles.inputGroup}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label className={styles.inputLabel} htmlFor="password">
-                    کلمه عبور (اختیاری)
+                    کلمه عبور (برای حساب کاربری موجود الزامی)
                   </label>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                    پیش‌فرض: ۱۲۳۴۵۶
+                    برای ثبت‌نام جدید می‌توانید خالی بگذارید
                   </span>
                 </div>
                 <div className={styles.passwordWrapper}>
@@ -1220,7 +1188,7 @@ export default function LoginPage() {
                     id="password"
                     className={`input ${styles.passwordInput}`}
                     type={showSmartPassword ? 'text' : 'password'}
-                    placeholder="رمز دلخواه (در صورت خالی بودن: ۱۲۳۴۵۶)"
+                    placeholder="رمز عبور خود را وارد کنید"
                     value={smartForm.password}
                     onChange={(e) => setSmartForm({ ...smartForm, password: e.target.value })}
                     dir="ltr"
@@ -1265,7 +1233,7 @@ export default function LoginPage() {
                   id="account_identifier"
                   className="input"
                   type="text"
-                  placeholder="مثلاً: @ali_kiani یا 09121110001 یا کد پرسنلی"
+                  placeholder="مثلاً: @ali_kiani یا 09121110001 یا ایمیل"
                   value={accountForm.identifier}
                   onChange={(e) => setAccountForm({ ...accountForm, identifier: e.target.value })}
                   required
@@ -1282,7 +1250,7 @@ export default function LoginPage() {
                     id="account_password"
                     className={`input ${styles.passwordInput}`}
                     type={showAccountPassword ? 'text' : 'password'}
-                    placeholder="رمز عبور خود را وارد کنید (پیش‌فرض: 123456)"
+                    placeholder="رمز عبور خود را وارد کنید"
                     value={accountForm.password}
                     onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
                     required
@@ -1653,34 +1621,6 @@ export default function LoginPage() {
                     }}
                   >
                     🏛️ ورود مستقیم به عنوان مدرسه و مدیر (ستاد مدیریت و شعب) 🚀
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.15), rgba(99, 102, 241, 0.15))',
-                      border: '1px solid #6366f1',
-                      color: '#4f46e5',
-                      fontWeight: 800,
-                      width: '100%',
-                      padding: '11px',
-                    }}
-                    onClick={() => {
-                      const sch = registeredSchoolResult;
-                      setRegisteredSchoolResult(null);
-                      setActiveTab('smart');
-                      setSmartForm((prev) => ({
-                        ...prev,
-                        role: 'admin',
-                        school_name: sch.name,
-                        school_code: sch.school_code,
-                      }));
-                      setIsCustomSchoolSelected(false);
-                      toast.success(`مدرسه «${sch.name}» با کد ${sch.school_code} انتخاب شد! نام مدیر/معاون جدید شعبه را وارد فرمایید 🏛️`, { duration: 6000 });
-                    }}
-                  >
-                    👔 ثبت مدیر یا شعبه زیرمجموعه این مدرسه (مدرسه و مدیر)
                   </button>
 
                   <button
