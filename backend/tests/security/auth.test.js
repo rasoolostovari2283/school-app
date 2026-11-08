@@ -20,7 +20,8 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { setupHarness, teardownHarness, resetDatabase } = require('../support/harness');
 const { get, post } = require('../support/http');
-const { emailFor, phoneFor } = require('../fixtures/twoSchools');
+const { emailFor, phoneFor, FIXTURE_PASSWORD } = require('../fixtures/twoSchools');
+const { ROLES } = require('../support/auth');
 const { BACKEND_DIR } = require('../support/env');
 
 let baseUrl;
@@ -37,7 +38,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F11] POST /auth/login without a password must be rejected', async () => {
+test('[F11] POST /auth/login without a password must be rejected', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: emailFor('a', 'teacher') },
   });
@@ -49,7 +50,7 @@ expectFailure('[F11] POST /auth/login without a password must be rejected', asyn
   );
 });
 
-expectFailure('[F11] POST /auth/login with the universal password 123456 must be rejected', async () => {
+test('[F11] POST /auth/login with the universal password 123456 must be rejected', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: emailFor('a', 'teacher'), password: '123456' },
   });
@@ -59,6 +60,25 @@ expectFailure('[F11] POST /auth/login with the universal password 123456 must be
     401,
     `the universal password must not authenticate, got ${res.status}: ${String(res.text).slice(0, 200)}`,
   );
+});
+
+test('[F11] the correct password still authenticates every fixture role', async () => {
+  for (const school of ['a', 'b']) {
+    for (const role of ROLES) {
+      const res = await post(baseUrl, '/api/v1/auth/login', {
+        body: { identifier: emailFor(school, role), password: FIXTURE_PASSWORD },
+      });
+
+      assert.equal(
+        res.status,
+        200,
+        `${school}/${role} must still be able to log in with its own password, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+      );
+      assert.ok(res.body.data.accessToken, `${school}/${role} received no access token`);
+      assert.ok(res.body.data.refreshToken, `${school}/${role} received no refresh token`);
+      assert.equal(res.body.data.user.role, role);
+    }
+  }
 });
 
 expectFailure('[A1] POST /auth/register must not accept role=admin', async () => {

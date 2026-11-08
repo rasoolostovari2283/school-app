@@ -338,8 +338,12 @@ class AuthService {
     }
 
     if (password && password.trim()) {
-      const isMatch = await bcrypt.compare(password, user.password_hash);
-      if (!isMatch && password !== '123456') {
+      // bcrypt.compare is the only authority: there is no universal password and
+      // no default password that unlocks an account (report finding F11).
+      const isMatch = user.password_hash
+        ? await bcrypt.compare(password, user.password_hash)
+        : false;
+      if (!isMatch) {
         const error = new Error('رمز عبور اشتباه است');
         error.messageEn = 'Invalid password';
         error.statusCode = 401;
