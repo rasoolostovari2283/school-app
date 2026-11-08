@@ -1,0 +1,50 @@
+name: Backend tests
+
+# Phase 0 of the security remediation programme: the automated regression suite
+# must run on every push, otherwise the later remediation phases have no safety
+# net. See the security report, section 7 (Phase 0 — Safety net).
+
+on:
+  push:
+    branches:
+      - main
+      - 'security/**'
+      - 'feature/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: Backend test suite
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        # Node >= 24.14 is required by the test harness: the expected-failing
+        # security regression tests use `expectFailure` from `node:test`.
+        # The production runtime (backend/Dockerfile) still runs Node 20; the
+        # test harness is a development-time tool only.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        # `npm ci` cannot be used yet: package-lock.json is not committed
+        # (finding F10 of the security report).
+        run: npm install --no-audit --no-fund
+
+      - name: Run the test suite
+        # `npm test` runs the ratcheting unscoped-query lint and then the
+        # node:test suite (smoke tests + the expected-failing security
+        # regression tests).
+        run: npm test
