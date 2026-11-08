@@ -361,6 +361,42 @@ test('[A3] POST /auth/parent-login never rewrites the identity of an existing pa
   assert.equal(after.student_code, before.student_code, 'the student code must not be rewritten');
 });
 
+test('[F11] POST /auth/login must not accept a display name', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'A teacher', password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    res.status,
+    401,
+    `a display name must never authenticate an account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[F11] login by phone number and by user name still works', async () => {
+  const byPhone = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: phoneFor('a', 'teacher'), password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    byPhone.status,
+    200,
+    `the phone number must still identify an account, got ${byPhone.status}: ${String(byPhone.text).slice(0, 200)}`,
+  );
+  assert.equal(byPhone.body.data.user.id, 'a-teacher');
+
+  const byUsername = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'a_teacher', password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    byUsername.status,
+    200,
+    `the user name must still identify an account, got ${byUsername.status}: ${String(byUsername.text).slice(0, 200)}`,
+  );
+  assert.equal(byUsername.body.data.user.id, 'a-teacher');
+});
+
 expectFailure('[A4] NODE_ENV must not default to "development" when it is unset', () => {
   const reported = execFileSync(
     process.execPath,

@@ -390,13 +390,13 @@ class AuthService {
     const cleanId = (identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
 
+    // Only an unambiguous identifier authenticates an account: e-mail, phone
+    // number or user name. A display name is not unique, so it must never be
+    // accepted as a credential.
     const user = await db('users')
       .where({ email: cleanId })
       .orWhere({ phone: cleanId })
-      .orWhere({ student_code: cleanId })
-      .orWhere({ personnel_code: cleanId })
       .orWhereRaw('LOWER(username) = ?', [cleanUsername])
-      .orWhereRaw('LOWER(display_name) = ?', [cleanId.toLowerCase()])
       .first();
 
     if (!user) {

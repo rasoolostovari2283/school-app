@@ -18,7 +18,7 @@ const registerSchema = Joi.object({
 });
 
 const loginSchema = Joi.object({
-  identifier: Joi.string().required(), // username, email, phone, student_code, personnel_code
+  identifier: Joi.string().required(), // username, email or phone
   // The password is never defaulted. A missing or blank password is rejected by
   // the service with 401, so an account can never be opened without a
   // credential (report finding F11). Only the presence of a password is
