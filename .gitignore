@@ -24,6 +24,12 @@ out/
 *.sqlite3
 backend_stage/
 
+# Disposable test-suite artefacts (per-process SQLite files and upload dirs)
+backend/.tmp/
+
+# Runtime-generated sync status file
+backend/sync_status.json
+
 # Uploads directory contents (preserve directory with .gitkeep)
 backend/uploads/*
 !backend/uploads/.gitkeep
