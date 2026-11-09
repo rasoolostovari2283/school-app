@@ -1,11 +1,16 @@
 /**
  * Authentication regression tests (Phase 0 safety net).
  *
- * Every `expectFailure` below documents a finding of the security report that
- * is still open. `expectFailure` (the `node:test` equivalent of `test.failing`)
- * inverts the expectation: the test MUST fail today. When a later remediation
- * phase fixes the finding, the test starts passing and `expectFailure` reports
- * it as an error — which is exactly the signal to remove the wrapper.
+ * `expectFailure` (the `node:test` equivalent of `test.failing`) inverts the
+ * expectation: the test MUST fail while the finding is still open. When a
+ * remediation phase fixes the finding, the test starts passing and
+ * `expectFailure` reports it as an error — which is exactly the signal to
+ * remove the wrapper.
+ *
+ * Phase 1a closed the authentication bypasses covered by this file: F11, A1,
+ * A2, A3 and A4 are ordinary tests now and their wrappers are gone. The
+ * regression tests stay in place so that a later change cannot silently
+ * reopen a finding.
  *
  * Finding ids refer to the security report:
  *   F11 — universal / default password authentication
@@ -14,13 +19,15 @@
  *   A3  — parent account takeover via a partial student code
  *   A4  — development-mode mock token authentication
  */
-const { test, expectFailure, before, after, beforeEach } = require('node:test');
+const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
+const bcrypt = require('bcryptjs');
+const { execFileSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { setupHarness, teardownHarness, resetDatabase } = require('../support/harness');
+const { setupHarness, teardownHarness, resetDatabase, db } = require('../support/harness');
 const { get, post } = require('../support/http');
-const { emailFor, phoneFor } = require('../fixtures/twoSchools');
+const { emailFor, phoneFor, FIXTURE_PASSWORD } = require('../fixtures/twoSchools');
+const { ROLES } = require('../support/auth');
 const { BACKEND_DIR } = require('../support/env');
 
 let baseUrl;
@@ -37,7 +44,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F11] POST /auth/login without a password must be rejected', async () => {
+test('[F11] POST /auth/login without a password must be rejected', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: emailFor('a', 'teacher') },
   });
@@ -49,7 +56,7 @@ expectFailure('[F11] POST /auth/login without a password must be rejected', asyn
   );
 });
 
-expectFailure('[F11] POST /auth/login with the universal password 123456 must be rejected', async () => {
+test('[F11] POST /auth/login with the universal password 123456 must be rejected', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: emailFor('a', 'teacher'), password: '123456' },
   });
@@ -61,7 +68,84 @@ expectFailure('[F11] POST /auth/login with the universal password 123456 must be
   );
 });
 
-expectFailure('[A1] POST /auth/register must not accept role=admin', async () => {
+test('[F11] the correct password still authenticates every fixture role', async () => {
+  for (const school of ['a', 'b']) {
+    for (const role of ROLES) {
+      const res = await post(baseUrl, '/api/v1/auth/login', {
+        body: { identifier: emailFor(school, role), password: FIXTURE_PASSWORD },
+      });
+
+      assert.equal(
+        res.status,
+        200,
+        `${school}/${role} must still be able to log in with its own password, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+      );
+      assert.ok(res.body.data.accessToken, `${school}/${role} received no access token`);
+      assert.ok(res.body.data.refreshToken, `${school}/${role} received no refresh token`);
+      assert.equal(res.body.data.user.role, role);
+    }
+  }
+});
+
+test('[F11] an account with a legacy short password can still sign in', async () => {
+  // Accounts created before the 8 character rule keep their password: only the
+  // presence of a password is required on login.
+  const passwordHash = await bcrypt.hash('old1234', 8);
+  await db('users').insert({
+    id: 'legacy-short-password',
+    email: 'legacy.short@school.test',
+    phone: '09120009999',
+    password_hash: passwordHash,
+    display_name: 'Legacy Short Password',
+    username: 'legacy_short',
+    role: 'student',
+    school_id: 'school-a',
+    locale: 'fa',
+    is_verified: true,
+  });
+
+  const res = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'legacy.short@school.test', password: 'old1234' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `a legacy short password must still sign in, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.ok(res.body.data.accessToken);
+});
+
+test('[F11] registration requires a password of at least 8 characters', async () => {
+  const tooShort = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Too Short Password',
+      email: 'too.short@example.com',
+      password: 'old1234',
+    },
+  });
+  assert.equal(
+    tooShort.status,
+    400,
+    `a 7 character password must be rejected, got ${tooShort.status}: ${String(tooShort.text).slice(0, 200)}`,
+  );
+
+  const longEnough = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Long Enough Password',
+      email: 'long.enough@example.com',
+      password: 'Passw0rd',
+    },
+  });
+  assert.equal(
+    longEnough.status,
+    201,
+    `an 8 character password must be accepted, got ${longEnough.status}: ${String(longEnough.text).slice(0, 200)}`,
+  );
+  assert.ok(longEnough.body.data.accessToken);
+});
+
+test('[A1] POST /auth/register must not accept role=admin', async () => {
   const res = await post(baseUrl, '/api/v1/auth/register', {
     body: {
       display_name: 'Attacker Account',
@@ -78,7 +162,71 @@ expectFailure('[A1] POST /auth/register must not accept role=admin', async () =>
   );
 });
 
-expectFailure('[A2] POST /auth/quick-entry must not authenticate an existing account without a password', async () => {
+test('[A1] POST /auth/quick-entry must not accept role=admin', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'Attacker Quick Entry',
+      phone: '09128887777',
+      role: 'admin',
+      password: 'Str0ngFixturePass!2026',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    400,
+    `quick entry must not mint an administrator, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[A1] a privileged role requested by the client is never granted', async () => {
+  // The service decides the role itself: even when the validator is bypassed,
+  // an anonymous caller can only reach a non-privileged role.
+  const authService = require('../../src/modules/auth/auth.service');
+  const result = await authService.register({
+    display_name: 'Direct Service Administrator',
+    role: 'admin',
+    password: 'Str0ngFixturePass!2026',
+    email: 'direct.admin@example.com',
+  });
+
+  assert.equal(result.user.role, 'student', 'a privileged role must never be granted');
+
+  const stored = await db('users').where({ email: 'direct.admin@example.com' }).first();
+  assert.equal(stored.role, 'student');
+});
+
+test('[A1] a self-registered account keeps its non-privileged role and can sign in', async () => {
+  const registered = await post(baseUrl, '/api/v1/auth/register', {
+    body: {
+      display_name: 'Self Registered Teacher',
+      role: 'teacher',
+      password: 'Str0ngFixturePass!2026',
+      email: 'self.teacher@example.com',
+    },
+  });
+
+  assert.equal(
+    registered.status,
+    201,
+    `a self-service registration must still work, got ${registered.status}: ${String(registered.text).slice(0, 200)}`,
+  );
+  assert.equal(registered.body.data.user.role, 'teacher');
+  assert.ok(registered.body.data.accessToken);
+
+  const signedIn = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'self.teacher@example.com', password: 'Str0ngFixturePass!2026' },
+  });
+
+  assert.equal(
+    signedIn.status,
+    200,
+    `the registered account must be able to sign in, got ${signedIn.status}: ${String(signedIn.text).slice(0, 200)}`,
+  );
+  assert.equal(signedIn.body.data.user.role, 'teacher');
+});
+
+test('[A2] POST /auth/quick-entry must not authenticate an existing account without a password', async () => {
   const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
     body: {
       display_name: 'A teacher',
@@ -94,7 +242,65 @@ expectFailure('[A2] POST /auth/quick-entry must not authenticate an existing acc
   );
 });
 
-expectFailure('[A3] POST /auth/parent-login must not accept a partial student code', async () => {
+test('[A2] POST /auth/quick-entry must not authenticate an existing account with a wrong password', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'A teacher',
+      phone: phoneFor('a', 'teacher'),
+      role: 'teacher',
+      password: 'not-the-fixture-password',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    401,
+    `quick entry must not issue tokens for a wrong password, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[A2] POST /auth/quick-entry authenticates an existing account with its own password', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'A teacher',
+      phone: phoneFor('a', 'teacher'),
+      role: 'teacher',
+      password: FIXTURE_PASSWORD,
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `quick entry must still work for the owner of an account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.isNew, false);
+  assert.equal(res.body.data.user.id, 'a-teacher');
+  assert.ok(res.body.data.accessToken);
+  assert.ok(res.body.data.refreshToken);
+});
+
+test('[A2] POST /auth/quick-entry still creates a new non-privileged account', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'Brand New Student',
+      phone: '09127776666',
+      role: 'student',
+      password: 'Str0ngFixturePass!2026',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `quick entry must still create a new account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.isNew, true);
+  assert.equal(res.body.data.user.role, 'student');
+  assert.ok(res.body.data.accessToken);
+});
+
+test('[A3] POST /auth/parent-login must not accept a partial student code', async () => {
   const res = await post(baseUrl, '/api/v1/auth/parent-login', {
     body: {
       student_code: '2002',
@@ -110,7 +316,93 @@ expectFailure('[A3] POST /auth/parent-login must not accept a partial student co
   );
 });
 
-expectFailure('[A4] NODE_ENV must not default to "development" when it is unset', () => {
+test('[A3] POST /auth/parent-login resolves the child from the exact student code', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: { student_code: 'STD-A-1001' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the exact student code must still resolve the child, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.student.id, 'a-student');
+  assert.ok(res.body.data.accessToken);
+});
+
+test('[A3] POST /auth/parent-login accepts the code without its STD- prefix', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: { student_code: 'A-1001' },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the canonical short spelling must still resolve the child, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+  assert.equal(res.body.data.student.id, 'a-student');
+});
+
+test('[A3] POST /auth/parent-login never rewrites the identity of an existing parent', async () => {
+  const before = await db('users').where({ id: 'a-parent' }).first();
+
+  const res = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: {
+      student_code: 'STD-A-1001',
+      parent_name: 'Attacker',
+      phone: '09129999999',
+    },
+  });
+
+  assert.equal(
+    res.status,
+    200,
+    `the parent must still be able to sign in, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+
+  const after = await db('users').where({ id: 'a-parent' }).first();
+  assert.equal(after.display_name, before.display_name, 'the display name must not be rewritten');
+  assert.equal(after.phone, before.phone, 'the phone number must not be rewritten');
+  assert.equal(after.student_code, before.student_code, 'the student code must not be rewritten');
+});
+
+test('[F11] POST /auth/login must not accept a display name', async () => {
+  const res = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'A teacher', password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    res.status,
+    401,
+    `a display name must never authenticate an account, got ${res.status}: ${String(res.text).slice(0, 200)}`,
+  );
+});
+
+test('[F11] login by phone number and by user name still works', async () => {
+  const byPhone = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: phoneFor('a', 'teacher'), password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    byPhone.status,
+    200,
+    `the phone number must still identify an account, got ${byPhone.status}: ${String(byPhone.text).slice(0, 200)}`,
+  );
+  assert.equal(byPhone.body.data.user.id, 'a-teacher');
+
+  const byUsername = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: 'a_teacher', password: FIXTURE_PASSWORD },
+  });
+
+  assert.equal(
+    byUsername.status,
+    200,
+    `the user name must still identify an account, got ${byUsername.status}: ${String(byUsername.text).slice(0, 200)}`,
+  );
+  assert.equal(byUsername.body.data.user.id, 'a-teacher');
+});
+
+test('[A4] NODE_ENV must not default to "development" when it is unset', () => {
   const reported = execFileSync(
     process.execPath,
     ['-e', "console.log(require('./src/config').nodeEnv)"],
@@ -125,6 +417,49 @@ expectFailure('[A4] NODE_ENV must not default to "development" when it is unset'
     reported,
     'development',
     'the backend must not silently run in development mode (it accepts mock_* tokens there)',
+  );
+});
+
+test('[A4] an explicit NODE_ENV is honoured', () => {
+  const reported = execFileSync(
+    process.execPath,
+    ['-e', "console.log(require('./src/config').nodeEnv)"],
+    {
+      cwd: BACKEND_DIR,
+      env: { ...process.env, NODE_ENV: 'production' },
+      encoding: 'utf8',
+    },
+  ).trim();
+
+  assert.equal(reported, 'production', 'an explicit NODE_ENV must be used as it is');
+});
+
+test('[A4] the server refuses to start when NODE_ENV is unset', () => {
+  const env = { ...process.env };
+  delete env.NODE_ENV;
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(BACKEND_DIR, 'src', 'app.js')],
+    {
+      // A directory without a .env file, so the child cannot pick up a NODE_ENV
+      // from the development environment.
+      cwd: path.join(BACKEND_DIR, '.tmp'),
+      env,
+      encoding: 'utf8',
+      timeout: 30000,
+    },
+  );
+
+  assert.notEqual(
+    result.status,
+    0,
+    `the backend must not start without NODE_ENV, it exited with ${result.status}: ${String(result.stderr).slice(0, 300)}`,
+  );
+  assert.match(
+    String(result.stderr),
+    /NODE_ENV/,
+    'the backend must explain that NODE_ENV is missing',
   );
 });
 

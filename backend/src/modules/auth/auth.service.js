@@ -5,8 +5,53 @@ const config = require('../../config');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
 const { generateUniqueUsername } = require('../../utils/usernameHelper');
 
+/**
+ * Roles an unauthenticated (self-service) request may end up with.
+ */
+const SELF_SERVICE_ROLES = ['student', 'teacher', 'parent'];
+
+/**
+ * Roles that grant administrative access. They are never assigned from a
+ * client supplied value on an unauthenticated endpoint (report finding A1).
+ */
+const PRIVILEGED_ROLES = [
+  'admin',
+  'manager',
+  'principal',
+  'headmaster',
+  'school_admin',
+  'superadmin',
+  'owner',
+];
+
+/** The role an unauthenticated request receives when it asks for nothing usable. */
+const DEFAULT_SELF_SERVICE_ROLE = 'student';
+
+/**
+ * Resolve the role of an unauthenticated (self-service) request.
+ *
+ * The role is always decided on the server: a privileged role requested by the
+ * client is ignored and falls back to the default non-privileged role, so an
+ * anonymous caller can never mint an administrator (report finding A1).
+ *
+ * @param {string} [requestedRole]
+ * @returns {'student'|'teacher'|'parent'}
+ */
+function resolveSelfServiceRole(requestedRole) {
+  const normalized = String(requestedRole || '').trim().toLowerCase();
+
+  if (!normalized || PRIVILEGED_ROLES.includes(normalized)) {
+    return DEFAULT_SELF_SERVICE_ROLE;
+  }
+
+  return SELF_SERVICE_ROLES.includes(normalized) ? normalized : DEFAULT_SELF_SERVICE_ROLE;
+}
+
 class AuthService {
-  async register({ email, phone, password, display_name, role, locale, username }) {
+  async register({ email, phone, password, display_name, role: requestedRole, locale, username }) {
+    // The role of an unauthenticated registration is decided on the server.
+    const role = resolveSelfServiceRole(requestedRole);
+
     const existingUser = await db('users')
       .where(function () {
         if (email) this.orWhere({ email });
@@ -44,7 +89,7 @@ class AuthService {
       password_hash,
       display_name,
       username: uniqueUsername,
-      role: role || 'student',
+      role,
       student_code,
       personnel_code,
       locale: locale || 'fa',
@@ -187,12 +232,15 @@ class AuthService {
    * Smart Quick Entry by full name and phone number
    * Generates a unique entry ID / username based on name, or logs in if already registered
    */
-  async quickEntry({ display_name, phone, role = 'student', password = null, school_name = null, school_code = null, grades = null, subject = null }) {
+  async quickEntry({ display_name, phone, role: requestedRole, password = null, school_name = null, school_code = null, grades = null, subject = null }) {
     if (!display_name || !display_name.trim()) {
       const error = new Error('نام و نام‌خانوادگی الزامی است');
       error.statusCode = 400;
       throw error;
     }
+
+    // The role of an unauthenticated quick entry is decided on the server.
+    const role = resolveSelfServiceRole(requestedRole);
 
     const cleanName = display_name.trim();
     const cleanPhone = phone ? phone.trim() : null;
@@ -205,7 +253,7 @@ class AuthService {
 
     // If not found by phone, check by exact display_name and role
     if (!user) {
-      user = await db('users').where({ display_name: cleanName, role: role || 'student' }).first();
+      user = await db('users').where({ display_name: cleanName, role }).first();
     }
 
     // Resolve school if provided
@@ -232,6 +280,27 @@ class AuthService {
     }
 
     if (user) {
+      // An existing account is only ever authenticated with its own password.
+      // A quick entry must not hand out tokens for an account the caller cannot
+      // prove it owns, and it must not touch the account either (report
+      // finding A2).
+      if (!password || !password.trim()) {
+        const error = new Error('برای ورود به حساب کاربری موجود، رمز عبور الزامی است');
+        error.messageEn = 'Password is required to sign in to an existing account';
+        error.statusCode = 401;
+        throw error;
+      }
+
+      const isMatch = user.password_hash
+        ? await bcrypt.compare(password, user.password_hash)
+        : false;
+      if (!isMatch) {
+        const error = new Error('رمز عبور اشتباه است');
+        error.messageEn = 'Invalid password';
+        error.statusCode = 401;
+        throw error;
+      }
+
       // Ensure user has a username
       if (!user.username) {
         const generatedUser = await generateUniqueUsername(db, user.display_name, user.id);
@@ -302,7 +371,7 @@ class AuthService {
       password_hash,
       display_name: cleanName,
       username: generatedUsername,
-      role: role || 'student',
+      role,
       school_id: matchedSchool ? matchedSchool.id : null,
       student_code,
       personnel_code,
@@ -321,13 +390,13 @@ class AuthService {
     const cleanId = (identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
 
+    // Only an unambiguous identifier authenticates an account: e-mail, phone
+    // number or user name. A display name is not unique, so it must never be
+    // accepted as a credential.
     const user = await db('users')
       .where({ email: cleanId })
       .orWhere({ phone: cleanId })
-      .orWhere({ student_code: cleanId })
-      .orWhere({ personnel_code: cleanId })
       .orWhereRaw('LOWER(username) = ?', [cleanUsername])
-      .orWhereRaw('LOWER(display_name) = ?', [cleanId.toLowerCase()])
       .first();
 
     if (!user) {
@@ -337,14 +406,25 @@ class AuthService {
       throw error;
     }
 
-    if (password && password.trim()) {
-      const isMatch = await bcrypt.compare(password, user.password_hash);
-      if (!isMatch && password !== '123456') {
-        const error = new Error('رمز عبور اشتباه است');
-        error.messageEn = 'Invalid password';
-        error.statusCode = 401;
-        throw error;
-      }
+    if (!password || !password.trim()) {
+      // The login validator no longer supplies a default value, so a request
+      // without a credential must never be authenticated (report finding F11).
+      const error = new Error('رمز عبور الزامی است');
+      error.messageEn = 'Password is required';
+      error.statusCode = 401;
+      throw error;
+    }
+
+    // bcrypt.compare is the only authority: there is no universal password and
+    // no default password that unlocks an account (report finding F11).
+    const isMatch = user.password_hash
+      ? await bcrypt.compare(password, user.password_hash)
+      : false;
+    if (!isMatch) {
+      const error = new Error('رمز عبور اشتباه است');
+      error.messageEn = 'Invalid password';
+      error.statusCode = 401;
+      throw error;
     }
 
     delete user.password_hash;
@@ -364,18 +444,24 @@ class AuthService {
     }
 
     const rawCode = studentCode.trim();
-    // Normalize code e.g. "40301" or "STD-40301"
+    // The student code must match exactly: "40301" and "STD-40301" are the two
+    // spellings of the same code, but a partial code never resolves a student
+    // (report finding A3).
+    const normalizedCode = rawCode.toLowerCase();
     const student = await db('users')
       .where({ role: 'student' })
       .andWhere(function () {
-        this.whereRaw('LOWER(student_code) = ?', [rawCode.toLowerCase()])
-          .orWhereRaw('LOWER(student_code) LIKE ?', [`%${rawCode.toLowerCase()}%`]);
+        this.whereRaw('LOWER(student_code) = ?', [normalizedCode])
+          .orWhereRaw('LOWER(student_code) = ?', [`std-${normalizedCode}`]);
       })
       .first();
 
     if (!student) {
+      // The answer is the same for an unknown code and for a partial one, so
+      // the endpoint cannot be used to enumerate student codes.
       const error = new Error(`دانش‌آموزی با کد «${rawCode}» در سامانه مدرسه یافت نشد. لطفاً از صحت کد دانش‌آموزی اطمینان حاصل فرمایید.`);
-      error.statusCode = 404;
+      error.messageEn = 'Student code not found';
+      error.statusCode = 401;
       throw error;
     }
 
@@ -399,15 +485,10 @@ class AuthService {
       : `ولی ${student.display_name}`;
 
     if (parent) {
-      // Update parent display name and student code if needed
-      const updates = { student_code: student.student_code };
-      if (parentName && parentName.trim()) {
-        updates.display_name = `${parentName.trim()} (ولی ${student.display_name})`;
-      }
-      if (phone && phone.trim()) {
-        updates.phone = phone.trim();
-      }
-      await db('users').where({ id: parent.id }).update(updates);
+      // The identity of an existing account is never rewritten from an
+      // unauthenticated request: the display name, the phone number and the
+      // student code of the parent stay exactly as they are (report finding
+      // A3).
       parent = await db('users').where({ id: parent.id }).first();
 
       // Ensure link exists

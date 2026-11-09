@@ -11,6 +11,19 @@ const http = require('http');
 const compression = require('compression');
 
 const config = require('./config');
+
+// The backend refuses to start without an explicit NODE_ENV. The environment
+// decides how errors are reported and which features are enabled, and guessing
+// "development" used to switch on the mock token authentication of report
+// finding A4. The test suite always sets NODE_ENV=test.
+if (!config.nodeEnvIsSet) {
+  console.error(
+    '[EduConnect] NODE_ENV is not set. Refusing to start. ' +
+    'Set NODE_ENV=production for a deployment (NODE_ENV=test is used by the test suite).',
+  );
+  process.exit(1);
+}
+
 const db = require('./config/database');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { authenticate } = require('./middleware/auth');

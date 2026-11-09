@@ -2,6 +2,17 @@
 import { create } from 'zustand';
 import api from '../lib/api';
 
+/**
+ * The offline fallback may only be used when the request never reached the
+ * backend. A credential that the backend rejected (400/401/403) must surface
+ * its error instead of silently starting a local demo session: the server is
+ * the only authority that decides whether an account may be used.
+ *
+ * @param {any} err - The error thrown by the API client.
+ * @returns {boolean} True when the request failed without an answer.
+ */
+const isNetworkFailure = (err) => !err || !err.response;
+
 const useAuthStore = create((set, get) => ({
   user: null,
   isLoading: true,
@@ -57,6 +68,7 @@ const useAuthStore = create((set, get) => ({
       set({ user, isAuthenticated: true, isLoading: false });
       return data;
     } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
       const mockUser = {
         id: 'usr-' + Date.now(),
         display_name: userData.display_name,
@@ -92,6 +104,7 @@ const useAuthStore = create((set, get) => ({
       set({ user, isAuthenticated: true, isLoading: false });
       return { success: true, school, user };
     } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
       // Offline / Local fallback:
       const schoolCode = 'SCH-' + Math.floor(1000 + Math.random() * 9000);
       const newSchool = {
@@ -183,6 +196,7 @@ const useAuthStore = create((set, get) => ({
       set({ user, isAuthenticated: true, isLoading: false });
       return data;
     } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
       // Offline fallback
       const cleanName = (entryData.display_name || '').trim();
       const schoolName = entryData.school_name || 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)';
@@ -226,6 +240,7 @@ const useAuthStore = create((set, get) => ({
       set({ user, isAuthenticated: true, isLoading: false });
       return data;
     } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
       // Offline Demo Fallback
       const idStr = String(identifier || '').toLowerCase();
       let mockUser;
@@ -315,6 +330,7 @@ const useAuthStore = create((set, get) => ({
       set({ user, isAuthenticated: true, isLoading: false });
       return data;
     } catch (err) {
+      if (!isNetworkFailure(err)) throw err;
       // Offline Demo Fallback for Parents
       const code = (student_code || 'STD-40301').toUpperCase().trim();
       const studentsMap = {
