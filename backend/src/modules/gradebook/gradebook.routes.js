@@ -1,7 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertOwnsClass,
+  assertTeacherOfStudent,
+} = require('../../middleware/auth');
+const { logAudit } = require('../../utils/auditLogger');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
@@ -25,37 +32,14 @@ router.get('/classes/:classId', async (req, res, next) => {
   try {
     const { classId } = req.params;
 
-    // 1. Fetch class details (or auto-create if not found so teacher is never blocked)
-    let cls = await db('classes').where('id', classId).first();
-    if (!cls) {
-      try {
-        const fallbackCls = {
-          id: classId,
-          name: 'دفتر نمرات کلاسی من',
-          subject: 'دروس تخصصی',
-          grade: 'پایه دهم',
-          teacher_id: req.user?.id || null,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        };
-        await db('classes').insert(fallbackCls);
-        cls = fallbackCls;
-      } catch (insertErr) {
-        cls = {
-          id: classId,
-          name: 'دفتر نمرات کلاسی من',
-          subject: 'دروس تخصصی',
-          grade: 'پایه دهم',
-        };
-      }
-    }
+    // Verify class exists, belongs to caller's school, and caller owns or is enrolled in it
+    const cls = await assertOwnsClass(req.user, classId, { allowEnrolled: true });
 
-    // 2. Fetch categories (auto-seed if empty so teacher always has evaluation columns)
     let categories = await db('gradebook_categories')
       .where('class_id', classId)
       .orderBy('created_at', 'asc');
 
-    if (categories.length === 0) {
+    if (categories.length === 0 && (req.user.role === 'teacher' || req.user.role === 'admin' || req.user.role === 'manager')) {
       const defaultCats = [
         { id: uuidv4(), class_id: classId, title: 'ارزشیابی مستمر کلاسی', weight: 1.0, max_score: 20.0, term: 'term1' },
         { id: uuidv4(), class_id: classId, title: 'آزمون میان‌ترم', weight: 1.0, max_score: 20.0, term: 'term1' },
@@ -69,33 +53,19 @@ router.get('/classes/:classId', async (req, res, next) => {
         .orderBy('created_at', 'asc');
     }
 
-    // 3. Fetch students in class (auto-enroll if empty)
-    let students = await db('class_members')
+    // Fetch strictly the students enrolled in this class (never auto-enroll all students in DB — finding A26)
+    let studentsQuery = db('class_members')
       .join('users', 'users.id', 'class_members.user_id')
-      .where({ 'class_members.class_id': classId, 'class_members.role': 'student' })
+      .where({ 'class_members.class_id': classId, 'class_members.role': 'student' });
+
+    if (req.user.role === 'student') {
+      studentsQuery = studentsQuery.andWhere('users.id', req.user.id);
+    }
+
+    const students = await studentsQuery
       .select('users.id', 'users.display_name', 'users.student_code', 'users.email')
       .orderBy('users.display_name', 'asc');
 
-    if (students.length === 0) {
-      const defaultStudentUsers = await db('users').where({ role: 'student' }).select('id');
-      if (defaultStudentUsers.length > 0) {
-        const enrollments = defaultStudentUsers.map((st) => ({
-          id: uuidv4(),
-          class_id: classId,
-          user_id: st.id,
-          role: 'student',
-          joined_at: new Date().toISOString(),
-        }));
-        await db('class_members').insert(enrollments);
-        students = await db('class_members')
-          .join('users', 'users.id', 'class_members.user_id')
-          .where({ 'class_members.class_id': classId, 'class_members.role': 'student' })
-          .select('users.id', 'users.display_name', 'users.student_code', 'users.email')
-          .orderBy('users.display_name', 'asc');
-      }
-    }
-
-    // 4. Fetch all scores for these categories
     const categoryIds = categories.map((c) => c.id);
     let scores = [];
     if (categoryIds.length > 0) {
@@ -103,7 +73,6 @@ router.get('/classes/:classId', async (req, res, next) => {
         .whereIn('category_id', categoryIds);
     }
 
-    // 5. Build student score matrix & calculate weighted averages
     const scoreMap = {};
     for (const s of scores) {
       if (!scoreMap[s.student_id]) scoreMap[s.student_id] = {};
@@ -152,41 +121,33 @@ router.get('/classes/:classId', async (req, res, next) => {
  * POST /api/v1/gradebook/categories
  * Creates an evaluation category with weight (defaults to 1.0)
  */
-router.post('/categories', async (req, res, next) => {
+router.post('/categories', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
-    let { class_id, title, weight, max_score, term } = req.body;
+    const { class_id, title, weight, max_score, term } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ success: false, message: 'عنوان آزمون الزامی است' });
     }
-    const targetClassId = class_id || 'cls-gradebook-default';
-
-    // Ensure class exists in database so foreign key doesn't fail
-    const cls = await db('classes').where('id', targetClassId).first();
-    if (!cls) {
-      try {
-        await db('classes').insert({
-          id: targetClassId,
-          name: 'دفتر نمرات کلاسی من',
-          subject: 'دروس تخصصی',
-          grade: 'پایه دهم',
-          teacher_id: req.user?.id || null,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        });
-      } catch (e) {}
+    if (!class_id) {
+      return res.status(400).json({ success: false, message: 'شناسه کلاس الزامی است' });
     }
 
+    await assertOwnsClass(req.user, class_id);
+
+    const parsedWeight = parseFloat(weight);
+    const parsedMax = parseFloat(max_score);
     const id = uuidv4();
     const newCat = {
       id,
-      class_id: targetClassId,
+      class_id,
       title: title.trim(),
-      weight: parseFloat(weight) || 1.0,
-      max_score: parseFloat(max_score) || 20.0,
+      weight: !isNaN(parsedWeight) && parsedWeight > 0 ? parsedWeight : 1.0,
+      max_score: !isNaN(parsedMax) && parsedMax > 0 ? parsedMax : 20.0,
       term: term || 'term1',
     };
 
     await db('gradebook_categories').insert(newCat);
+    await logAudit(req, 'CREATE_GRADEBOOK_CATEGORY', 'gradebook_category', id, newCat);
+
     res.status(201).json({ success: true, message: 'آیتم ارزشیابی با موفقیت ثبت شد', data: { category: newCat } });
   } catch (err) {
     next(err);
@@ -197,11 +158,20 @@ router.post('/categories', async (req, res, next) => {
  * DELETE /api/v1/gradebook/categories/:id
  * Deletes an evaluation category and its scores
  */
-router.delete('/categories/:id', async (req, res, next) => {
+router.delete('/categories/:id', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { id } = req.params;
+    const category = await db('gradebook_categories').where('id', id).first();
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'آیتم ارزشیابی یافت نشد' });
+    }
+
+    await assertOwnsClass(req.user, category.class_id);
+
     await db('gradebook_scores').where('category_id', id).del();
     await db('gradebook_categories').where('id', id).del();
+    await logAudit(req, 'DELETE_GRADEBOOK_CATEGORY', 'gradebook_category', id, { class_id: category.class_id, title: category.title });
+
     res.json({ success: true, message: 'آیتم ارزشیابی با موفقیت حذف شد' });
   } catch (err) {
     next(err);
@@ -212,24 +182,34 @@ router.delete('/categories/:id', async (req, res, next) => {
  * POST /api/v1/gradebook/scores
  * Upserts or deletes a score for a student in a category with Persian digit support
  */
-router.post('/scores', async (req, res, next) => {
+router.post('/scores', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { category_id, student_id, score, teacher_comment } = req.body;
     if (!category_id || !student_id) {
       return res.status(400).json({ success: false, message: 'شناسه دانش‌آموز و آزمون الزامی است' });
     }
 
+    const category = await db('gradebook_categories').where({ id: category_id }).first();
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'آیتم ارزشیابی یافت نشد' });
+    }
+
+    await assertOwnsClass(req.user, category.class_id);
+    await assertTeacherOfStudent(req.user, student_id);
+
     // Handle score clearance/deletion
     if (score === '' || score === null || score === undefined) {
       await db('gradebook_scores')
         .where({ category_id, student_id })
         .del();
+      await logAudit(req, 'DELETE_GRADEBOOK_SCORE', 'gradebook_score', `${category_id}:${student_id}`, { category_id, student_id });
       return res.json({ success: true, message: 'نمره با موفقیت حذف شد' });
     }
 
+    const maxScore = category.max_score || 20;
     const numericScore = parsePersianScore(score);
-    if (numericScore === null || numericScore < 0 || numericScore > 20) {
-      return res.status(400).json({ success: false, message: 'نمره باید عددی بین ۰ تا ۲۰ باشد' });
+    if (numericScore === null || numericScore < 0 || numericScore > maxScore) {
+      return res.status(400).json({ success: false, message: `نمره باید عددی بین ۰ تا ${maxScore} باشد` });
     }
 
     const existing = await db('gradebook_scores')
@@ -254,6 +234,13 @@ router.post('/scores', async (req, res, next) => {
       });
     }
 
+    await logAudit(req, 'UPSERT_GRADEBOOK_SCORE', 'gradebook_score', `${category_id}:${student_id}`, {
+      category_id,
+      student_id,
+      score: numericScore,
+      previous_score: existing ? existing.score : null,
+    });
+
     res.json({ success: true, message: 'نمره با موفقیت ذخیره شد', data: { score: numericScore } });
   } catch (err) {
     next(err);
@@ -264,7 +251,7 @@ router.post('/scores', async (req, res, next) => {
  * POST /api/v1/gradebook/scores/batch
  * Batch saves multiple scores in a single request
  */
-router.post('/scores/batch', async (req, res, next) => {
+router.post('/scores/batch', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { scores } = req.body;
     if (!Array.isArray(scores)) {
@@ -275,13 +262,22 @@ router.post('/scores/batch', async (req, res, next) => {
       const { category_id, student_id, score, teacher_comment } = item;
       if (!category_id || !student_id) continue;
 
+      const category = await db('gradebook_categories').where({ id: category_id }).first();
+      if (!category) {
+        return res.status(404).json({ success: false, message: 'آیتم ارزشیابی یافت نشد' });
+      }
+
+      await assertOwnsClass(req.user, category.class_id);
+      await assertTeacherOfStudent(req.user, student_id);
+
       if (score === '' || score === null || score === undefined) {
         await db('gradebook_scores').where({ category_id, student_id }).del();
         continue;
       }
 
+      const maxScore = category.max_score || 20;
       const numericScore = parsePersianScore(score);
-      if (numericScore === null || numericScore < 0 || numericScore > 20) continue;
+      if (numericScore === null || numericScore < 0 || numericScore > maxScore) continue;
 
       const existing = await db('gradebook_scores').where({ category_id, student_id }).first();
       if (existing) {
@@ -301,49 +297,19 @@ router.post('/scores/batch', async (req, res, next) => {
       }
     }
 
+    await logAudit(req, 'BATCH_UPSERT_GRADEBOOK_SCORES', 'gradebook_score', req.user.id, { count: scores.length });
     res.json({ success: true, message: 'تمام نمرات با موفقیت ذخیره شدند ✓' });
   } catch (err) {
     next(err);
   }
 });
 
-// Helper to ensure gradebook_shared_reports table exists
-const ensureSharedReportsTable = async () => {
-  const exists = await db.schema.hasTable('gradebook_shared_reports');
-  if (!exists) {
-    await db.schema.createTable('gradebook_shared_reports', (table) => {
-      table.string('id', 64).primary();
-      table.string('class_id', 64).nullable();
-      table.string('teacher_id', 64).nullable();
-      table.string('teacher_name', 255).nullable();
-      table.string('teacher_code', 64).nullable();
-      table.string('class_name', 255).nullable();
-      table.string('subject', 255).nullable();
-      table.string('grade', 100).nullable();
-      table.string('date', 50).nullable();
-      table.string('time', 50).nullable();
-      table.integer('students_count').defaultTo(0);
-      table.float('class_average').defaultTo(0);
-      table.float('top_score').defaultTo(0);
-      table.float('pass_rate').defaultTo(0);
-      table.text('categories').nullable(); // JSON
-      table.text('failing_students').nullable(); // JSON
-      table.text('students').nullable(); // JSON
-      table.text('teacher_note').nullable();
-      table.string('status', 50).defaultTo('submitted'); // 'submitted' | 'acknowledged'
-      table.timestamp('created_at').defaultTo(db.fn.now());
-      table.timestamp('acknowledged_at').nullable();
-    });
-  }
-};
-
 /**
  * POST /api/v1/gradebook/shared-reports
  * Teacher shares class gradebook & statistics with school management
  */
-router.post('/shared-reports', async (req, res, next) => {
+router.post('/shared-reports', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
-    await ensureSharedReportsTable();
     const {
       class_id,
       class_name,
@@ -358,6 +324,10 @@ router.post('/shared-reports', async (req, res, next) => {
       students,
       teacher_note,
     } = req.body;
+
+    if (class_id) {
+      await assertOwnsClass(req.user, class_id);
+    }
 
     const currentTeacherName = req.user?.display_name || 'دبیر محترم';
     const currentTeacherCode = req.user?.personnel_code || 'TCH-101';
@@ -389,8 +359,15 @@ router.post('/shared-reports', async (req, res, next) => {
 
     await db('gradebook_shared_reports').insert(reportRow);
 
-    // Send notifications to school admins and managers
-    const adminUsers = await db('users').whereIn('role', ['admin', 'manager']).select('id');
+    // Send notifications only to admins and managers of the same school
+    let adminQuery = db('users').whereIn('role', ['admin', 'manager']);
+    if (req.user.school_id) {
+      adminQuery = adminQuery.andWhere({ school_id: req.user.school_id });
+    } else {
+      adminQuery = adminQuery.whereRaw('1 = 0');
+    }
+    const adminUsers = await adminQuery.select('id');
+
     for (const adm of adminUsers) {
       try {
         await db('notifications').insert({
@@ -432,18 +409,18 @@ router.post('/shared-reports', async (req, res, next) => {
 
 /**
  * GET /api/v1/gradebook/shared-reports
- * Fetches all shared gradebook reports from teachers
+ * Fetches shared gradebook reports scoped to the caller's school
  */
-router.get('/shared-reports', async (req, res, next) => {
+router.get('/shared-reports', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
-    await ensureSharedReportsTable();
-    let query = db('gradebook_shared_reports').orderBy('created_at', 'desc');
+    let query = db('gradebook_shared_reports')
+      .join('users as author', 'author.id', 'gradebook_shared_reports.teacher_id')
+      .where('author.school_id', req.user.school_id)
+      .select('gradebook_shared_reports.*')
+      .orderBy('gradebook_shared_reports.created_at', 'desc');
 
-    // If regular teacher, show reports they sent or for their classes
     if (req.user.role === 'teacher') {
-      query = query.where(function () {
-        this.where('teacher_id', req.user.id).orWhere('teacher_code', req.user.personnel_code);
-      });
+      query = query.andWhere('gradebook_shared_reports.teacher_id', req.user.id);
     }
 
     const rows = await query;
@@ -475,14 +452,18 @@ router.get('/shared-reports', async (req, res, next) => {
  * PUT /api/v1/gradebook/shared-reports/:id/acknowledge
  * Management approves / acknowledges a shared gradebook report
  */
-router.put('/shared-reports/:id/acknowledge', async (req, res, next) => {
+router.put('/shared-reports/:id/acknowledge', authorize('admin', 'manager'), async (req, res, next) => {
   try {
-    await ensureSharedReportsTable();
     const { id } = req.params;
     const report = await db('gradebook_shared_reports').where({ id }).first();
     if (!report) {
       return res.status(404).json({ success: false, message: 'گزارش کارنامه یافت نشد' });
     }
+
+    const reportAuthor = report.teacher_id
+      ? await db('users').where({ id: report.teacher_id }).first()
+      : null;
+    assertSameSchool(req.user, reportAuthor || { school_id: null });
 
     const now = new Date().toISOString();
     await db('gradebook_shared_reports').where({ id }).update({
@@ -490,7 +471,6 @@ router.put('/shared-reports/:id/acknowledge', async (req, res, next) => {
       acknowledged_at: now,
     });
 
-    // Notify the teacher who submitted the report
     if (report.teacher_id) {
       try {
         await db('notifications').insert({
@@ -520,28 +500,36 @@ router.put('/shared-reports/:id/acknowledge', async (req, res, next) => {
  * GET /api/v1/gradebook/report-card/:studentId
  * Generates an official report card with all classes, weighted averages, and discipline summary
  */
-const getReportCardHandler = async (req, res, next) => {
+async function handleGetReportCard(req, res, next) {
   try {
     let studentId = req.params.studentId || req.query.student_id;
     let availableChildren = [];
 
     if (req.user.role === 'student') {
+      if (studentId && studentId !== 'me' && studentId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'دسترسی به کارنامه سایر دانش‌آموزان مجاز نیست',
+        });
+      }
       studentId = req.user.id;
     } else if (req.user.role === 'parent') {
-      // Find parent's children
       let children = await db('parent_student_links')
         .join('users', 'users.id', 'parent_student_links.student_id')
         .where({ 'parent_student_links.parent_id': req.user.id })
-        .select('users.id', 'users.display_name', 'users.student_code', 'users.avatar_url', 'parent_student_links.relation');
+        .select('users.id', 'users.display_name', 'users.student_code', 'users.avatar_url', 'users.school_id', 'parent_student_links.relation');
 
       if (!children.length && req.user.student_code) {
-        const child = await db('users').where({ student_code: req.user.student_code }).first();
+        const child = await db('users')
+          .where({ student_code: req.user.student_code, role: 'student', school_id: req.user.school_id })
+          .first();
         if (child) {
           children = [{
             id: child.id,
             display_name: child.display_name,
             student_code: child.student_code,
             avatar_url: child.avatar_url,
+            school_id: child.school_id,
             relation: 'فرزند',
           }];
         }
@@ -549,30 +537,28 @@ const getReportCardHandler = async (req, res, next) => {
 
       availableChildren = children;
 
-      if (!children.length) {
-        return res.status(404).json({ success: false, message: 'هیچ پرونده دانش‌آموزی به حساب شما متصل نیست' });
-      }
-
-      // If studentId was requested, verify parent has access to this student
       if (studentId && studentId !== 'me') {
         const isChildOfParent = children.some((c) => c.id === studentId);
         if (!isChildOfParent) {
           return res.status(403).json({ success: false, message: 'دسترسی به کارنامه این دانش‌آموز برای شما مجاز نیست' });
         }
       } else {
+        if (!children.length) {
+          return res.status(404).json({ success: false, message: 'هیچ پرونده دانش‌آموزی به حساب شما متصل نیست' });
+        }
         studentId = children[0].id;
       }
     } else {
       // Admin, Manager or Teacher
       if (!studentId || studentId === 'me') {
         if (req.user.role === 'teacher') {
-          const teacherMember = await db('class_members')
-            .where({ user_id: req.user.id, role: 'teacher' })
+          const teacherClass = await db('classes')
+            .where({ teacher_id: req.user.id, school_id: req.user.school_id })
             .first();
 
-          if (teacherMember) {
+          if (teacherClass) {
             const firstStudent = await db('class_members')
-              .where({ class_id: teacherMember.class_id, role: 'student' })
+              .where({ class_id: teacherClass.id, role: 'student' })
               .first();
             if (firstStudent) {
               studentId = firstStudent.user_id;
@@ -586,16 +572,17 @@ const getReportCardHandler = async (req, res, next) => {
       }
     }
 
-    const student = await db('users').where('id', studentId).first();
-    if (!student) {
-      return res.status(404).json({ success: false, message: 'دانش‌آموز یافت نشد' });
-    }
+    const student = await assertTeacherOfStudent(req.user, studentId);
+    assertSameSchool(req.user, student);
 
-    // Classes student belongs to
     const classes = await db('class_members')
       .join('classes', 'classes.id', 'class_members.class_id')
       .leftJoin('users as teachers', 'teachers.id', 'classes.teacher_id')
-      .where({ 'class_members.user_id': studentId, 'class_members.role': 'student' })
+      .where({
+        'class_members.user_id': studentId,
+        'class_members.role': 'student',
+        'classes.school_id': student.school_id,
+      })
       .select('classes.id', 'classes.name', 'classes.subject', 'classes.grade', 'teachers.display_name as teacher_name');
 
     const reportCards = [];
@@ -630,7 +617,7 @@ const getReportCardHandler = async (req, res, next) => {
       }
 
       const classFinalAverage = classWeightTotal > 0 ? (classWeightedSum / classWeightTotal).toFixed(2) : null;
-      const credits = 3; // standard course coefficient
+      const credits = 3;
 
       if (classFinalAverage) {
         overallWeightedSum += parseFloat(classFinalAverage) * credits;
@@ -649,7 +636,6 @@ const getReportCardHandler = async (req, res, next) => {
       });
     }
 
-    // Discipline points
     const disciplineRecords = await db('discipline_records').where('student_id', studentId);
     let disciplineScore = 20.0;
     for (const d of disciplineRecords) {
@@ -688,9 +674,9 @@ const getReportCardHandler = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-};
+}
 
-router.get('/report-card', getReportCardHandler);
-router.get('/report-card/:studentId', getReportCardHandler);
+router.get('/report-card', handleGetReportCard);
+router.get('/report-card/:studentId', handleGetReportCard);
 
 module.exports = router;

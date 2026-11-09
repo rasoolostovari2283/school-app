@@ -5,12 +5,45 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+const crypto = require('crypto');
+
+const CAPTCHA_TTL_MS = 5 * 60 * 1000;
+const MAX_CHALLENGES = 5000;
+const challenges = new Map();
+
+function pruneExpired() {
+  const now = Date.now();
+  for (const [key, entry] of challenges.entries()) {
+    if (entry.expiresAt <= now) {
+      challenges.delete(key);
+    }
+  }
+}
+
+function enforceCapacityCap(maxCap = MAX_CHALLENGES) {
+  while (challenges.size >= maxCap) {
+    const oldestKey = challenges.keys().next().value;
+    if (oldestKey === undefined) break;
+    challenges.delete(oldestKey);
+  }
+}
+
 class LocalCaptcha {
+  constructor() {
+    this.MAX_CHALLENGES = MAX_CHALLENGES;
+  }
+
+  size() {
+    return challenges.size;
+  }
+
   /**
-   * Generates a simple math challenge or alphanumeric code in SVG format
-   * @returns {{ id: string, text: string, svg: string }}
+   * Generates a simple math challenge in SVG format and stores the answer server-side
+   * @returns {{ id: string, svg: string }}
    */
   generate() {
+    pruneExpired();
+    enforceCapacityCap( this.MAX_CHALLENGES );
     const num1 = Math.floor(Math.random() * 20) + 1;
     const num2 = Math.floor(Math.random() * 10) + 1;
     const operators = ['+', '-'];
@@ -29,7 +62,11 @@ class LocalCaptcha {
       label = `${max} - ${min} = ?`;
     }
 
-    const id = Math.random().toString(36).substring(2, 10);
+    const id = crypto.randomBytes(8).toString('hex');
+    challenges.set(id, {
+      solution,
+      expiresAt: Date.now() + CAPTCHA_TTL_MS,
+    });
 
     // Generate lightweight SVG
     const width = 140;
@@ -49,9 +86,24 @@ class LocalCaptcha {
 
     return {
       id,
-      text: solution,
       svg: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
     };
+  }
+
+  /**
+   * Single-use server-side verification of a captcha challenge
+   * @param {string} id
+   * @param {string|number} answer
+   * @returns {boolean}
+   */
+  verify(id, answer) {
+    pruneExpired();
+    if (!id || answer === undefined || answer === null) return false;
+    const entry = challenges.get(String(id));
+    if (!entry) return false;
+    challenges.delete(String(id));
+    if (entry.expiresAt <= Date.now()) return false;
+    return entry.solution === String(answer).trim();
   }
 }
 

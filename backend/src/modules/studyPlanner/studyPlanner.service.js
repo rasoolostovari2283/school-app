@@ -1,156 +1,32 @@
 const db = require('../../config/database');
 const { insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
 const { v4: uuidv4 } = require('uuid');
+const {
+  assertSameSchool,
+  assertOwnsResource,
+  assertTeacherOfStudent,
+  notFoundError,
+} = require('../../middleware/auth');
+
+const ALLOWED_PLAN_FIELDS = [
+  'grade',
+  'day_of_week',
+  'period_number',
+  'start_time',
+  'end_time',
+  'subject',
+  'class_name',
+  'topic',
+  'session_type',
+  'room',
+  'status',
+  'notes',
+];
 
 class StudyPlannerService {
-  async ensureTeacherPlansTable() {
-    const hasTable = await db.schema.hasTable('teacher_lesson_plans');
-    if (!hasTable) {
-      await db.schema.createTable('teacher_lesson_plans', (t) => {
-        t.string('id', 36).primary();
-        t.string('teacher_id', 36).notNullable();
-        t.string('grade').notNullable(); // پایه دهم، یازدهم، دوازدهم و...
-        t.integer('day_of_week').notNullable(); // 0 to 5
-        t.integer('period_number').notNullable(); // 1 to 5
-        t.string('start_time', 10).defaultTo('08:00');
-        t.string('end_time', 10).defaultTo('09:30');
-        t.string('subject').notNullable();
-        t.string('class_name').defaultTo('کلاس اصلی');
-        t.string('topic').defaultTo('');
-        t.string('session_type').defaultTo('teaching'); // teaching, practice, quiz, lab, review
-        t.string('room').defaultTo('کلاس اصلی');
-        t.string('status').defaultTo('upcoming'); // upcoming, completed, in_progress, cancelled
-        t.text('notes').defaultTo('');
-        t.timestamp('created_at').defaultTo(db.fn.now());
-      });
-
-      const defaultPlans = [
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه دهم ریاضی',
-          day_of_week: 0, // شنبه
-          period_number: 1,
-          start_time: '07:45',
-          end_time: '09:15',
-          subject: 'ریاضی ۱ و هندسه',
-          class_name: 'کلاس ۱۰۱ (شهید بهشتی)',
-          topic: 'فصل دوم: توان‌های گویا و عبارت‌های جبری',
-          session_type: 'teaching',
-          room: 'کلاس ۱۰۱',
-          status: 'completed',
-          notes: 'حل تمرین‌های صفحه ۳۴ تا ۳۸ کتاب درسی',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه یازدهم تجربی',
-          day_of_week: 0, // شنبه
-          period_number: 2,
-          start_time: '09:30',
-          end_time: '11:00',
-          subject: 'زیست‌شناسی ۲',
-          class_name: 'کلاس ۲۰۱ (علامه حلی)',
-          topic: 'گفتار دوم: دستگاه عصبی محیطی و انعکاس‌ها',
-          session_type: 'practice',
-          room: 'آزمایشگاه زیست‌شناسی',
-          status: 'upcoming',
-          notes: 'آزمون تشریحی کوتاه ۵ نمره‌ای ابتدای جلسه',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه دوازدهم ریاضی',
-          day_of_week: 1, // یکشنبه
-          period_number: 1,
-          start_time: '07:45',
-          end_time: '09:15',
-          subject: 'حسابان ۲ و کاربرد مشتق',
-          class_name: 'کلاس ۳۰۱ (خوارزمی)',
-          topic: 'اکسترمم‌های نسبی و مطلق و نقاط عطف تابع',
-          session_type: 'teaching',
-          room: 'کلاس ۳۰۱',
-          status: 'upcoming',
-          notes: 'تست‌های جامع سنجش و کانون فرهنگی آموزش',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه دهم تجربی',
-          day_of_week: 1, // یکشنبه
-          period_number: 3,
-          start_time: '11:15',
-          end_time: '12:45',
-          subject: 'فیزیک ۱',
-          class_name: 'کلاس ۱۰۲',
-          topic: 'فصل ۳: کار، انرژی پتانسیل و پایستگی انرژی مکانیکی',
-          session_type: 'lab',
-          room: 'آزمایشگاه مرکزی فیزیک',
-          status: 'upcoming',
-          notes: 'آزمایش عملی برخورد کشسان گلوله‌ها',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه یازدهم ریاضی',
-          day_of_week: 2, // دوشنبه
-          period_number: 2,
-          start_time: '09:30',
-          end_time: '11:00',
-          subject: 'هندسه ۲',
-          class_name: 'کلاس ۲۰۲',
-          topic: 'دایره، زاویه‌های محاطی و ظلی و مماس بر دایره',
-          session_type: 'teaching',
-          room: 'کلاس ۲۰۲',
-          status: 'upcoming',
-          notes: 'اثبات قضایای هندسی مهم امتحان نهایی',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه دهم ریاضی',
-          day_of_week: 3, // سه‌شنبه
-          period_number: 1,
-          start_time: '07:45',
-          end_time: '09:15',
-          subject: 'شیمی ۱',
-          class_name: 'کلاس ۱۰۱',
-          topic: 'آرایش الکترونی و پیوند‌های یونی و کووالانسی',
-          session_type: 'quiz',
-          room: 'کلاس ۱۰۱',
-          status: 'upcoming',
-          notes: 'کوئیز تستی و تحلیل تست‌های چالشی سنجش',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          grade: 'پایه دوازدهم تجربی',
-          day_of_week: 4, // چهارشنبه
-          period_number: 2,
-          start_time: '09:30',
-          end_time: '11:00',
-          subject: 'فیزیک ۳',
-          class_name: 'کلاس ۳۰۲',
-          topic: 'فصل نوسان و امواج: تداخل و بازتاب موج',
-          session_type: 'teaching',
-          room: 'کلاس ۳۰۲',
-          status: 'upcoming',
-          notes: 'تحلیل تست‌های کنکور سراسری ۱۴۰۲ و ۱۴۰۳',
-        },
-      ];
-
-      for (const p of defaultPlans) {
-        await db('teacher_lesson_plans').insert(p);
-      }
-    }
-  }
-
   async getTeacherPlans(teacherId) {
-    await this.ensureTeacherPlansTable();
     const plans = await db('teacher_lesson_plans')
-      .where(function () {
-        this.where('teacher_id', teacherId).orWhere('teacher_id', 'default');
-      })
+      .where('teacher_id', teacherId)
       .orderBy([
         { column: 'day_of_week', order: 'asc' },
         { column: 'period_number', order: 'asc' },
@@ -159,7 +35,6 @@ class StudyPlannerService {
   }
 
   async createTeacherPlan(teacherId, data) {
-    await this.ensureTeacherPlansTable();
     const {
       grade,
       day_of_week,
@@ -195,104 +70,55 @@ class StudyPlannerService {
     return newPlan;
   }
 
-  async updateTeacherPlan(teacherId, planId, data) {
-    await this.ensureTeacherPlansTable();
-    const updated = await updateAndReturn(db, 'teacher_lesson_plans', { id: planId }, data);
+  async updateTeacherPlan(teacherId, planId, data, currentUser = null) {
+    const plan = await db('teacher_lesson_plans').where({ id: planId }).first();
+    if (!plan) {
+      throw notFoundError('برنامه کلاسی یافت نشد');
+    }
+
+    const user = currentUser || await db('users').where({ id: teacherId }).first();
+    if (user) {
+      const owner = await db('users').where({ id: plan.teacher_id }).first();
+      if (owner) assertSameSchool(user, owner);
+      assertOwnsResource(user, plan, 'teacher_id');
+    }
+
+    const safeUpdates = {};
+    for (const key of ALLOWED_PLAN_FIELDS) {
+      if (data && data[key] !== undefined) {
+        safeUpdates[key] = data[key];
+      }
+    }
+
+    const updated = await updateAndReturn(db, 'teacher_lesson_plans', { id: planId }, safeUpdates);
     return updated;
   }
 
-  async deleteTeacherPlan(teacherId, planId) {
-    await this.ensureTeacherPlansTable();
+  async deleteTeacherPlan(teacherId, planId, currentUser = null) {
+    const plan = await db('teacher_lesson_plans').where({ id: planId }).first();
+    if (!plan) {
+      throw notFoundError('برنامه کلاسی یافت نشد');
+    }
+
+    const user = currentUser || await db('users').where({ id: teacherId }).first();
+    if (user) {
+      const owner = await db('users').where({ id: plan.teacher_id }).first();
+      if (owner) assertSameSchool(user, owner);
+      assertOwnsResource(user, plan, 'teacher_id');
+    }
+
     await db('teacher_lesson_plans').where({ id: planId }).del();
     return true;
   }
 
-  async ensureTeacherDocumentsTable() {
-    const hasTable = await db.schema.hasTable('teacher_documents');
-    if (!hasTable) {
-      await db.schema.createTable('teacher_documents', (t) => {
-        t.string('id', 36).primary();
-        t.string('teacher_id', 36).notNullable();
-        t.string('title').notNullable();
-        t.string('category').defaultTo('lesson_plan'); // lesson_plan, content_calendar, syllabus, guide
-        t.string('grade').defaultTo('عمومی');
-        t.string('subject').defaultTo('');
-        t.text('file_url').notNullable();
-        t.string('file_name').defaultTo('');
-        t.string('original_name').defaultTo('');
-        t.integer('file_size').defaultTo(0);
-        t.string('file_type').defaultTo('pdf');
-        t.string('academic_term').defaultTo('سال تحصیلی ۱۴۰۵-۱۴۰۴');
-        t.text('description').defaultTo('');
-        t.timestamp('created_at').defaultTo(db.fn.now());
-      });
-
-      const defaultDocs = [
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          title: 'طرح درس جامع سالانه و بودجه‌بندی تدریس حسابان ۲',
-          category: 'lesson_plan',
-          grade: 'پایه دوازدهم ریاضی',
-          subject: 'حسابان ۲',
-          file_url: '/uploads/sample_tarh_dars_hesaban.pdf',
-          file_name: 'tarh_hesaban_1404.pdf',
-          original_name: 'Tarh-Dars-Hesaban-1404.pdf',
-          file_size: 1420000,
-          file_type: 'pdf',
-          academic_term: 'سال تحصیلی ۱۴۰۵-۱۴۰۴',
-          description: 'طرح درس مصوب سالانه شامل سرفصل‌های تدریس هفتگی، بودجه‌بندی کنکوری و امتحانات نهایی',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          title: 'تقویم محتوایی و زمان‌بندی آموزش ترم اول - ریاضی ۱ و هندسه',
-          category: 'content_calendar',
-          grade: 'پایه دهم ریاضی',
-          subject: 'ریاضی ۱ و هندسه',
-          file_url: '/uploads/sample_taghvim_mohtava_riazi.xlsx',
-          file_name: 'content_calendar_riazi1.xlsx',
-          original_name: 'Content-Calendar-Riazi1-Term1.xlsx',
-          file_size: 850000,
-          file_type: 'excel',
-          academic_term: 'نیم‌سال اول ۱۴۰۴-۱۴۰۵',
-          description: 'جدول زمان‌بندی هفتگی تدریس، تکالیف تشریحی و تاریخ آزمون‌های میان‌ترم و ارزشیابی مستمر',
-        },
-        {
-          id: uuidv4(),
-          teacher_id: 'default',
-          title: 'سناریوی تدریس و طرح درس روزانه: گفتار دوم دستگاه عصبی',
-          category: 'lesson_plan',
-          grade: 'پایه یازدهم تجربی',
-          subject: 'زیست‌شناسی ۲',
-          file_url: '/uploads/sample_daily_plan.docx',
-          file_name: 'daily_plan_zist2.docx',
-          original_name: 'Daily-Plan-Biology2-Nervous.docx',
-          file_size: 520000,
-          file_type: 'word',
-          academic_term: 'نیم‌سال اول ۱۴۰۴-۱۴۰۵',
-          description: 'سناریوی یادگیری کلاسی، پروتکل کار آزمایشگاهی و کوییز آغاز جلسه',
-        },
-      ];
-
-      for (const doc of defaultDocs) {
-        await db('teacher_documents').insert(doc);
-      }
-    }
-  }
-
   async getTeacherDocuments(teacherId) {
-    await this.ensureTeacherDocumentsTable();
     const docs = await db('teacher_documents')
-      .where(function () {
-        this.where('teacher_id', teacherId).orWhere('teacher_id', 'default');
-      })
+      .where('teacher_id', teacherId)
       .orderBy('created_at', 'desc');
     return docs;
   }
 
   async createTeacherDocument(teacherId, data) {
-    await this.ensureTeacherDocumentsTable();
     const {
       title,
       category,
@@ -314,7 +140,7 @@ class StudyPlannerService {
       category: category || 'lesson_plan',
       grade: grade || 'عمومی',
       subject: subject || '',
-      file_url: file_url,
+      file_url,
       file_name: file_name || '',
       original_name: original_name || '',
       file_size: parseInt(file_size, 10) || 0,
@@ -327,17 +153,35 @@ class StudyPlannerService {
     return newDoc;
   }
 
-  async deleteTeacherDocument(teacherId, docId) {
-    await this.ensureTeacherDocumentsTable();
+  async deleteTeacherDocument(teacherId, docId, currentUser = null) {
+    const doc = await db('teacher_documents').where({ id: docId }).first();
+    if (!doc) {
+      throw notFoundError('سند یافت نشد');
+    }
+
+    const user = currentUser || await db('users').where({ id: teacherId }).first();
+    if (user) {
+      const owner = await db('users').where({ id: doc.teacher_id }).first();
+      if (owner) assertSameSchool(user, owner);
+      assertOwnsResource(user, doc, 'teacher_id');
+    }
+
     await db('teacher_documents').where({ id: docId }).del();
     return true;
   }
-  async getLogs(userId, role, targetStudentId) {
-    const studentId = (role === 'teacher' && targetStudentId) ? targetStudentId : userId;
+
+  async getLogs(userId, role, targetStudentId, currentUser = null) {
+    const user = currentUser || await db('users').where({ id: userId }).first();
+    if (!user || !user.school_id) return [];
+
+    const isStaff = ['teacher', 'admin', 'manager'].includes(role);
+    const studentId = (isStaff && targetStudentId) ? targetStudentId : userId;
+
     const logs = await db('study_logs')
       .join('users as student', 'student.id', 'study_logs.student_id')
       .leftJoin('users as advisor', 'advisor.id', 'study_logs.advisor_id')
       .where('study_logs.student_id', studentId)
+      .andWhere('student.school_id', user.school_id)
       .select(
         'study_logs.*',
         'student.display_name as student_name',
@@ -378,7 +222,18 @@ class StudyPlannerService {
     return log;
   }
 
-  async addAdvisorFeedback(advisorId, logId, { advisor_feedback }) {
+  async addAdvisorFeedback(advisorId, logId, { advisor_feedback }, currentUser = null) {
+    const log = await db('study_logs').where({ id: logId }).first();
+    if (!log) {
+      throw notFoundError('گزارش مطالعه یافت نشد');
+    }
+
+    const user = currentUser || await db('users').where({ id: advisorId }).first();
+    if (user) {
+      const student = await assertTeacherOfStudent(user, log.student_id);
+      assertSameSchool(user, student);
+    }
+
     const updated = await updateAndReturn(db, 'study_logs', { id: logId }, {
       advisor_feedback,
       advisor_id: advisorId,
@@ -398,9 +253,21 @@ class StudyPlannerService {
     return updated;
   }
 
-  async getStats(userId, role, targetStudentId) {
-    const studentId = (role === 'teacher' && targetStudentId) ? targetStudentId : userId;
-    const logs = await db('study_logs').where({ student_id: studentId });
+  async getStats(userId, role, targetStudentId, currentUser = null) {
+    const user = currentUser || await db('users').where({ id: userId }).first();
+    const isStaff = ['teacher', 'admin', 'manager'].includes(role);
+    const studentId = (isStaff && targetStudentId) ? targetStudentId : userId;
+
+    let logsQuery = db('study_logs')
+      .join('users as student', 'student.id', 'study_logs.student_id')
+      .where('study_logs.student_id', studentId)
+      .select('study_logs.*');
+
+    if (user && user.school_id) {
+      logsQuery = logsQuery.andWhere('student.school_id', user.school_id);
+    }
+
+    const logs = await logsQuery;
 
     let totalDescriptiveMinutes = 0;
     let totalTestMinutes = 0;
@@ -446,42 +313,23 @@ class StudyPlannerService {
     };
   }
 
-  async ensureStudentNotesTable() {
-    const hasTable = await db.schema.hasTable('student_study_notes');
-    if (!hasTable) {
-      await db.schema.createTable('student_study_notes', (t) => {
-        t.string('id', 36).primary();
-        t.string('student_id', 36).notNullable();
-        t.string('title').defaultTo('');
-        t.text('content').notNullable();
-        t.string('color', 20).defaultTo('yellow'); // yellow, blue, green, purple, pink
-        t.boolean('is_pinned').defaultTo(false);
-        t.boolean('is_completed').defaultTo(false);
-        t.string('category', 50).defaultTo('general'); // general, homework, exam, reminder
-        t.timestamp('created_at').defaultTo(db.fn.now());
-        t.timestamp('updated_at').defaultTo(db.fn.now());
-      });
-    } else {
-      const hasCompletedCol = await db.schema.hasColumn('student_study_notes', 'is_completed');
-      if (!hasCompletedCol) {
-        await db.schema.table('student_study_notes', (t) => {
-          t.boolean('is_completed').defaultTo(false);
-        });
-      }
-    }
-  }
+  async getStudentNotes(studentId, currentUser = null) {
+    let query = db('student_study_notes')
+      .join('users as student', 'student.id', 'student_study_notes.student_id')
+      .where('student_study_notes.student_id', studentId)
+      .select('student_study_notes.*');
 
-  async getStudentNotes(studentId) {
-    await this.ensureStudentNotesTable();
-    const notes = await db('student_study_notes')
-      .where({ student_id: studentId })
-      .orderBy('is_pinned', 'desc')
-      .orderBy('created_at', 'desc');
+    if (currentUser && currentUser.school_id) {
+      query = query.andWhere('student.school_id', currentUser.school_id);
+    }
+
+    const notes = await query
+      .orderBy('student_study_notes.is_pinned', 'desc')
+      .orderBy('student_study_notes.created_at', 'desc');
     return notes;
   }
 
   async createStudentNote(studentId, { title, content, color, is_pinned, is_completed, category }) {
-    await this.ensureStudentNotesTable();
     const newNote = {
       id: uuidv4(),
       student_id: studentId,
@@ -499,7 +347,6 @@ class StudyPlannerService {
   }
 
   async updateStudentNote(studentId, noteId, updates) {
-    await this.ensureStudentNotesTable();
     const allowed = {};
     if (updates.title !== undefined) allowed.title = updates.title;
     if (updates.content !== undefined) allowed.content = updates.content;
@@ -513,11 +360,10 @@ class StudyPlannerService {
       .where({ id: noteId, student_id: studentId })
       .update(allowed);
 
-    return await db('student_study_notes').where({ id: noteId }).first();
+    return db('student_study_notes').where({ id: noteId, student_id: studentId }).first();
   }
 
   async deleteStudentNote(studentId, noteId) {
-    await this.ensureStudentNotesTable();
     await db('student_study_notes')
       .where({ id: noteId, student_id: studentId })
       .del();

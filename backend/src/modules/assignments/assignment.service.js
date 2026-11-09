@@ -1,8 +1,18 @@
 const db = require('../../config/database');
-const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const { insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const {
+  isSchoolAdmin,
+  assertOwnsClass,
+  forbiddenError,
+  notFoundError,
+} = require('../../middleware/auth');
 
 class AssignmentService {
-  async create(teacherId, classId, { title, description, due_date, allow_late, attachments }) {
+  async create(teacherId, classId, { title, description, due_date, allow_late, attachments }, currentUser = null) {
+    if (currentUser) {
+      await assertOwnsClass(currentUser, classId);
+    }
+
     const rawAttachments = Array.isArray(attachments)
       ? JSON.stringify(attachments)
       : (typeof attachments === 'string' ? attachments : '[]');
@@ -44,7 +54,7 @@ class AssignmentService {
         a.submission = await db('submissions').where({ assignment_id: a.id, student_id: userId }).first() || null;
       }
     }
-    if (role === 'teacher') {
+    if (role === 'teacher' || role === 'admin' || role === 'manager') {
       for (const a of assignments) {
         const stats = await db('submissions').where({ assignment_id: a.id })
           .select(db.raw('COUNT(*) as total'), db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")).first();
@@ -55,9 +65,14 @@ class AssignmentService {
     return assignments;
   }
 
-  async getAllUserAssignments(userId, role) {
+  async getAllUserAssignments(userId, role, schoolId = null) {
+    const user = schoolId ? { id: userId, role, school_id: schoolId } : await db('users').where({ id: userId }).first();
+    const effectiveSchoolId = user?.school_id;
+    if (!effectiveSchoolId) return [];
+
     let assignmentsQuery = db('assignments')
       .join('classes', 'classes.id', 'assignments.class_id')
+      .where('classes.school_id', effectiveSchoolId)
       .select(
         'assignments.*',
         'classes.name as class_name',
@@ -66,19 +81,18 @@ class AssignmentService {
       );
 
     let childIds = [];
-    if (role === 'teacher' || role === 'admin' || role === 'manager') {
-      const myCount = await db('assignments').where({ teacher_id: userId }).count('id as count').first();
-      const countVal = myCount ? parseInt(myCount.count || Object.values(myCount)[0], 10) : 0;
-      if (countVal > 0) {
-        assignmentsQuery = assignmentsQuery.where({ 'assignments.teacher_id': userId });
-      }
+    if (role === 'teacher') {
+      assignmentsQuery = assignmentsQuery.where({ 'assignments.teacher_id': userId });
+    } else if (role === 'admin' || role === 'manager') {
+      // School admins see assignments in their own school only
     } else if (role === 'parent') {
       childIds = await db('parent_student_links').where({ parent_id: userId }).pluck('student_id');
       if (childIds.length === 0) {
-        // Fallback to checking student_code
         const parentUser = await db('users').where({ id: userId }).first();
         if (parentUser?.student_code) {
-          const matchedChild = await db('users').where({ student_code: parentUser.student_code, role: 'student' }).first();
+          const matchedChild = await db('users')
+            .where({ student_code: parentUser.student_code, role: 'student', school_id: effectiveSchoolId })
+            .first();
           if (matchedChild) childIds = [matchedChild.id];
         }
       }
@@ -96,7 +110,7 @@ class AssignmentService {
 
     for (const a of assignments) {
       if (typeof a.attachments === 'string') {
-        try { a.attachments = JSON.parse(a.attachments); } catch(e) { a.attachments = []; }
+        try { a.attachments = JSON.parse(a.attachments); } catch (_e) { a.attachments = []; }
       }
       if (role === 'student') {
         a.submission = await db('submissions').where({ assignment_id: a.id, student_id: userId }).first() || null;
@@ -106,7 +120,7 @@ class AssignmentService {
           const childUser = await db('users').whereIn('id', childIds).first();
           if (childUser) a.child_name = childUser.display_name;
         }
-      } else if (role === 'teacher') {
+      } else if (role === 'teacher' || role === 'admin' || role === 'manager') {
         const stats = await db('submissions').where({ assignment_id: a.id })
           .select(db.raw('COUNT(*) as total'), db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")).first();
         a.submission_count = parseInt(stats ? stats.total : 0, 10);
@@ -116,7 +130,7 @@ class AssignmentService {
     return assignments;
   }
 
-  async getById(assignmentId, userId, role) {
+  async getById(assignmentId, userId, role, classId = null, currentUser = null) {
     const assignment = await db('assignments')
       .join('classes', 'classes.id', 'assignments.class_id')
       .where({ 'assignments.id': assignmentId })
@@ -124,17 +138,29 @@ class AssignmentService {
         'assignments.*',
         'classes.name as class_name',
         'classes.subject as class_subject',
-        'classes.grade as class_grade'
+        'classes.grade as class_grade',
+        'classes.school_id as class_school_id',
+        'classes.teacher_id as class_teacher_id'
       )
       .first();
 
     if (!assignment) return null;
 
-    if (typeof assignment.attachments === 'string') {
-      try { assignment.attachments = JSON.parse(assignment.attachments); } catch(e) { assignment.attachments = []; }
+    if (classId && assignment.class_id !== classId) {
+      throw forbiddenError('این تکلیف متعلق به کلاس انتخاب‌شده نیست');
+    }
+    if (currentUser) {
+      await assertOwnsClass(currentUser, assignment.class_id, { allowEnrolled: true });
     }
 
-    if (role === 'teacher') {
+    if (typeof assignment.attachments === 'string') {
+      try { assignment.attachments = JSON.parse(assignment.attachments); } catch (_e) { assignment.attachments = []; }
+    }
+
+    const canManage = (role === 'teacher' && assignment.class_teacher_id === userId)
+      || (isSchoolAdmin(currentUser || { role }) && (!currentUser || assignment.class_school_id === currentUser.school_id));
+
+    if (canManage) {
       assignment.submissions = await db('submissions')
         .join('users', 'users.id', 'submissions.student_id')
         .where({ assignment_id: assignmentId })
@@ -145,7 +171,9 @@ class AssignmentService {
       if (childIds.length === 0) {
         const parentUser = await db('users').where({ id: userId }).first();
         if (parentUser?.student_code) {
-          const matchedChild = await db('users').where({ student_code: parentUser.student_code, role: 'student' }).first();
+          const matchedChild = await db('users')
+            .where({ student_code: parentUser.student_code, role: 'student', school_id: assignment.class_school_id })
+            .first();
           if (matchedChild) childIds = [matchedChild.id];
         }
       }
@@ -160,9 +188,17 @@ class AssignmentService {
     return assignment;
   }
 
-  async submit(assignmentId, studentId, { files, student_note }) {
+  async submit(assignmentId, studentId, { files, student_note }, classId = null, currentUser = null) {
     const assignment = await db('assignments').where({ id: assignmentId }).first();
-    if (!assignment) { const e = new Error('تکلیف یافت نشد'); e.statusCode = 404; throw e; }
+    if (!assignment) {
+      throw notFoundError('تکلیف یافت نشد');
+    }
+    if (classId && assignment.class_id !== classId) {
+      throw forbiddenError('این تکلیف متعلق به کلاس انتخاب‌شده نیست');
+    }
+    if (currentUser) {
+      await assertOwnsClass(currentUser, assignment.class_id, { allowEnrolled: true });
+    }
 
     const isAllowLate = assignment.allow_late === true || assignment.allow_late === 1 || assignment.allow_late === '1' || assignment.allow_late === 'true';
     const isLate = assignment.due_date && new Date() > new Date(assignment.due_date);
@@ -191,9 +227,30 @@ class AssignmentService {
     });
   }
 
-  async grade(submissionId, { grade, feedback_text, feedback_audio_url }) {
+  async grade(submissionId, { grade, feedback_text, feedback_audio_url }, assignmentId = null, classId = null, currentUser = null) {
+    const sub = await db('submissions').where({ id: submissionId }).first();
+    if (!sub) {
+      throw notFoundError('پاسخ تکلیف یافت نشد');
+    }
+    if (assignmentId && sub.assignment_id !== assignmentId) {
+      throw forbiddenError('این پاسخ متعلق به تکلیف انتخاب‌شده نیست');
+    }
+
+    const assignment = await db('assignments').where({ id: sub.assignment_id }).first();
+    if (!assignment) {
+      throw notFoundError('تکلیف یافت نشد');
+    }
+    if (classId && assignment.class_id !== classId) {
+      throw forbiddenError('این تکلیف متعلق به کلاس انتخاب‌شده نیست');
+    }
+    if (currentUser) {
+      await assertOwnsClass(currentUser, assignment.class_id);
+    }
+
     const updated = await updateAndReturn(db, 'submissions', { id: submissionId }, {
-      grade, feedback_text, feedback_audio_url,
+      grade,
+      feedback_text,
+      feedback_audio_url,
       status: 'graded',
       graded_at: new Date().toISOString(),
     });

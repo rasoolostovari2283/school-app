@@ -29,7 +29,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F4] the messaging directory must not expose school-B users', async () => {
+test('[F4] the messaging directory must not expose school-B users', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, '/api/v1/messages/directory', { token: teacher.accessToken });
 
@@ -41,7 +41,7 @@ expectFailure('[F4] the messaging directory must not expose school-B users', asy
   );
 });
 
-expectFailure('[F4] the group message history of another school must not be readable', async () => {
+test('[F4] the group message history of another school must not be readable', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, `/api/v1/messages/groups/${MESSAGE_GROUPS.b}/messages`, {
     token: teacher.accessToken,
@@ -54,7 +54,7 @@ expectFailure('[F4] the group message history of another school must not be read
   });
 });
 
-expectFailure('[F4] the member list of another school group must not be readable', async () => {
+test('[F4] the member list of another school group must not be readable', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, `/api/v1/messages/groups/${MESSAGE_GROUPS.b}/members`, {
     token: teacher.accessToken,
@@ -63,7 +63,7 @@ expectFailure('[F4] the member list of another school group must not be readable
   assert.equal(res.status, 403, `expected 403, got ${res.status}`);
 });
 
-expectFailure('[F5] the announcement feed of a school-A student must not contain school-B announcements', async () => {
+test('[F5] the announcement feed of a school-A student must not contain school-B announcements', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
   const res = await get(baseUrl, '/api/v1/announcements', { token: student.accessToken });
 
@@ -76,7 +76,7 @@ expectFailure('[F5] the announcement feed of a school-A student must not contain
   );
 });
 
-expectFailure('[F5] the school directive feed must not contain school-B directives', async () => {
+test('[F5] the school directive feed must not contain school-B directives', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
   const res = await get(baseUrl, '/api/v1/school/directives', { token: student.accessToken });
 
@@ -87,7 +87,7 @@ expectFailure('[F5] the school directive feed must not contain school-B directiv
   });
 });
 
-expectFailure('[A5] a broadcast must not reach the users of another school', async () => {
+test('[A5] a broadcast must not reach the users of another school', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await post(baseUrl, '/api/v1/notifications/broadcast', {
@@ -108,7 +108,7 @@ expectFailure('[A5] a broadcast must not reach the users of another school', asy
   );
 });
 
-expectFailure('[A5] a teacher must not be allowed to broadcast to the whole deployment', async () => {
+test('[A5] a teacher must not be allowed to broadcast to the whole deployment', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await post(baseUrl, '/api/v1/notifications/broadcast', {
@@ -127,7 +127,7 @@ expectFailure('[A5] a teacher must not be allowed to broadcast to the whole depl
   );
 });
 
-expectFailure('[A7] counselling cases of another school must not be listed', async () => {
+test('[A7] counselling cases of another school must not be listed', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, '/api/v1/discipline/counseling', { token: teacher.accessToken });
 
@@ -140,7 +140,7 @@ expectFailure('[A7] counselling cases of another school must not be listed', asy
   );
 });
 
-expectFailure('[A7] discipline records of another school must not be listed', async () => {
+test('[A7] discipline records of another school must not be listed', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, '/api/v1/discipline', { token: teacher.accessToken });
 
@@ -153,7 +153,7 @@ expectFailure('[A7] discipline records of another school must not be listed', as
   );
 });
 
-expectFailure('[A7] a teacher must not create a counselling record for a student of another school', async () => {
+test('[A7] a teacher must not create a counselling record for a student of another school', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await post(baseUrl, '/api/v1/discipline/counseling', {

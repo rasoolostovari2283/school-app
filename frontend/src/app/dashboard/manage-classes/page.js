@@ -118,18 +118,9 @@ export default function ManageClassesPage() {
     const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
     const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
 
-    // 1. Load Teachers from LocalStorage as fallback
+    // 1. Initialize Teachers state (populated from Backend API)
     let loadedTeachers = [];
-    try {
-      const savedTch =
-        localStorage.getItem(`mgmt_teachers_${currentCode}`) ||
-        localStorage.getItem('school_teachers_database');
-      if (savedTch) loadedTeachers = JSON.parse(savedTch);
-    } catch (e) {}
-
-    loadedTeachers = Array.isArray(loadedTeachers) ? loadedTeachers.filter((t) => !isDummyTeacher(t)) : [];
-
-    if (user && user.role === 'teacher' && loadedTeachers.length === 0) {
+    if (user && user.role === 'teacher') {
       loadedTeachers = [
         {
           id: user.id || 'tch-current',
@@ -142,15 +133,8 @@ export default function ManageClassesPage() {
     }
     setTeachers(loadedTeachers);
 
-    // 2. Load Students from LocalStorage as fallback
-    let loadedStudents = [];
-    try {
-      const savedStd = localStorage.getItem(`mgmt_students_${currentCode}`);
-      if (savedStd) loadedStudents = JSON.parse(savedStd);
-    } catch (e) {}
-
-    loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
-    setStudents(loadedStudents);
+    // 2. Initialize Students state (populated from Backend API)
+    setStudents([]);
 
     // 3. Load Classes from LocalStorage as fallback
     let loadedClasses = [];
@@ -187,16 +171,9 @@ export default function ManageClassesPage() {
         const { teachers: dbTeachers, students: dbStudents } = membersRes.value.data.data;
         if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
           setTeachers(dbTeachers);
-          try {
-            localStorage.setItem(`mgmt_teachers_${currentCode}`, JSON.stringify(dbTeachers));
-            localStorage.setItem('school_teachers_database', JSON.stringify(dbTeachers));
-          } catch (e) {}
         }
-        if (Array.isArray(dbStudents) && dbStudents.length > 0) {
+        if (Array.isArray(dbStudents)) {
           setStudents(dbStudents);
-          try {
-            localStorage.setItem(`mgmt_students_${currentCode}`, JSON.stringify(dbStudents));
-          } catch (e) {}
         }
       }
 
@@ -225,12 +202,8 @@ export default function ManageClassesPage() {
     } catch (e) {}
   };
 
-  // Save Students and Sync
-  const saveStudentsToStorage = (newList, code = schoolData.code) => {
-    try {
-      localStorage.setItem(`mgmt_students_${code}`, JSON.stringify(newList));
-    } catch (e) {}
-  };
+  // No-op: Backend API is the single source of truth for students
+  const saveStudentsToStorage = () => {};
 
   // Helper: Get students enrolled in a class
   const getStudentsForClass = (className) => {

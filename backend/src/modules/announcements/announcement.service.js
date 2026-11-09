@@ -1,404 +1,267 @@
 const db = require('../../config/database');
-const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const { generateId, now } = require('../../utils/dbHelpers');
+const {
+  assertSameSchool,
+  assertOwnsClass,
+  assertOwnsResource,
+  notFoundError,
+} = require('../../middleware/auth');
 
 class AnnouncementService {
-  /**
-   * Helper to parse JSON safely
-   */
-  _safeParse(val, fallback = []) {
-    if (!val) return fallback;
-    if (typeof val !== 'string') return val;
+  safeParseArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
     try {
-      return JSON.parse(val);
-    } catch (e) {
-      return fallback;
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
     }
   }
 
-  /**
-   * Create a new announcement (Teacher or Admin)
-   */
-  async create(teacherId, data) {
-    const {
-      title,
-      content,
-      target_audience = 'all', // 'all' | 'students' | 'parents'
-      target_grades = ['*'], // Array of grade names or ['*']
-      target_subjects = ['*'], // Array of subjects or ['*']
-      target_class_ids = ['*'], // Array of class UUIDs or ['*']
-      is_mandatory = true,
-      priority = 'important', // 'normal' | 'important' | 'urgent'
-      attachments = [],
-      is_pinned = false,
-    } = data;
-
-    if (!title || !title.trim()) {
-      const error = new Error('عنوان اطلاعیه الزامی است');
-      error.statusCode = 400;
-      throw error;
+  async create(teacherOrId, data) {
+    const teacher = typeof teacherOrId === 'object' && teacherOrId !== null
+      ? teacherOrId
+      : await db('users').where({ id: teacherOrId }).first();
+    if (!teacher) {
+      throw notFoundError('کاربر یافت نشد');
     }
 
-    if (!content || !content.trim()) {
-      const error = new Error('متن پیام اطلاعیه الزامی است');
-      error.statusCode = 400;
-      throw error;
-    }
+    const id = generateId();
+    const timestamp = now();
 
-    const classIdsArray = Array.isArray(target_class_ids) ? target_class_ids : [target_class_ids];
-    const gradesArray = Array.isArray(target_grades) ? target_grades : [target_grades];
-    const subjectsArray = Array.isArray(target_subjects) ? target_subjects : [target_subjects];
+    const targetRoles = Array.isArray(data.target_roles) && data.target_roles.length > 0
+      ? data.target_roles
+      : ['*'];
+    const targetGrades = Array.isArray(data.target_grades) && data.target_grades.length > 0
+      ? data.target_grades
+      : ['*'];
+    const targetSubjects = Array.isArray(data.target_subjects) && data.target_subjects.length > 0
+      ? data.target_subjects
+      : ['*'];
+    const targetClasses = Array.isArray(data.target_classes) && data.target_classes.length > 0
+      ? data.target_classes
+      : (Array.isArray(data.target_class_ids) && data.target_class_ids.length > 0
+        ? data.target_class_ids.filter((c) => c !== '*')
+        : (data.class_id ? [data.class_id] : []));
 
-    let primaryClassId = classIdsArray.length === 1 && classIdsArray[0] !== '*' ? classIdsArray[0] : null;
+    const primaryClassId = data.class_id || (targetClasses.length === 1 ? targetClasses[0] : null);
     if (primaryClassId) {
-      const classExists = await db('classes').where({ id: primaryClassId }).first();
-      if (!classExists) primaryClassId = null;
+      await assertOwnsClass(teacher, primaryClassId);
+    }
+    for (const cId of targetClasses) {
+      await assertOwnsClass(teacher, cId);
     }
 
-    let validTeacherId = teacherId;
-    const teacherExists = await db('users').where({ id: teacherId }).first();
-    if (!teacherExists) {
-      const fallbackTeacher = (await db('users').whereIn('role', ['teacher', 'admin']).first()) || (await db('users').first());
-      if (fallbackTeacher) validTeacherId = fallbackTeacher.id;
-    }
+    const targetAudience = data.target_audience || (targetRoles.includes('*') ? 'all' : targetRoles[0] || 'all');
 
-    const announcement = await insertAndReturn(db, 'announcements', {
-      teacher_id: validTeacherId,
+    await db('announcements').insert({
+      id,
+      teacher_id: teacher.id,
       class_id: primaryClassId,
-      title: title.trim(),
-      content: content.trim(),
-      target_audience,
-      target_grades: JSON.stringify(gradesArray),
-      target_subjects: JSON.stringify(subjectsArray),
-      target_class_ids: JSON.stringify(classIdsArray),
-      is_mandatory: is_mandatory ? 1 : 0,
-      priority,
-      attachments: JSON.stringify(attachments || []),
-      is_pinned: is_pinned ? 1 : 0,
+      title: data.title,
+      content: data.content || '',
+      priority: data.priority || 'normal',
+      is_pinned: Boolean(data.is_pinned),
+      is_mandatory: data.is_mandatory !== undefined ? Boolean(data.is_mandatory) : true,
+      target_audience: targetAudience,
+      target_class_ids: JSON.stringify(targetClasses.length > 0 ? targetClasses : ['*']),
+      target_grades: JSON.stringify(targetGrades),
+      target_subjects: JSON.stringify(targetSubjects),
+      attachments: JSON.stringify(data.attachments || []),
+      created_at: timestamp,
     });
 
-    // Send notifications to target recipients
     try {
-      let targetUserQuery = db('users').select('id', 'role');
-      if (target_audience === 'students') {
-        targetUserQuery = targetUserQuery.where('role', 'student');
-      } else if (target_audience === 'parents') {
-        targetUserQuery = targetUserQuery.where('role', 'parent');
-      } else {
-        targetUserQuery = targetUserQuery.whereIn('role', ['student', 'parent']);
-      }
-      const targetUsers = await targetUserQuery.limit(200);
-      const notifRows = targetUsers.map((u) => ({
-        id: generateId(),
-        user_id: u.id,
-        type: 'announcement',
-        title: `📢 اطلاعیه جدید: ${title.trim().slice(0, 50)}`,
-        body: content.trim().slice(0, 150),
-        data: JSON.stringify({ announcement_id: announcement.id, is_mandatory: Boolean(is_mandatory) }),
-        is_read: false,
-        created_at: new Date().toISOString(),
-      }));
-      if (notifRows.length > 0) {
-        await db('notifications').insert(notifRows).catch(() => {});
-      }
-    } catch (e) {}
+      let targetUserQuery = db('users')
+        .where({ school_id: teacher.school_id })
+        .whereNot('id', teacher.id);
 
-    return announcement;
+      if (!targetRoles.includes('*')) {
+        targetUserQuery = targetUserQuery.whereIn('role', targetRoles);
+      }
+
+      const candidateUsers = await targetUserQuery.select('id', 'role', 'department');
+
+      let classStudentIds = null;
+      if (targetClasses.length > 0) {
+        const members = await db('class_members')
+          .whereIn('class_id', targetClasses)
+          .select('user_id');
+        classStudentIds = new Set(members.map((m) => m.user_id));
+      }
+
+      const matchedUsers = candidateUsers.filter((u) => {
+        if (classStudentIds && !classStudentIds.has(u.id)) {
+          return false;
+        }
+        return true;
+      });
+
+      if (matchedUsers.length > 0) {
+        const notifRows = matchedUsers.map((u) => ({
+          id: generateId(),
+          user_id: u.id,
+          title: `📢 اطلاعیه جدید: ${data.title}`,
+          body: (data.content || '').slice(0, 140),
+          type: 'announcement',
+          data: JSON.stringify({
+            priority: data.priority === 'urgent' ? 'urgent' : 'high',
+            reference_id: id,
+            reference_type: 'announcement',
+          }),
+          is_read: false,
+          created_at: timestamp,
+        }));
+
+        for (let i = 0; i < notifRows.length; i += 100) {
+          await db('notifications').insert(notifRows.slice(i, i + 100));
+        }
+      }
+    } catch (err) {
+      console.warn('Warning: could not fan-out announcement notifications:', err.message);
+    }
+
+    return this.getById(id, teacher);
   }
 
-  /**
-   * Get available targeting options (distinct grades, subjects, and classes)
-   */
-  async getTargetingOptions() {
-    let allClasses = [];
-    try {
-      allClasses = await db('classes')
-        .where(function() {
-          this.where({ is_active: true }).orWhere({ is_active: 1 });
-        })
-        .select('id', 'name', 'grade', 'subject')
-        .orderBy('name');
-    } catch (e) {
-      try {
-        allClasses = await db('classes').select('id', 'name', 'grade', 'subject');
-      } catch (err) {
-        allClasses = [];
-      }
+  async getById(id, currentUser = null) {
+    const item = await db('announcements')
+      .leftJoin('users as teacher', 'teacher.id', 'announcements.teacher_id')
+      .leftJoin('classes', 'classes.id', 'announcements.class_id')
+      .where('announcements.id', id)
+      .select(
+        'announcements.*',
+        'teacher.display_name as author_name',
+        'teacher.role as author_role',
+        'teacher.school_id as author_school_id',
+        'classes.name as class_name',
+        'classes.grade as class_grade_level',
+        'classes.subject as class_subject'
+      )
+      .first();
+
+    if (!item) return null;
+    if (currentUser && item.author_school_id) {
+      assertSameSchool(currentUser, { school_id: item.author_school_id });
     }
+    return this.enrichAnnouncement(item);
+  }
 
-    const gradeSet = new Set();
-    const subjectSet = new Set();
-
-    allClasses.forEach(c => {
-      if (c.grade && c.grade.trim()) {
-        gradeSet.add(c.grade.trim());
-      }
-      if (c.subject && c.subject.trim()) {
-        subjectSet.add(c.subject.trim());
-      }
-    });
-
-    try {
-      const userDepts = await db('users').whereNotNull('department').distinct('department');
-      userDepts.forEach(u => {
-        if (u.department && u.department.trim()) {
-          gradeSet.add(u.department.trim());
-        }
-      });
-    } catch (e) {}
-
-    // Add standard Iranian K-12 grades so teachers can always pick them
-    const standardGrades = [
-      'پایه دهم ریاضی',
-      'پایه دهم تجربی',
-      'پایه دهم انسانی',
-      'پایه یازدهم ریاضی',
-      'پایه یازدهم تجربی',
-      'پایه یازدهم انسانی',
-      'پایه دوازدهم ریاضی',
-      'پایه دوازدهم تجربی',
-      'پایه دوازدهم انسانی',
-      'پایه هفتم',
-      'پایه هشتم',
-      'پایه نهم',
-      'دبستان (ابتدایی)',
-      'هنرستان (فنی‌حرفه‌ای و کاردانش)',
-      'کلاس‌های کنکور و المپیاد',
-      'پایه دهم',
-      'پایه یازدهم',
-      'پایه دوازدهم',
-      'دوره دوم متوسطه',
-      'دوره اول متوسطه',
-      'پایه کنکور',
-    ];
-    standardGrades.forEach(g => gradeSet.add(g));
-
-    // Add standard subjects
-    const standardSubjects = [
-      'ریاضیات و حسابان',
-      'فیزیک',
-      'شیمی',
-      'زیست‌شناسی',
-      'هندسه و گسسته',
-      'ادبیات و زبان فارسی',
-      'زبان انگلیسی',
-      'عربی و زبان قرآن',
-      'دین و زندگی',
-      'تاریخ و جغرافیا',
-      'علوم تجربی',
-      'علوم اجتماعی و جامعه‌شناسی',
-      'فلسفه و منطق',
-      'روان‌شناسی',
-      'کامپیوتر و برنامه‌نویسی',
-      'هنر و گرافیک',
-      'تربیت بدنی و ورزش',
-      'کار و فناوری',
-      'مشاوره و هدایت تحصیلی',
-    ];
-    standardSubjects.forEach(s => subjectSet.add(s));
-
+  enrichAnnouncement(a) {
     return {
-      grades: Array.from(gradeSet),
-      subjects: Array.from(subjectSet),
-      classes: allClasses,
+      ...a,
+      target_class_ids: this.safeParseArray(a.target_class_ids),
+      target_grades: this.safeParseArray(a.target_grades),
+      target_subjects: this.safeParseArray(a.target_subjects),
+      attachments: this.safeParseArray(a.attachments),
     };
   }
 
-  /**
-   * Get all announcements matching user role, grades, subjects & classes
-   */
+  matchesUser(announcement, user, userClassIds = new Set(), userGrades = new Set()) {
+    if (['admin', 'manager'].includes(user.role)) return true;
+    if (announcement.teacher_id === user.id) return true;
+
+    const audience = announcement.target_audience || 'all';
+    if (audience === 'students' && user.role !== 'student') return false;
+    if (audience === 'parents' && user.role !== 'parent') return false;
+    if (audience === 'teachers' && user.role !== 'teacher') return false;
+
+    if (announcement.class_id && !userClassIds.has(announcement.class_id)) {
+      return false;
+    }
+
+    const grades = announcement.target_grades || [];
+    if (grades.length > 0 && !grades.includes('*') && (user.role === 'student' || user.role === 'parent')) {
+      if (userGrades.size > 0) {
+        const hasGradeMatch = grades.some((g) => userGrades.has(String(g).trim()));
+        if (!hasGradeMatch) return false;
+      }
+    }
+
+    return true;
+  }
+
   async getAll(user) {
-    if (user.role === 'teacher' || user.role === 'admin' || user.role === 'manager') {
-      let query = db('announcements')
-        .leftJoin('users as teacher', 'teacher.id', 'announcements.teacher_id')
-        .leftJoin('classes', 'classes.id', 'announcements.class_id')
-        .select(
-          'announcements.*',
-          'teacher.display_name as teacher_name',
-          'teacher.avatar_url as teacher_avatar',
-          'teacher.role as teacher_role',
-          'classes.name as class_name'
-        );
+    if (!user?.school_id) return [];
 
-      if (user.role === 'teacher') {
-        query = query.where(function () {
-          this.where('announcements.teacher_id', user.id)
-            .orWhere('teacher.role', 'admin')
-            .orWhere('teacher.role', 'manager');
-        });
-      }
+    const fullUser = await db('users').where({ id: user.id }).first() || user;
 
-      const list = await query.orderBy('announcements.created_at', 'desc');
+    const userClassIds = new Set();
+    const userGrades = new Set();
 
-      for (const item of list) {
-        item.target_grades = this._safeParse(item.target_grades, ['*']);
-        item.target_subjects = this._safeParse(item.target_subjects, ['*']);
-        item.target_class_ids = this._safeParse(item.target_class_ids, ['*']);
-        item.attachments = this._safeParse(item.attachments, []);
-        item.is_mandatory = Boolean(item.is_mandatory);
-        item.is_pinned = Boolean(item.is_pinned);
-
-        const acks = await db('announcement_acknowledgements')
-          .join('users', 'users.id', 'announcement_acknowledgements.user_id')
-          .where({ announcement_id: item.id })
-          .select(
-            'announcement_acknowledgements.*',
-            'users.display_name as user_name',
-            'users.role as user_role',
-            'users.student_code'
-          );
-
-        item.acknowledged_count = acks.length;
-        item.acknowledgements = acks;
-      }
-
-      return list;
-    }
-
-    // For Students and Parents:
-    let enrolledClasses = [];
-    if (user.role === 'student') {
-      enrolledClasses = await db('class_members')
+    if (fullUser.role === 'student' || fullUser.role === 'parent') {
+      const memberships = await db('class_members')
         .join('classes', 'classes.id', 'class_members.class_id')
-        .where({ 'class_members.user_id': user.id })
-        .select('classes.id', 'classes.name', 'classes.grade', 'classes.subject');
-    } else if (user.role === 'parent') {
-      const linkedStudentIds = await db('parent_student_links')
-        .where({ parent_id: user.id })
-        .pluck('student_id');
-
-      if (user.student_code) {
-        const matchingStudents = await db('users')
-          .where({ role: 'student' })
-          .andWhereRaw('LOWER(student_code) = ?', [user.student_code.toLowerCase()])
-          .pluck('id');
-        linkedStudentIds.push(...matchingStudents);
-      }
-
-      if (linkedStudentIds.length > 0) {
-        enrolledClasses = await db('class_members')
-          .join('classes', 'classes.id', 'class_members.class_id')
-          .whereIn('class_members.user_id', linkedStudentIds)
-          .select('classes.id', 'classes.name', 'classes.grade', 'classes.subject');
-      }
+        .where({
+          'class_members.user_id': fullUser.id,
+          'classes.school_id': fullUser.school_id,
+        })
+        .select('classes.id', 'classes.grade');
+      memberships.forEach((m) => {
+        userClassIds.add(m.id);
+        if (m.grade) userGrades.add(String(m.grade).trim());
+      });
+    } else if (fullUser.role === 'teacher') {
+      const teacherClasses = await db('classes')
+        .where({ teacher_id: fullUser.id, is_active: true, school_id: fullUser.school_id })
+        .select('id', 'grade');
+      teacherClasses.forEach((c) => {
+        userClassIds.add(c.id);
+        if (c.grade) userGrades.add(String(c.grade).trim());
+      });
     }
 
-    const allAnnouncements = await db('announcements')
+    const rows = await db('announcements')
       .join('users as teacher', 'teacher.id', 'announcements.teacher_id')
       .leftJoin('classes', 'classes.id', 'announcements.class_id')
+      .where('teacher.school_id', fullUser.school_id)
       .select(
         'announcements.*',
-        'teacher.display_name as teacher_name',
-        'teacher.avatar_url as teacher_avatar',
-        'teacher.role as teacher_role',
-        'teacher.job_title as teacher_job_title',
-        'classes.name as class_name'
+        'teacher.display_name as author_name',
+        'teacher.role as author_role',
+        'classes.name as class_name',
+        'classes.grade as class_grade_level',
+        'classes.subject as class_subject'
       )
-      .orderBy('announcements.created_at', 'desc');
+      .orderBy('announcements.is_pinned', 'desc')
+      .orderBy('announcements.created_at', 'desc')
+      .limit(100);
 
-    const userAcks = await db('announcement_acknowledgements')
-      .where({ user_id: user.id })
-      .pluck('announcement_id');
-    const ackSet = new Set(userAcks);
-
-    const relevant = allAnnouncements.filter((ann) => {
-      // 1. Audience Check
-      if (ann.target_audience !== 'all') {
-        if (user.role === 'student' && ann.target_audience !== 'students') return false;
-        if (user.role === 'parent' && ann.target_audience !== 'parents') return false;
-      }
-
-      const targetGrades = this._safeParse(ann.target_grades, ['*']);
-      const targetSubjects = this._safeParse(ann.target_subjects, ['*']);
-      const targetClasses = this._safeParse(ann.target_class_ids, ['*']);
-
-      const allGrades = targetGrades.includes('*') || targetGrades.length === 0;
-      const allSubjects = targetSubjects.includes('*') || targetSubjects.length === 0;
-      const allClasses = targetClasses.includes('*') || targetClasses.length === 0;
-
-      // If everything is wildcard, it is a school-wide announcement
-      if (allGrades && allSubjects && allClasses) {
-        return true;
-      }
-
-      // Helper for flexible matching (e.g. "دهم" matching "پایه دهم ریاضی" or "ریاضی" matching "ریاضی ۱ و هندسه")
-      const matchesTarget = (targetList, text) => {
-        if (!text) return false;
-        const t = text.toLowerCase().trim();
-        return targetList.some((target) => {
-          if (!target || target === '*') return true;
-          const tgt = target.toLowerCase().trim();
-          if (t.includes(tgt) || tgt.includes(t)) return true;
-          const words = tgt.split(/[\s،,]+/).filter((w) => w.length > 1 && !['پایه', 'درس', 'کلاس', 'و', 'یا'].includes(w));
-          if (words.length > 0 && words.some((w) => t.includes(w))) return true;
-          return false;
-        });
-      };
-
-      // Check if student's profile department/grade matches (e.g. 'پایه دهم ریاضی - کلاس ۱۰۱')
-      const userDept = (user.department || '').toLowerCase();
-      const userDeptMatches = allGrades || matchesTarget(targetGrades, userDept);
-      if (allSubjects && allClasses && userDeptMatches) {
-        return true;
-      }
-
-      // Check if ANY of the student's/child's enrolled classes matches the criteria
-      const hasMatchingClass = enrolledClasses.some((cls) => {
-        // Grade check
-        let gradeMatches = allGrades || matchesTarget(targetGrades, cls.grade);
-
-        // Subject check
-        let subjectMatches = allSubjects || matchesTarget(targetSubjects, cls.subject);
-
-        // Class check
-        let classMatches = allClasses || targetClasses.includes(cls.id) || ann.class_id === cls.id;
-
-        return gradeMatches && subjectMatches && classMatches;
-      });
-
-      return hasMatchingClass;
-    });
-
-    return relevant.map((item) => ({
-      ...item,
-      target_grades: this._safeParse(item.target_grades, ['*']),
-      target_subjects: this._safeParse(item.target_subjects, ['*']),
-      target_class_ids: this._safeParse(item.target_class_ids, ['*']),
-      attachments: this._safeParse(item.attachments, []),
-      is_mandatory: Boolean(item.is_mandatory),
-      is_pinned: Boolean(item.is_pinned),
-      is_acknowledged: ackSet.has(item.id),
-      is_management: Boolean(
-        item.teacher_role === 'admin' ||
-        item.teacher_role === 'manager' ||
-        (item.teacher_name || '').includes('مدیر')
-      ),
-    }));
-  }
-
-
-
-  /**
-   * Get pending mandatory announcements for the user (Blocking modal on login/dashboard entry)
-   */
-  async getPendingMandatory(user) {
-    if (user.role === 'teacher' || user.role === 'admin' || user.role === 'manager') {
-      return []; // Teachers and admins don't get blocked by their own announcements
+    let ackSet = new Set();
+    try {
+      const acks = await db('announcement_acknowledgements')
+        .where({ user_id: fullUser.id })
+        .select('announcement_id');
+      ackSet = new Set(acks.map((a) => a.announcement_id));
+    } catch {
+      // Table might not exist yet if migration hasn't run
     }
 
-    const announcements = await this.getAll(user);
-    // Return all mandatory announcements that have NOT been acknowledged
-    return announcements.filter((a) => a.is_mandatory && !a.is_acknowledged);
+    const enriched = rows
+      .map((r) => ({
+        ...this.enrichAnnouncement(r),
+        acknowledged: ackSet.has(r.id),
+      }))
+      .filter((a) => this.matchesUser(a, fullUser, userClassIds, userGrades));
+
+    return enriched;
   }
 
-  /**
-   * Acknowledge an announcement (Student or Parent confirms reading it)
-   */
+  async getPendingMandatory(user) {
+    const all = await this.getAll(user);
+    return all.filter((a) => !a.acknowledged && a.teacher_id !== user.id);
+  }
+
   async acknowledge(announcementId, user) {
     const announcement = await db('announcements').where({ id: announcementId }).first();
     if (!announcement) {
-      const error = new Error('اطلاعیه مورد نظر یافت نشد');
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('اطلاعیه مورد نظر یافت نشد');
+    }
+
+    const author = await db('users').where({ id: announcement.teacher_id }).first();
+    if (author) {
+      assertSameSchool(user, author);
     }
 
     const existing = await db('announcement_acknowledgements')
@@ -406,71 +269,104 @@ class AnnouncementService {
       .first();
 
     if (existing) {
-      return { success: true, message: 'این اطلاعیه قبلاً توسط شما تایید شده است', already_acknowledged: true };
+      return { already_acknowledged: true, acknowledged_at: existing.acknowledged_at, message: 'قبلاً تأیید شده است' };
     }
 
-    await insertAndReturn(db, 'announcement_acknowledgements', {
+    const timestamp = now();
+    await db('announcement_acknowledgements').insert({
+      id: generateId(),
       announcement_id: announcementId,
       user_id: user.id,
       role: user.role,
+      acknowledged_at: timestamp,
     });
 
     return {
-      success: true,
-      message: 'پیام تایید شد و دسترسی به پنل باز گردید',
-      announcement_id: announcementId,
+      already_acknowledged: false,
+      acknowledged_at: timestamp,
+      message: 'مطالعه اطلاعیه با موفقیت ثبت و تأیید شد',
     };
   }
 
-  /**
-   * Get detailed acknowledgement stats for teacher/admin
-   */
-  async getStats(announcementId) {
+  async getStats(announcementId, user) {
     const announcement = await db('announcements').where({ id: announcementId }).first();
     if (!announcement) {
-      const error = new Error('اطلاعیه مورد نظر یافت نشد');
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('اطلاعیه یافت نشد');
     }
 
-    const acknowledgements = await db('announcement_acknowledgements')
-      .join('users', 'users.id', 'announcement_acknowledgements.user_id')
-      .where({ announcement_id: announcementId })
+    if (user) {
+      const author = await db('users').where({ id: announcement.teacher_id }).first();
+      if (author) {
+        assertSameSchool(user, author);
+      }
+    }
+
+    const acks = await db('announcement_acknowledgements as ack')
+      .join('users', 'users.id', 'ack.user_id')
+      .where('ack.announcement_id', announcementId)
       .select(
-        'announcement_acknowledgements.*',
-        'users.display_name as user_name',
-        'users.role as user_role',
-        'users.student_code',
-        'users.phone'
+        'ack.id',
+        'ack.user_id',
+        'ack.acknowledged_at',
+        'users.display_name',
+        'users.role',
+        'users.department'
       )
-      .orderBy('announcement_acknowledgements.acknowledged_at', 'desc');
+      .orderBy('ack.acknowledged_at', 'desc');
 
     return {
-      announcement_id: announcementId,
-      total_acknowledged: acknowledgements.length,
-      acknowledgements,
+      total_acknowledged: acks.length,
+      acknowledgements: acks,
     };
   }
 
-  /**
-   * Delete announcement
-   */
-  async delete(announcementId, user) {
-    const announcement = await db('announcements').where({ id: announcementId }).first();
+  async getTargetingOptions(user) {
+    const schoolId = user?.school_id;
+    if (!schoolId) {
+      return { grades: [], subjects: [], classes: [] };
+    }
+
+    const classes = await db('classes')
+      .where({ is_active: true, school_id: schoolId })
+      .select('id', 'name', 'grade as grade_level', 'subject', 'join_code as class_code')
+      .orderBy('grade', 'asc');
+
+    const classGrades = classes.map((c) => c.grade_level).filter(Boolean);
+    const defaultGrades = ['هفتم', 'هشتم', 'نهم', 'دهم', 'یازدهم', 'دوازدهم'];
+    const grades = Array.from(new Set([...defaultGrades, ...classGrades]));
+
+    const userSpecs = await db('users')
+      .where({ role: 'teacher', school_id: schoolId })
+      .whereNotNull('department')
+      .andWhere('department', '!=', '')
+      .distinct('department')
+      .pluck('department');
+
+    const classSubjects = classes.map((c) => c.subject).filter(Boolean);
+    const defaultSubjects = ['ریاضی', 'فیزیک', 'شیمی', 'زیست‌شناسی', 'ادبیات فارسی', 'زبان انگلیسی', 'عربی', 'قرآن و معارف', 'علوم تجربی', 'مطالعات اجتماعی', 'هنر', 'ورزش'];
+    const subjects = Array.from(new Set([...defaultSubjects, ...userSpecs, ...classSubjects]));
+
+    return {
+      grades,
+      subjects,
+      classes,
+    };
+  }
+
+  async delete(id, user) {
+    const announcement = await db('announcements').where({ id }).first();
     if (!announcement) {
-      const error = new Error('اطلاعیه یافت نشد');
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('اطلاعیه یافت نشد');
     }
 
-    if (user.role !== 'admin' && announcement.teacher_id !== user.id) {
-      const error = new Error('شما مجاز به حذف این اطلاعیه نیستید');
-      error.statusCode = 403;
-      throw error;
+    const author = await db('users').where({ id: announcement.teacher_id }).first();
+    if (author) {
+      assertSameSchool(user, author);
     }
+    assertOwnsResource(user, announcement, 'teacher_id', 'شما مجاز به حذف این اطلاعیه نیستید');
 
-    await db('announcements').where({ id: announcementId }).del();
-    return { success: true, message: 'اطلاعیه با موفقیت حذف گردید' };
+    await db('announcements').where({ id }).del();
+    return { message: 'اطلاعیه حذف شد' };
   }
 }
 

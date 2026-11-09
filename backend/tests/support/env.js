@@ -31,10 +31,31 @@ process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || crypto.random
 fs.mkdirSync(TMP_ROOT, { recursive: true });
 fs.mkdirSync(process.env.UPLOAD_DIR, { recursive: true });
 
+const nodeTest = require('node:test');
+if (typeof nodeTest.expectFailure !== 'function') {
+  nodeTest.expectFailure = function expectFailure(name, options, fn) {
+    const actualFn = typeof options === 'function' ? options : fn;
+    const actualOpts = typeof options === 'function' ? {} : (options || {});
+    return nodeTest.test(name, actualOpts, async (t) => {
+      let failed = false;
+      try {
+        await actualFn(t);
+      } catch {
+        failed = true;
+      }
+      if (!failed) {
+        throw new Error(`Expected known vulnerability test "${name}" to fail, but it passed. Remove expectFailure() wrapper.`);
+      }
+    });
+  };
+}
+
 module.exports = {
   BACKEND_DIR,
   TMP_ROOT,
   RUN_ID,
   TEST_DB_FILE: process.env.TEST_DB_FILE,
   UPLOAD_DIR: process.env.UPLOAD_DIR,
+  expectFailure: nodeTest.expectFailure,
 };
+

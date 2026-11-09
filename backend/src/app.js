@@ -12,10 +12,6 @@ const compression = require('compression');
 
 const config = require('./config');
 
-// The backend refuses to start without an explicit NODE_ENV. The environment
-// decides how errors are reported and which features are enabled, and guessing
-// "development" used to switch on the mock token authentication of report
-// finding A4. The test suite always sets NODE_ENV=test.
 if (!config.nodeEnvIsSet) {
   console.error(
     '[EduConnect] NODE_ENV is not set. Refusing to start. ' +
@@ -26,7 +22,7 @@ if (!config.nodeEnvIsSet) {
 
 const db = require('./config/database');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
-const { authenticate } = require('./middleware/auth');
+const { authenticate, authorize } = require('./middleware/auth');
 
 // Import routes
 const authRoutes = require('./modules/auth/auth.routes');
@@ -58,33 +54,29 @@ const { getAuditLogs, logAudit } = require('./utils/auditLogger');
 
 const app = express();
 
-// Trust reverse proxy (Nginx / Pinggy) so real client IPs are used in rate-limiting
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 const { io } = initSocket(server, config);
 app.set('io', io);
 app.set('activeClassrooms', activeClassrooms);
 
-// ── Ensure upload directory exists ──
 const uploadDir = path.resolve(config.upload.dir);
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ── Performance: Gzip/Deflate Compression ──
 app.use(compression({
-  threshold: 1024, // Only compress responses above 1KB
+  threshold: 1024,
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
     return compression.filter(req, res);
   },
 }));
 
-// ── Security: Helmet HTTP Headers Hardening ──
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
-  frameguard: false, // Allow mobile app wrapper & localhost iframe preview
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  frameguard: false,
   xssFilter: true,
   noSniff: true,
   hidePoweredBy: true,
@@ -93,39 +85,26 @@ app.use(helmet({
     includeSubDomains: true,
     preload: true,
   },
-  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   dnsPrefetchControl: { allow: false },
 }));
-
-// ── Security: Dynamic & Resilient CORS Validation ──
-const allowedOrigins = [
-  config.frontendUrl,
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  'capacitor://localhost',
-  'ionic://localhost',
-  'http://localhost',
-];
 
 app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Pinggy-No-Screen'],
-  maxAge: 86400, // Cache preflight requests for 24h
+  maxAge: 86400,
 }));
 
-// Request logging is disabled under the test environment to keep the test output readable.
 if (config.nodeEnv !== 'test') {
   app.use(morgan('dev'));
 }
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static files for uploads (Hosted locally with 0 external CDN dependency)
-app.use('/uploads', express.static(uploadDir, {
+// Authenticated static files for uploads (#15/F9)
+app.use('/uploads', authenticate, express.static(uploadDir, {
   maxAge: '7d',
   etag: true,
   setHeaders: (res, filePath) => {
@@ -139,7 +118,6 @@ app.use('/uploads', express.static(uploadDir, {
   },
 }));
 
-// Global Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 600,
@@ -154,10 +132,9 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Strict Authentication Rate Limiter (Brute-Force & Credential Stuffing Protection)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30, // max 30 attempts per 15 min per IP
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
@@ -172,73 +149,44 @@ app.use('/api/v1/auth/quick-entry', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
 app.use('/api/v1/auth/register-school', authLimiter);
 
-// ── Health & Sync Status Check ──
+// ── Health & Sync Status Check (#36/A19) ──
 const getSyncStatusData = () => {
   try {
     const syncFile = path.join(__dirname, '..', 'sync_status.json');
     if (fs.existsSync(syncFile)) {
       const parsed = JSON.parse(fs.readFileSync(syncFile, 'utf8'));
-      if (parsed && parsed.commit_hash) return parsed;
+      if (parsed && parsed.commit_hash) {
+        return {
+          status: parsed.status || 'active',
+          commit_hash: parsed.commit_hash,
+          last_sync: parsed.last_sync || new Date().toISOString(),
+        };
+      }
     }
-  } catch (e) {}
-
-  // Dynamic fallback: Read live from local git repository if available
-  try {
-    const { execSync } = require('child_process');
-    const repoPath = path.resolve(__dirname, '..', '..');
-    const currentHash = execSync('git rev-parse --short HEAD', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
-    const currentMsg = execSync('git log -1 --pretty=format:%s', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
-    const currentDate = execSync('git log -1 --pretty=format:%cd', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
-    const currentAuthor = execSync('git log -1 --pretty=format:%an', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
-
-    if (currentHash) {
-      const data = {
-        status: 'active',
-        commit_hash: currentHash,
-        commit_message: currentMsg || 'پایدار و به‌روزرسانی‌شده',
-        commit_author: currentAuthor || 'EduConnect Team',
-        commit_date: currentDate,
-        last_sync: new Date().toISOString(),
-      };
-      try {
-        fs.writeFileSync(path.join(__dirname, '..', 'sync_status.json'), JSON.stringify(data, null, 2), 'utf8');
-      } catch (wErr) {}
-      return data;
-    }
-  } catch (gitErr) {}
+  } catch (_e) {}
 
   return {
     status: 'active',
-    commit_hash: 'e66b9a9',
-    commit_message: 'به‌روزرسانی و بهینه‌سازی جدید سامانه',
     last_sync: new Date().toISOString(),
   };
 };
 
-const healthHandler = (req, res) => {
+const healthHandler = (_req, res) => {
   res.json({
     success: true,
+    status: 'ok',
     message: 'EduConnect API is running smoothly',
-    mode: 'Domestic & National Intranet Resilient (سازگار با شبکه ملی اطلاعات)',
-    uptime_seconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     version: '1.2.0',
-    db_status: 'connected',
-    auto_sync: getSyncStatusData(),
-    network_layer: {
-      domestic_ready: true,
-      external_dns_dependency: false,
-      storage_type: 'local_disk',
-    },
   });
 };
 
-const syncStatusHandler = (req, res) => {
+const syncStatusHandler = (_req, res) => {
   res.json({
     success: true,
     server_time: new Date().toISOString(),
     uptime_seconds: Math.floor(process.uptime()),
-    auto_sync: getSyncStatusData()
+    auto_sync: getSyncStatusData(),
   });
 };
 
@@ -247,70 +195,34 @@ app.get('/api', healthHandler);
 app.get('/api/health', healthHandler);
 app.get('/api/v1', healthHandler);
 app.get('/api/v1/', healthHandler);
-app.get('/api/sync-status', syncStatusHandler);
-app.get('/api/v1/system/sync-status', syncStatusHandler);
+app.get('/api/sync-status', authenticate, authorize('admin', 'manager'), syncStatusHandler);
+app.get('/api/v1/system/sync-status', authenticate, authorize('admin', 'manager'), syncStatusHandler);
 
-// ── App OTA & Live Update Info ──
 const getActiveTunnelUrl = () => {
   if (process.env.TUNNEL_URL && process.env.TUNNEL_URL.startsWith('http')) {
     return process.env.TUNNEL_URL.trim().replace(/\/+$/, '');
   }
-  try {
-    const candidatePaths = [
-      path.join(process.env.HOME || '/home/rasolserver', 'current_pinggy_url.txt'),
-      path.join(__dirname, '..', 'current_pinggy_url.txt'),
-      path.join(process.cwd(), 'current_pinggy_url.txt')
-    ];
-    for (const p of candidatePaths) {
-      if (fs.existsSync(p)) {
-        const u = fs.readFileSync(p, 'utf8').trim();
-        if (u.startsWith('http')) return u;
-      }
-    }
-
-    const candidateLogs = [
-      path.join(process.env.HOME || '/home/rasolserver', 'pinggy.log'),
-      path.join(__dirname, '..', 'pinggy.log'),
-      path.join(process.cwd(), 'pinggy.log')
-    ];
-    for (const logPath of candidateLogs) {
-      if (fs.existsSync(logPath)) {
-        const content = fs.readFileSync(logPath, 'utf8');
-        const matches = content.match(/https:\/\/[a-z0-9\-]+\.(run\.pinggy-free\.link|free\.pinggy\.net|pinggy\.link|trycloudflare\.com)/ig);
-        if (matches && matches.length > 0) {
-          return matches[matches.length - 1];
-        }
-      }
-    }
-  } catch (e) {}
-  return 'https://uywtc-89-43-93-194.run.pinggy-free.link';
+  return config.frontendUrl || 'http://localhost:3000';
 };
 
-const appUpdateHandler = (req, res) => {
+const appUpdateHandler = (_req, res) => {
   const syncData = getSyncStatusData();
-  const commitHash = syncData?.commit_hash || '81da599';
-  const reqHost = req.get('host') || '192.168.1.103:3000';
-  const protocol = req.protocol || 'http';
   res.json({
     success: true,
     version: '1.2.0',
-    build: commitHash,
-    commit_hash: commitHash,
-    commit_message: syncData?.commit_message || 'به‌روزرسانی و پایداری عملکرد سامانه',
-    commit_author: syncData?.commit_author || 'EduConnect Team',
-    commit_date: syncData?.commit_date || new Date().toISOString(),
+    build: syncData?.commit_hash || '1.2.0',
     last_sync: syncData?.last_sync || new Date().toISOString(),
-    live_url: reqHost.includes('pinggy') ? 'http://192.168.1.103:3000' : `${protocol}://${reqHost}`,
+    live_url: config.frontendUrl || 'http://localhost:3000',
     tunnel_url: getActiveTunnelUrl(),
     ota_mode: 'hybrid_live_switch',
-    apk_download_url: '/api/v1/system/download-apk'
+    apk_download_url: '/api/v1/system/download-apk',
   });
 };
 
 app.get('/api/v1/system/app-version', appUpdateHandler);
 app.get('/api/app-version', appUpdateHandler);
 
-app.get('/api/v1/system/download-apk', (req, res) => {
+app.get('/api/v1/system/download-apk', (_req, res) => {
   const apkPath = path.join(__dirname, '..', '..', 'EduConnect.apk');
   const fallbackApk = path.join(__dirname, '..', 'EduConnect.apk');
   if (fs.existsSync(apkPath)) {
@@ -364,7 +276,7 @@ app.get('/api/v1/system/download-backup/:filename', authenticate, (req, res) => 
   }
 });
 
-// ── System Audit Logs API ──
+// ── System Audit Logs API (#31/A23) ──
 app.get('/api/v1/system/audit-logs', authenticate, async (req, res, next) => {
   try {
     if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
@@ -375,7 +287,13 @@ app.get('/api/v1/system/audit-logs', authenticate, async (req, res, next) => {
     const moduleFilter = req.query.module || null;
     const actionFilter = req.query.action || null;
 
-    const data = await getAuditLogs({ limit, offset, module: moduleFilter, action: actionFilter });
+    const data = await getAuditLogs({
+      limit,
+      offset,
+      module: moduleFilter,
+      action: actionFilter,
+      schoolId: req.user.school_id,
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -392,8 +310,13 @@ const globalQuizRouter = express.Router();
 globalQuizRouter.use(authenticate);
 globalQuizRouter.get('/', async (req, res, next) => {
   try {
+    if (!req.user.school_id) {
+      return res.json({ success: true, data: { quizzes: [] } });
+    }
+
     let query = db('quizzes')
       .join('classes', 'classes.id', 'quizzes.class_id')
+      .where('classes.school_id', req.user.school_id)
       .select(
         'quizzes.*',
         'classes.name as class_name',
@@ -402,18 +325,18 @@ globalQuizRouter.get('/', async (req, res, next) => {
       );
 
     let childIds = [];
-    if (req.user.role === 'teacher' || req.user.role === 'admin' || req.user.role === 'manager') {
-      const myCount = await db('quizzes').where({ teacher_id: req.user.id }).count('id as count').first();
-      const countVal = myCount ? parseInt(myCount.count || Object.values(myCount)[0], 10) : 0;
-      if (countVal > 0) {
-        query = query.where({ 'quizzes.teacher_id': req.user.id });
-      }
+    if (req.user.role === 'teacher') {
+      query = query.where({ 'quizzes.teacher_id': req.user.id });
+    } else if (req.user.role === 'admin' || req.user.role === 'manager') {
+      // School admins see quizzes within their own school
     } else if (req.user.role === 'parent') {
       childIds = await db('parent_student_links').where({ parent_id: req.user.id }).pluck('student_id');
       if (childIds.length === 0) {
         const parentUser = await db('users').where({ id: req.user.id }).first();
         if (parentUser?.student_code) {
-          const matchedChild = await db('users').where({ student_code: parentUser.student_code, role: 'student' }).first();
+          const matchedChild = await db('users')
+            .where({ student_code: parentUser.student_code, role: 'student', school_id: req.user.school_id })
+            .first();
           if (matchedChild) childIds = [matchedChild.id];
         }
       }
@@ -432,7 +355,7 @@ globalQuizRouter.get('/', async (req, res, next) => {
       if (typeof q.attachments === 'string') {
         try {
           q.attachments = JSON.parse(q.attachments);
-        } catch (e) {
+        } catch (_e) {
           q.attachments = [];
         }
       } else if (!q.attachments) {
@@ -450,7 +373,7 @@ globalQuizRouter.get('/', async (req, res, next) => {
         if (q.attempt && typeof q.attempt.answers === 'string') {
           try {
             q.attempt.answers_data = JSON.parse(q.attempt.answers);
-          } catch (e) {
+          } catch (_e) {
             q.attempt.answers_data = {};
           }
         }
@@ -459,7 +382,7 @@ globalQuizRouter.get('/', async (req, res, next) => {
         if (q.attempt && typeof q.attempt.answers === 'string') {
           try {
             q.attempt.answers_data = JSON.parse(q.attempt.answers);
-          } catch (e) {
+          } catch (_e) {
             q.attempt.answers_data = {};
           }
         }
@@ -476,42 +399,42 @@ globalQuizRouter.get('/', async (req, res, next) => {
 globalQuizRouter.get('/:id', async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');
-    const quiz = await quizService.getById(req.params.id, req.user.id, req.user.role);
+    const quiz = await quizService.getById(req.params.id, req.user.id, req.user.role, null, req.user);
     if (!quiz) return res.status(404).json({ success: false, message: 'کوییز یافت نشد' });
     res.json({ success: true, data: { quiz } });
   } catch (err) { next(err); }
 });
 
-globalQuizRouter.post('/', async (req, res, next) => {
+globalQuizRouter.post('/', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');
     const classId = req.body.class_id;
     if (!classId) return res.status(400).json({ success: false, message: 'شناسه کلاس الزامی است' });
-    const quiz = await quizService.create(req.user.id, classId, req.body);
+    const quiz = await quizService.create(req.user.id, classId, req.body, req.user);
     res.status(201).json({ success: true, message: 'کوییز با موفقیت ایجاد شد', data: { quiz } });
   } catch (err) { next(err); }
 });
 
-globalQuizRouter.post('/:id/start', async (req, res, next) => {
+globalQuizRouter.post('/:id/start', authorize('student'), async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');
-    const attempt = await quizService.startAttempt(req.params.id, req.user.id);
+    const attempt = await quizService.startAttempt(req.params.id, req.user.id, null, req.user);
     res.json({ success: true, data: { attempt } });
   } catch (err) { next(err); }
 });
 
-globalQuizRouter.post('/:id/share', async (req, res, next) => {
+globalQuizRouter.post('/:id/share', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');
-    const result = await quizService.shareQuiz(req.params.id, req.user.id, req.body);
+    const result = await quizService.shareQuiz(req.params.id, req.user.id, req.body, null, req.user);
     res.json({ success: true, message: 'آزمون با موفقیت با دانش‌آموزان به اشتراک گذاشته شد 📢', data: result });
   } catch (err) { next(err); }
 });
 
-globalQuizRouter.post('/:id/submit', async (req, res, next) => {
+globalQuizRouter.post('/:id/submit', authorize('student'), async (req, res, next) => {
   try {
     const quizService = require('./modules/quizzes/quiz.service');
-    const result = await quizService.submitAttempt(req.params.id, req.user.id, req.body);
+    const result = await quizService.submitAttempt(req.params.id, req.user.id, req.body, null, req.user);
     res.json({ success: true, message: 'پاسخ‌ها ثبت شد', data: { result } });
   } catch (err) { next(err); }
 });
@@ -548,8 +471,6 @@ app.use(errorHandler);
 // ── Start Server ──
 const PORT = config.port;
 server.listen(PORT, () => {
-  // Background maintenance loops and the startup banner are skipped under test so
-  // the test process can terminate cleanly once the suite finishes.
   if (config.nodeEnv !== 'test') {
     startScheduledMaintenance();
     console.log(`
@@ -568,14 +489,13 @@ server.listen(PORT, () => {
   }
 });
 
-// ── Database Persistence: Periodic SQLite WAL Checkpoint & Graceful Shutdown ──
 if (config.nodeEnv !== 'test') {
   setInterval(() => {
     try {
       if (db && typeof db.raw === 'function') {
         db.raw('PRAGMA wal_checkpoint(PASSIVE);').catch(() => {});
       }
-    } catch (e) {}
+    } catch (_e) {}
   }, 5 * 60 * 1000);
 }
 
@@ -598,9 +518,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 module.exports = { app, server };
 
-
-// ── Process Resilience & Crash Protection ──
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('⚠️ [EduConnect Process] Unhandled Rejection:', reason);
 });
 

@@ -1,7 +1,163 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const db = require('../config/database');
-const { generateId } = require('../utils/dbHelpers');
+
+const ADMIN_ROLES = ['admin', 'manager', 'school_admin', 'principal', 'headmaster'];
+
+function isSchoolAdmin(user) {
+  return Boolean(user && ADMIN_ROLES.includes(String(user.role || '').toLowerCase()));
+}
+
+function extractTokenFromRequest(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    if (token && token.trim()) return token.trim();
+  }
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const match = cookieHeader
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('accessToken='));
+    if (match) {
+      const value = decodeURIComponent(match.slice('accessToken='.length)).trim();
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Throws a 403 Forbidden error.
+ */
+function forbiddenError(message = 'شما اجازه دسترسی به این منبع را ندارید', messageEn = 'You do not have permission to access this resource') {
+  const err = new Error(message);
+  err.messageEn = messageEn;
+  err.statusCode = 403;
+  return err;
+}
+
+function notFoundError(message = 'مورد درخواستی یافت نشد', messageEn = 'Resource not found') {
+  const err = new Error(message);
+  err.messageEn = messageEn;
+  err.statusCode = 404;
+  return err;
+}
+
+/**
+ * Asserts that `actor` belongs to the same school as `target` (an object with
+ * `school_id` or a school_id string). Throws 403 if schools do not match.
+ */
+function assertSameSchool(actor, target, message) {
+  if (!actor) {
+    throw forbiddenError(message);
+  }
+  if (!target) {
+    throw notFoundError();
+  }
+  const targetSchoolId = typeof target === 'string' ? target : target.school_id;
+  if (!actor.school_id || !targetSchoolId || actor.school_id !== targetSchoolId) {
+    throw forbiddenError(message || 'دسترسی بین مدرسه‌ای مجاز نیست', 'Cross-school access is not allowed');
+  }
+  return true;
+}
+
+/**
+ * Asserts that `actor` owns or is authorized to manage/access `classId` within their school.
+ * - Loads the class from DB (`404` if missing).
+ * - Checks `assertSameSchool(actor, classRecord)` (`403` if another school).
+ * - School admins of the same school are allowed.
+ * - Teachers must be `classRecord.teacher_id === actor.id` or listed as a teacher in `class_members`.
+ * - Students/parents are only allowed when `options.allowEnrolled` is true and they (or their linked child) are enrolled in `class_members`.
+ */
+async function assertOwnsClass(actor, classId, options = {}) {
+  const { allowEnrolled = false } = options;
+  if (!classId) {
+    throw notFoundError('کلاس یافت نشد', 'Class not found');
+  }
+
+  const classRecord = await db('classes').where({ id: classId }).first();
+  if (!classRecord) {
+    throw notFoundError('کلاس یافت نشد', 'Class not found');
+  }
+
+  assertSameSchool(actor, classRecord);
+
+  const role = String(actor.role || '').toLowerCase();
+  if (isSchoolAdmin(actor)) {
+    return classRecord;
+  }
+
+  if (role === 'teacher') {
+    if (classRecord.teacher_id === actor.id) {
+      return classRecord;
+    }
+    const teacherMembership = await db('class_members')
+      .where({ class_id: classId, user_id: actor.id, role: 'teacher' })
+      .first();
+    if (teacherMembership) {
+      return classRecord;
+    }
+    throw forbiddenError('شما معلم این کلاس نیستید', 'You are not the teacher of this class');
+  }
+
+  if (allowEnrolled) {
+    if (role === 'student') {
+      const member = await db('class_members')
+        .where({ class_id: classId, user_id: actor.id })
+        .first();
+      if (member) return classRecord;
+    } else if (role === 'parent') {
+      const directMember = await db('class_members')
+        .where({ class_id: classId, user_id: actor.id })
+        .first();
+      if (directMember) return classRecord;
+
+      const childInClass = await db('parent_student_links')
+        .join('class_members', 'class_members.user_id', 'parent_student_links.student_id')
+        .where({
+          'parent_student_links.parent_id': actor.id,
+          'class_members.class_id': classId,
+        })
+        .first();
+      if (childInClass) return classRecord;
+    }
+  }
+
+  throw forbiddenError('شما دسترسی به این کلاس ندارید', 'You do not have access to this class');
+}
+
+/**
+ * Asserts that `actor` owns `resource` (via `ownerField`, default `teacher_id`) or is a school admin of the same school.
+ */
+function assertOwnsResource(actor, resource, ownerField = 'teacher_id') {
+  if (!resource) {
+    throw notFoundError();
+  }
+  if (resource.school_id !== undefined && resource.school_id !== null) {
+    assertSameSchool(actor, resource);
+  }
+  if (isSchoolAdmin(actor)) {
+    return resource;
+  }
+  if (resource[ownerField] !== actor.id) {
+    throw forbiddenError('شما مالک این منبع نیستید', 'You do not own this resource');
+  }
+  return resource;
+}
+
+/**
+ * Loads `studentId` from `users` and verifies that `actor` belongs to the same school.
+ */
+async function assertTeacherOfStudent(actor, studentId) {
+  const student = await db('users').where({ id: studentId }).first();
+  if (!student) {
+    throw notFoundError('دانش‌آموز یافت نشد', 'Student not found');
+  }
+  assertSameSchool(actor, student);
+  return student;
+}
 
 /**
  * Authentication middleware — validates JWT access token
@@ -9,8 +165,8 @@ const { generateId } = require('../utils/dbHelpers');
  */
 const authenticate = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = extractTokenFromRequest(req);
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: 'توکن احراز هویت ارائه نشده است',
@@ -18,23 +174,22 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.split(' ')[1];
-    if (!token || !token.trim()) {
-      return res.status(401).json({
-        success: false,
-        message: 'توکن نامعتبر است',
-        messageEn: 'Invalid token',
-      });
-    }
-
     // Every token is a real JWT: there is no mock token and no environment in
     // which a fabricated bearer token is accepted (report finding A4).
     const decoded = jwt.verify(token, config.jwt.secret);
+    if (decoded && decoded.typ === 'refresh') {
+      return res.status(401).json({
+        success: false,
+        message: 'توکن نامعتبر است',
+        messageEn: 'Invalid token type',
+      });
+    }
+
     const user = await db('users')
       .where({ id: decoded.userId })
       .first();
 
-    if (!user) {
+    if (!user || user.is_active === false || user.is_active === 0) {
       return res.status(401).json({
         success: false,
         message: 'کاربر یافت نشد یا غیرفعال است',
@@ -98,81 +253,26 @@ const authorize = (...roles) => {
 };
 
 /**
- * Class membership middleware — verifies user belongs to the class
+ * Class membership middleware — verifies user belongs to the class and same school
+ * without any universal teacher bypass or student auto-enrollment (findings F1, A26).
  */
 const requireClassMember = async (req, res, next) => {
   try {
     const classId = req.params.classId || req.params.id;
-    const userId = req.user.id;
-
-    // Teachers own classes directly
-    const classRecord = await db('classes')
-      .where({ id: classId })
-      .first();
-
-    if (!classRecord) {
-      return res.status(404).json({
-        success: false,
-        message: 'کلاس یافت نشد',
-        messageEn: 'Class not found',
-      });
-    }
-
-    if (classRecord.teacher_id === userId || req.user.role === 'teacher' || req.user.role === 'admin' || req.user.role === 'manager') {
-      req.classRecord = classRecord;
-      req.isClassTeacher = true;
-      return next();
-    }
-
-    // Check membership for students/parents
-    const membership = await db('class_members')
-      .where({ class_id: classId, user_id: userId })
-      .first();
-
-    if (!membership) {
-      if (req.user.role === 'student') {
-        const classExists = await db('classes').where({ id: classId }).first();
-        if (classExists) {
-          await db('class_members').insert({
-            id: generateId(),
-            class_id: classId,
-            user_id: userId,
-            role: 'student',
-          }).catch(() => {});
-          req.classRecord = classRecord;
-          req.isClassTeacher = false;
-          return next();
-        }
-      }
-
-      // Check if parent has a child in this class
-      if (req.user.role === 'parent') {
-        const childInClass = await db('parent_student_links')
-          .join('class_members', 'class_members.user_id', 'parent_student_links.student_id')
-          .where({
-            'parent_student_links.parent_id': userId,
-            'class_members.class_id': classId,
-          })
-          .first();
-
-        if (childInClass) {
-          req.classRecord = classRecord;
-          req.isClassTeacher = false;
-          return next();
-        }
-      }
-
-      return res.status(403).json({
-        success: false,
-        message: 'شما عضو این کلاس نیستید',
-        messageEn: 'You are not a member of this class',
-      });
-    }
-
+    const classRecord = await assertOwnsClass(req.user, classId, { allowEnrolled: true });
     req.classRecord = classRecord;
-    req.isClassTeacher = false;
+    req.isClassTeacher = Boolean(
+      classRecord.teacher_id === req.user.id || isSchoolAdmin(req.user),
+    );
     next();
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+        messageEn: error.messageEn,
+      });
+    }
     next(error);
   }
 };
@@ -183,14 +283,15 @@ const requireClassMember = async (req, res, next) => {
  */
 const optionalAuth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
+    const token = extractTokenFromRequest(req);
+    if (token) {
       const decoded = jwt.verify(token, config.jwt.secret);
-      const user = await db('users').where({ id: decoded.userId }).first();
-      if (user) {
-        delete user.password_hash;
-        req.user = user;
+      if (!decoded || decoded.typ !== 'refresh') {
+        const user = await db('users').where({ id: decoded.userId }).first();
+        if (user && user.is_active !== false && user.is_active !== 0) {
+          delete user.password_hash;
+          req.user = user;
+        }
       }
     }
   } catch (e) {
@@ -199,4 +300,17 @@ const optionalAuth = async (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, authorize, requireClassMember, optionalAuth };
+module.exports = {
+  authenticate,
+  authorize,
+  requireClassMember,
+  requireClassAccess: requireClassMember,
+  optionalAuth,
+  isSchoolAdmin,
+  assertSameSchool,
+  assertOwnsClass,
+  assertOwnsResource,
+  assertTeacherOfStudent,
+  forbiddenError,
+  notFoundError,
+};

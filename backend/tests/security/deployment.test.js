@@ -30,7 +30,7 @@ after(async () => {
   await teardownHarness();
 });
 
-expectFailure('[A15] docker-compose.yml must not hardcode the JWT signing secrets', () => {
+test('[A15] docker-compose.yml must not hardcode the JWT signing secrets', () => {
   const source = read('backend', 'docker-compose.yml');
 
   assert.doesNotMatch(
@@ -52,7 +52,7 @@ test('[A15] .env.example documents the JWT signing secrets', () => {
   assert.match(source, /^JWT_REFRESH_SECRET=/m, '.env.example must document JWT_REFRESH_SECRET');
 });
 
-expectFailure('[A15] Deploy-Windows-Server.ps1 must generate secrets with a CSPRNG', () => {
+test('[A15] Deploy-Windows-Server.ps1 must generate secrets with a CSPRNG', () => {
   const source = read('Deploy-Windows-Server.ps1');
 
   assert.doesNotMatch(
@@ -67,7 +67,7 @@ expectFailure('[A15] Deploy-Windows-Server.ps1 must generate secrets with a CSPR
   );
 });
 
-expectFailure('[F10] the dependency lockfile must be committed so `npm ci` can work', () => {
+test('[F10] the dependency lockfile must be committed so `npm ci` can work', () => {
   const gitignore = read('.gitignore');
 
   assert.doesNotMatch(
@@ -77,7 +77,7 @@ expectFailure('[F10] the dependency lockfile must be committed so `npm ci` can w
   );
 });
 
-expectFailure('[A16] the Android network security config must not permit cleartext traffic globally', () => {
+test('[A16] the Android network security config must not permit cleartext traffic globally', () => {
   const source = read(
     'frontend', 'android', 'app', 'src', 'main', 'res', 'xml', 'network_security_config.xml',
   );
@@ -89,7 +89,7 @@ expectFailure('[A16] the Android network security config must not permit clearte
   );
 });
 
-expectFailure('[A16] the Android network security config must not trust user-installed CAs', () => {
+test('[A16] the Android network security config must not trust user-installed CAs', () => {
   const source = read(
     'frontend', 'android', 'app', 'src', 'main', 'res', 'xml', 'network_security_config.xml',
   );
@@ -101,7 +101,7 @@ expectFailure('[A16] the Android network security config must not trust user-ins
   );
 });
 
-expectFailure('[A16] the Android manifest must disable application backup and cleartext traffic', () => {
+test('[A16] the Android manifest must disable application backup and cleartext traffic', () => {
   const source = read('frontend', 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
 
   assert.doesNotMatch(
@@ -116,7 +116,7 @@ expectFailure('[A16] the Android manifest must disable application backup and cl
   );
 });
 
-expectFailure('[A16] the Capacitor server configuration must not allow arbitrary navigation', () => {
+test('[A16] the Capacitor server configuration must not allow arbitrary navigation', () => {
   const source = read('frontend', 'capacitor.config.ts');
 
   assert.doesNotMatch(
@@ -131,7 +131,7 @@ expectFailure('[A16] the Capacitor server configuration must not allow arbitrary
   );
 });
 
-expectFailure('[A17] the client must enforce an allow-list of permitted API origins', () => {
+test('[A17] the client must enforce an allow-list of permitted API origins', () => {
   const source = read('frontend', 'src', 'lib', 'api.js');
 
   assert.match(

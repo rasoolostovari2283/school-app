@@ -79,7 +79,16 @@ class AuthController {
         return next(error);
       }
 
-      const result = await authService.login(value.identifier, value.password);
+      const result = await authService.login(
+        value.identifier,
+        value.password,
+        value.captcha_id || null,
+        value.captcha_answer || null,
+        {
+          school_id: value.school_id || null,
+          school_code: value.school_code || null,
+        }
+      );
 
       res.json({
         success: true,
@@ -236,6 +245,38 @@ class AuthController {
     } catch (err) {
       next(err);
     }
+  }
+
+  /**
+   * POST /api/v1/auth/change-password
+   */
+  async changePassword(req, res, next) {
+    try {
+      const { current_password, new_password } = req.body;
+      await authService.changePassword(req.user.id, current_password, new_password);
+      res.json({
+        success: true,
+        message: 'رمز عبور با موفقیت تغییر یافت',
+        messageEn: 'Password changed successfully',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/auth/logout
+   */
+  async logout(req, res) {
+    res.setHeader(
+      'Set-Cookie',
+      'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+    );
+    res.json({
+      success: true,
+      message: 'خروج با موفقیت انجام شد',
+      messageEn: 'Logged out successfully',
+    });
   }
 
   /**

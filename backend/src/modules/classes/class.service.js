@@ -1,5 +1,22 @@
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const db = require('../../config/database');
 const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const {
+  isSchoolAdmin,
+  assertSameSchool,
+  assertOwnsClass,
+  forbiddenError,
+  notFoundError,
+} = require('../../middleware/auth');
+
+function sanitizeClassSecrets(cls) {
+  if (!cls) return cls;
+  const copy = { ...cls };
+  delete copy.skyroom_api_key;
+  delete copy.bbb_secret;
+  return copy;
+}
 
 class ClassService {
   generateJoinCode() {
@@ -11,7 +28,15 @@ class ClassService {
     return code;
   }
 
-  async createClass(teacherId, { name, subject, grade, school_id, teacher_name }) {
+  async createClass(actorOrId, { name, subject, grade, school_id, teacher_name }) {
+    const actor = typeof actorOrId === 'object' && actorOrId !== null
+      ? actorOrId
+      : await db('users').where({ id: actorOrId }).first();
+
+    if (!actor) {
+      throw forbiddenError();
+    }
+
     let joinCode;
     let codeExists = true;
     while (codeExists) {
@@ -20,82 +45,59 @@ class ClassService {
       codeExists = !!existing;
     }
 
-    let validTeacherId = teacherId;
-    if (teacher_name) {
+    const effectiveSchoolId = actor.school_id || school_id || null;
+    if (school_id && actor.school_id && school_id !== actor.school_id) {
+      throw forbiddenError('ایجاد کلاس برای مدرسه دیگر مجاز نیست');
+    }
+
+    let validTeacherId = actor.id;
+    if (teacher_name && isSchoolAdmin(actor)) {
       const teacherByName = await db('users')
-        .where('display_name', teacher_name)
-        .orWhere('username', teacher_name)
+        .where({ school_id: effectiveSchoolId })
+        .andWhere(function () {
+          this.where('display_name', teacher_name).orWhere('username', teacher_name);
+        })
         .first();
       if (teacherByName) validTeacherId = teacherByName.id;
     }
 
-    let teacherExists = await db('users').where({ id: validTeacherId }).first();
-    if (!teacherExists) {
-      const fallbackTeacher = (await db('users').where({ role: 'teacher' }).first()) || (await db('users').first());
-      if (fallbackTeacher) {
-        validTeacherId = fallbackTeacher.id;
-      } else {
-        const newTeacherId = validTeacherId || generateId();
-        await db('users').insert({
-          id: newTeacherId,
-          display_name: teacher_name || 'دبیر گرامی',
-          username: 'teacher_' + Date.now(),
-          role: 'teacher',
-          password_hash: 'mock_hash',
-          is_verified: true,
-        }).catch(() => {});
-        validTeacherId = newTeacherId;
-      }
-    }
-
-    let validSchoolId = school_id;
-    if (school_id) {
-      const schoolExists = await db('schools').where({ id: school_id }).first();
-      if (!schoolExists) validSchoolId = null;
-    }
+    const teacherRecord = await db('users').where({ id: validTeacherId }).first();
 
     const cls = await insertAndReturn(db, 'classes', {
       name,
       subject: subject || 'عمومی',
       grade: grade || 'عمومی',
       join_code: joinCode,
-      school_id: validSchoolId || null,
+      school_id: effectiveSchoolId,
       teacher_id: validTeacherId,
     });
 
-    try {
-      await db('class_members').insert({
-        id: generateId(),
-        class_id: cls.id,
-        user_id: validTeacherId,
-        role: 'teacher',
-      });
-    } catch (e) {}
-
-    // Attach teacher name
-    if (teacherExists) {
-      cls.teacher_name = teacherExists.display_name;
+    if (teacherRecord) {
+      cls.teacher_name = teacherRecord.display_name;
     }
 
-    return cls;
+    return sanitizeClassSecrets(cls);
   }
 
-  async updateClass(classId, userId, { name, subject, grade, teacher_id, teacher_name, room }) {
-    const cls = await db('classes').where({ id: classId }).first();
-    if (!cls) {
-      const err = new Error('کلاس یافت نشد');
-      err.statusCode = 404;
-      throw err;
-    }
+  async updateClass(classId, actorOrId, { name, subject, grade, teacher_id, teacher_name }) {
+    const actor = typeof actorOrId === 'object' && actorOrId !== null
+      ? actorOrId
+      : await db('users').where({ id: actorOrId }).first();
+
+    const cls = await assertOwnsClass(actor, classId);
 
     let validTeacherId = cls.teacher_id;
-    if (teacher_id) {
-      const teacherExists = await db('users').where({ id: teacher_id }).first();
+    if (teacher_id && isSchoolAdmin(actor)) {
+      const teacherExists = await db('users')
+        .where({ id: teacher_id, school_id: cls.school_id })
+        .first();
       if (teacherExists) validTeacherId = teacher_id;
-    } else if (teacher_name) {
+    } else if (teacher_name && isSchoolAdmin(actor)) {
       const teacherByName = await db('users')
-        .where('display_name', teacher_name)
-        .orWhere('username', teacher_name)
+        .where({ school_id: cls.school_id })
+        .andWhere(function () {
+          this.where('display_name', teacher_name).orWhere('username', teacher_name);
+        })
         .first();
       if (teacherByName) validTeacherId = teacherByName.id;
     }
@@ -115,38 +117,52 @@ class ClassService {
       .where({ 'classes.id': classId })
       .first();
 
-    return updatedCls;
+    return sanitizeClassSecrets(updatedCls);
+  }
+
+  async attachStudentCounts(classesList) {
+    if (!Array.isArray(classesList) || classesList.length === 0) return classesList;
+    const classIds = classesList.map((c) => c.id);
+    const counts = await db('class_members')
+      .whereIn('class_id', classIds)
+      .andWhere({ role: 'student' })
+      .groupBy('class_id')
+      .select('class_id')
+      .count('id as count');
+
+    const countMap = new Map();
+    for (const row of counts) {
+      countMap.set(row.class_id, parseInt(row.count || 0, 10));
+    }
+
+    for (const c of classesList) {
+      c.students_count = countMap.get(c.id) || 0;
+    }
+    return classesList;
   }
 
   async getUserClasses(userId, role) {
-    let userSchoolId = null;
-    try {
-      const u = await db('users').where({ id: userId }).first();
-      userSchoolId = u?.school_id || null;
-    } catch (e) {}
+    const user = await db('users').where({ id: userId }).first();
+    const userSchoolId = user?.school_id || null;
 
-    if (role === 'teacher' || role === 'admin' || role === 'manager') {
+    if (isSchoolAdmin({ role })) {
+      if (!userSchoolId) return [];
+      const list = await db('classes')
+        .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
+        .select('classes.*', 'teachers.display_name as teacher_name')
+        .where({ 'classes.is_active': true, 'classes.school_id': userSchoolId })
+        .orderBy('classes.created_at', 'desc');
+
+      await this.attachStudentCounts(list);
+      return list.map(sanitizeClassSecrets);
+    }
+
+    if (role === 'teacher') {
       let query = db('classes')
         .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
-        .select(
-          'classes.*',
-          'teachers.display_name as teacher_name'
-        )
-        .where('classes.is_active', true);
-
-      if (userSchoolId) {
-        query = query.where(function () {
-          this.where('classes.school_id', userSchoolId)
-            .orWhere('classes.teacher_id', userId)
-            .orWhereExists(function () {
-              this.select('*')
-                .from('class_members')
-                .whereRaw('class_members.class_id = classes.id')
-                .where('class_members.user_id', userId);
-            });
-        });
-      } else if (role === 'teacher') {
-        query = query.where(function () {
+        .select('classes.*', 'teachers.display_name as teacher_name')
+        .where('classes.is_active', true)
+        .andWhere(function () {
           this.where('classes.teacher_id', userId).orWhereExists(function () {
             this.select('*')
               .from('class_members')
@@ -155,147 +171,66 @@ class ClassService {
               .where('class_members.role', 'teacher');
           });
         });
+
+      if (userSchoolId) {
+        query = query.andWhere('classes.school_id', userSchoolId);
       }
 
       const list = await query.orderBy('classes.created_at', 'desc');
-
-      // Populate student counts
-      for (const c of list) {
-        try {
-          const count = await db('class_members')
-            .where({ class_id: c.id, role: 'student' })
-            .count('id as count')
-            .first();
-          c.students_count = parseInt(count?.count || 0, 10);
-        } catch (e) {
-          c.students_count = 0;
-        }
-      }
-
-      if (list.length > 0) return list;
-
-      const allClasses = await db('classes')
-        .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
-        .select('classes.*', 'teachers.display_name as teacher_name')
-        .where({ 'classes.is_active': true })
-        .orderBy('classes.created_at', 'desc');
-
-      for (const c of allClasses) {
-        try {
-          const count = await db('class_members')
-            .where({ class_id: c.id, role: 'student' })
-            .count('id as count')
-            .first();
-          c.students_count = parseInt(count?.count || 0, 10);
-        } catch (e) {
-          c.students_count = 0;
-        }
-      }
-
-      if (allClasses.length > 0) return allClasses;
-
-      // Auto-initialize standard classes if table is empty
-      const sch = await db('schools').first();
-      const starterClasses = [
-        {
-          id: 'cls-math-101',
-          name: 'کلاس ۱۰۱ - ریاضی و حسابان پیشرفته',
-          subject: 'ریاضیات تخصصی',
-          grade: 'پایه دهم ریاضی',
-          teacher_id: userId,
-          school_id: sch?.id || null,
-          join_code: 'MATH101',
-          is_active: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 'cls-phys-102',
-          name: 'کلاس ۱۰۲ - فیزیک و آزمایشگاه',
-          subject: 'فیزیک پایه',
-          grade: 'پایه دهم تجربی',
-          teacher_id: userId,
-          school_id: sch?.id || null,
-          join_code: 'PHYS102',
-          is_active: true,
-          created_at: new Date().toISOString(),
-        },
-      ];
-      await db('classes').insert(starterClasses);
-
-      const studentUsers = await db('users').where({ role: 'student' }).select('id');
-      for (const sc of starterClasses) {
-        try {
-          await db('class_members').insert({
-            id: `cm-${sc.id}-${userId}`,
-            class_id: sc.id,
-            user_id: userId,
-            role: 'teacher',
-            joined_at: new Date().toISOString(),
-          });
-        } catch (e) {}
-
-        for (const st of studentUsers) {
-          try {
-            await db('class_members').insert({
-              id: `cm-${sc.id}-${st.id}`,
-              class_id: sc.id,
-              user_id: st.id,
-              role: 'student',
-              joined_at: new Date().toISOString(),
-            });
-          } catch (e) {}
-        }
-      }
-
-      return starterClasses;
+      await this.attachStudentCounts(list);
+      return list.map(sanitizeClassSecrets);
     }
 
     if (role === 'parent') {
-      let results = await db('parent_student_links')
+      let query = db('parent_student_links')
         .join('class_members', 'class_members.user_id', 'parent_student_links.student_id')
         .join('classes', 'classes.id', 'class_members.class_id')
         .join('users', 'users.id', 'parent_student_links.student_id')
-        .where({ 'parent_student_links.parent_id': userId, 'classes.is_active': true })
+        .where({ 'parent_student_links.parent_id': userId, 'classes.is_active': true });
+
+      if (userSchoolId) {
+        query = query.andWhere('classes.school_id', userSchoolId);
+      }
+
+      const results = await query
         .select('classes.*', 'users.display_name as student_name', 'users.id as student_id')
         .orderBy('classes.created_at', 'desc');
-
-      if (results.length === 0) {
-        const parentUser = await db('users').where({ id: userId }).first();
-        if (parentUser?.student_code) {
-          results = await db('users')
-            .join('class_members', 'class_members.user_id', 'users.id')
-            .join('classes', 'classes.id', 'class_members.class_id')
-            .where({ 'users.student_code': parentUser.student_code, 'classes.is_active': true })
-            .select('classes.*', 'users.display_name as student_name', 'users.id as student_id')
-            .orderBy('classes.created_at', 'desc');
-        }
-      }
-      return results;
+      return results.map(sanitizeClassSecrets);
     }
 
-    return db('class_members')
+    let studentQuery = db('class_members')
       .join('classes', 'classes.id', 'class_members.class_id')
       .join('users as teacher', 'teacher.id', 'classes.teacher_id')
-      .where({ 'class_members.user_id': userId, 'classes.is_active': true })
+      .where({ 'class_members.user_id': userId, 'classes.is_active': true });
+
+    if (userSchoolId) {
+      studentQuery = studentQuery.andWhere('classes.school_id', userSchoolId);
+    }
+
+    const rows = await studentQuery
       .select('classes.*', 'teacher.display_name as teacher_name')
       .orderBy('class_members.joined_at', 'desc');
+    return rows.map(sanitizeClassSecrets);
   }
 
   async getParentChildren(parentId) {
-    let children = await db('parent_student_links')
+    const parentUser = await db('users').where({ id: parentId }).first();
+    let query = db('parent_student_links')
       .join('users', 'users.id', 'parent_student_links.student_id')
-      .where({ 'parent_student_links.parent_id': parentId })
-      .select('users.id', 'users.display_name', 'users.student_code', 'users.department', 'users.avatar_url', 'parent_student_links.relation');
+      .where({ 'parent_student_links.parent_id': parentId });
 
-    if (children.length === 0) {
-      const parentUser = await db('users').where({ id: parentId }).first();
-      if (parentUser?.student_code) {
-        children = await db('users')
-          .where({ student_code: parentUser.student_code, role: 'student' })
-          .select('id', 'display_name', 'student_code', 'department', 'avatar_url');
-      }
+    if (parentUser?.school_id) {
+      query = query.andWhere('users.school_id', parentUser.school_id);
     }
-    return children;
+
+    return query.select(
+      'users.id',
+      'users.display_name',
+      'users.student_code',
+      'users.department',
+      'users.avatar_url',
+      'parent_student_links.relation'
+    );
   }
 
   async getClassById(classId) {
@@ -309,18 +244,22 @@ class ClassService {
 
     const memberCount = await db('class_members').where({ class_id: classId }).count('id as count').first();
     cls.member_count = parseInt(memberCount.count, 10);
-    return cls;
+    return sanitizeClassSecrets(cls);
   }
 
-  async joinClass(userId, role, joinCode) {
+  async joinClass(actorOrId, role, joinCode) {
+    const actor = typeof actorOrId === 'object' && actorOrId !== null
+      ? actorOrId
+      : await db('users').where({ id: actorOrId }).first();
+
     const cls = await db('classes').where({ join_code: joinCode.toUpperCase(), is_active: true }).first();
     if (!cls) {
-      const error = new Error('کد کلاس نامعتبر است');
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('کد کلاس نامعتبر است', 'Invalid class code');
     }
 
-    const existingMember = await db('class_members').where({ class_id: cls.id, user_id: userId }).first();
+    assertSameSchool(actor, cls);
+
+    const existingMember = await db('class_members').where({ class_id: cls.id, user_id: actor.id }).first();
     if (existingMember) {
       const error = new Error('شما قبلاً عضو این کلاس هستید');
       error.statusCode = 409;
@@ -329,11 +268,11 @@ class ClassService {
 
     await insertAndReturn(db, 'class_members', {
       class_id: cls.id,
-      user_id: userId,
+      user_id: actor.id,
       role: role === 'parent' ? 'parent' : 'student',
     });
 
-    return cls;
+    return sanitizeClassSecrets(cls);
   }
 
   async getClassMembers(classId) {
@@ -344,14 +283,16 @@ class ClassService {
       .orderBy('users.display_name');
   }
 
-  async createInviteLink(classId, targetRole, maxUses = 0, expiresInHours = 48) {
+  async createInviteLink(classId, actor, targetRole, maxUses = 0, expiresInHours = 48) {
+    await assertOwnsClass(actor, classId);
+
     const token = generateId().replace(/-/g, '').substring(0, 16);
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
 
     const invite = await insertAndReturn(db, 'invite_links', {
       class_id: classId,
       token,
-      target_role: targetRole,
+      target_role: targetRole === 'parent' ? 'parent' : 'student',
       max_uses: maxUses,
       expires_at: expiresAt,
     });
@@ -359,23 +300,20 @@ class ClassService {
     return invite;
   }
 
-  async updateQuietHours(classId, quietHours) {
-    return updateAndReturn(db, 'classes', { id: classId }, {
+  async updateQuietHours(classId, actor, quietHours) {
+    await assertOwnsClass(actor, classId);
+    const updated = await updateAndReturn(db, 'classes', { id: classId }, {
       quiet_hours: JSON.stringify(quietHours),
     });
+    return sanitizeClassSecrets(updated);
   }
 
-  async deleteClass(classId, teacherId, userRole) {
-    let query = db('classes').where({ id: classId });
-    if (userRole !== 'admin' && userRole !== 'manager') {
-      query = query.where({ teacher_id: teacherId });
-    }
-    const cls = await query.first();
-    if (!cls) {
-      const error = new Error('کلاس یافت نشد یا دسترسی حذف آن را ندارید');
-      error.statusCode = 404;
-      throw error;
-    }
+  async deleteClass(classId, actorOrId, userRole) {
+    const actor = typeof actorOrId === 'object' && actorOrId !== null
+      ? actorOrId
+      : await db('users').where({ id: actorOrId }).first();
+
+    const cls = await assertOwnsClass(actor || { id: actorOrId, role: userRole }, classId);
 
     try { await db('class_members').where({ class_id: classId }).del(); } catch (e) {}
     try { await db('assignments').where({ class_id: classId }).del(); } catch (e) {}
@@ -385,21 +323,21 @@ class ClassService {
     try { await db('attendance').where({ class_id: classId }).del(); } catch (e) {}
 
     await db('classes').where({ id: classId }).del();
-    return cls;
+    return sanitizeClassSecrets(cls);
   }
 
   /**
    * ── Class Rosters & Student Database Management ──
    */
-  async getClassRoster(classId) {
-    const cls = await db('classes').where({ id: classId }).first();
+  async getClassRoster(classId, actor) {
+    const cls = actor
+      ? await assertOwnsClass(actor, classId)
+      : await db('classes').where({ id: classId }).first();
+
     if (!cls) {
-      const error = new Error('کلاس مورد نظر یافت نشد');
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('کلاس مورد نظر یافت نشد');
     }
 
-    // Get all enrolled students in this class
     const enrolledStudents = await db('class_members')
       .join('users', 'users.id', 'class_members.user_id')
       .where({ 'class_members.class_id': classId })
@@ -418,28 +356,33 @@ class ClassService {
       )
       .orderBy('users.display_name');
 
-    // Fetch parent links to attach parent names to students
-    const studentIds = enrolledStudents.map(s => s.id);
-    const parentLinks = await db('parent_student_links')
-      .join('users', 'users.id', 'parent_student_links.parent_id')
-      .whereIn('parent_student_links.student_id', studentIds)
-      .select(
-        'parent_student_links.student_id',
-        'users.display_name as parent_name',
-        'users.phone as parent_phone'
-      );
+    const studentIds = enrolledStudents.map((s) => s.id);
+    const parentLinks = studentIds.length > 0
+      ? await db('parent_student_links')
+          .join('users', 'users.id', 'parent_student_links.parent_id')
+          .whereIn('parent_student_links.student_id', studentIds)
+          .select(
+            'parent_student_links.student_id',
+            'users.display_name as parent_name',
+            'users.phone as parent_phone'
+          )
+      : [];
 
     const parentMap = new Map();
-    parentLinks.forEach(p => {
+    parentLinks.forEach((p) => {
       parentMap.set(p.student_id, { name: p.parent_name, phone: p.parent_phone });
     });
 
-    // Also look up parents who have student_code matching
-    const allParents = await db('users').where({ role: 'parent' }).select('id', 'display_name', 'phone', 'student_code');
-    allParents.forEach(p => {
+    const allParents = cls.school_id
+      ? await db('users')
+          .where({ role: 'parent', school_id: cls.school_id })
+          .select('id', 'display_name', 'phone', 'student_code')
+      : [];
+
+    allParents.forEach((p) => {
       if (p.student_code) {
         const matchingStudent = enrolledStudents.find(
-          s => s.student_code && s.student_code.toLowerCase() === p.student_code.toLowerCase()
+          (s) => s.student_code && s.student_code.toLowerCase() === p.student_code.toLowerCase()
         );
         if (matchingStudent && !parentMap.has(matchingStudent.id)) {
           parentMap.set(matchingStudent.id, { name: p.display_name, phone: p.phone });
@@ -447,7 +390,7 @@ class ClassService {
       }
     });
 
-    const studentsWithParent = enrolledStudents.map(s => {
+    const studentsWithParent = enrolledStudents.map((s) => {
       const parent = parentMap.get(s.id);
       return {
         ...s,
@@ -456,59 +399,54 @@ class ClassService {
       };
     });
 
-    // Available students in school not yet in this class
     const enrolledIds = new Set(studentIds);
-    const allSchoolStudents = await db('users')
-      .where({ role: 'student' })
-      .select('id', 'display_name', 'student_code', 'department', 'phone')
-      .orderBy('display_name');
+    const allSchoolStudents = cls.school_id
+      ? await db('users')
+          .where({ role: 'student', school_id: cls.school_id })
+          .select('id', 'display_name', 'student_code', 'department', 'phone')
+          .orderBy('display_name')
+      : [];
 
-    const availableStudents = allSchoolStudents.filter(s => !enrolledIds.has(s.id));
+    const availableStudents = allSchoolStudents.filter((s) => !enrolledIds.has(s.id));
 
     return {
-      class: cls,
+      class: sanitizeClassSecrets(cls),
       students: studentsWithParent,
       total_students: studentsWithParent.length,
       available_students: availableStudents,
     };
   }
 
-  async addStudentToClass(classId, { student_id, display_name, student_code, department, phone, parent_name, parent_phone }) {
-    let cls = await db('classes').where({ id: classId }).first();
-    if (!cls) {
-      // Auto-create or ensure class exists in DB
-      try {
-        const defaultTeacher = await db('users').where({ role: 'teacher' }).first();
-        const defaultSchool = await db('schools').first();
-        cls = await insertAndReturn(db, 'classes', {
-          id: classId,
-          name: `کلاس ${classId}`,
-          teacher_id: defaultTeacher?.id || null,
-          school_id: defaultSchool?.id || null,
-          grade: department || 'عمومی',
-        });
-      } catch (err) {
-        cls = await db('classes').first();
-      }
-    }
-
-    const effectiveClassId = cls ? cls.id : classId;
+  async addStudentToClass(classId, actor, { student_id, display_name, student_code, department, phone, parent_name, parent_phone }) {
+    const cls = await assertOwnsClass(actor, classId);
     let targetStudentId = student_id;
 
-    if (!targetStudentId) {
+    if (targetStudentId) {
+      const existingStudent = await db('users').where({ id: targetStudentId }).first();
+      if (!existingStudent) {
+        throw notFoundError('دانش‌آموز یافت نشد');
+      }
+      assertSameSchool(actor, existingStudent);
+      if (existingStudent.role !== 'student') {
+        throw forbiddenError('فقط کاربران دانش‌آموز می‌توانند به کلاس اضافه شوند');
+      }
+    } else {
       if (!display_name || !display_name.trim()) {
         const error = new Error('نام و نام خانوادگی دانش‌آموز الزامی است');
         error.statusCode = 400;
         throw error;
       }
 
-      // Check if student exists by student_code
       let existingUser = null;
       if (student_code && student_code.trim()) {
-        existingUser = await db('users').where({ student_code: student_code.trim() }).first();
+        existingUser = await db('users')
+          .where({ student_code: student_code.trim(), school_id: cls.school_id })
+          .first();
       }
       if (!existingUser && display_name && display_name.trim()) {
-        existingUser = await db('users').where({ display_name: display_name.trim(), role: 'student' }).first();
+        existingUser = await db('users')
+          .where({ display_name: display_name.trim(), role: 'student', school_id: cls.school_id })
+          .first();
       }
 
       if (existingUser) {
@@ -520,10 +458,10 @@ class ClassService {
           await db('users').where({ id: existingUser.id }).update(updates);
         }
       } else {
-        const bcrypt = require('bcryptjs');
-        const defaultCode = student_code && student_code.trim() ? student_code.trim() : `STD-${Math.floor(10000 + Math.random() * 90000)}`;
-        const defaultPassword = defaultCode || '123456';
-        const password_hash = await bcrypt.hash(defaultPassword, 10);
+        const defaultCode = student_code && student_code.trim()
+          ? student_code.trim()
+          : `STD-${Math.floor(10000 + Math.random() * 90000)}`;
+        const password_hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
 
         try {
           const newUser = await insertAndReturn(db, 'users', {
@@ -532,17 +470,18 @@ class ClassService {
             department: department ? department.trim() : null,
             phone: phone ? phone.trim() : null,
             role: 'student',
+            school_id: cls.school_id,
             password_hash,
           });
           targetStudentId = newUser.id;
         } catch (insertErr) {
-          // If collision on student_code or username
           const fallbackUser = await insertAndReturn(db, 'users', {
             display_name: display_name.trim(),
             student_code: `STD-${Date.now().toString().slice(-6)}`,
             department: department ? department.trim() : null,
             phone: phone ? phone.trim() : null,
             role: 'student',
+            school_id: cls.school_id,
             password_hash,
           });
           targetStudentId = fallbackUser.id;
@@ -550,30 +489,29 @@ class ClassService {
       }
     }
 
-    // Check if already in class
-    if (effectiveClassId && targetStudentId) {
+    if (targetStudentId) {
       const alreadyMember = await db('class_members')
-        .where({ class_id: effectiveClassId, user_id: targetStudentId })
+        .where({ class_id: cls.id, user_id: targetStudentId })
         .first();
 
       if (!alreadyMember) {
         await insertAndReturn(db, 'class_members', {
-          class_id: effectiveClassId,
+          class_id: cls.id,
           user_id: targetStudentId,
           role: 'student',
         });
       }
     }
 
-    // If parent info provided, link or record parent
     if (parent_name && parent_name.trim()) {
       try {
         const studentUser = await db('users').where({ id: targetStudentId }).first();
-        const bcrypt = require('bcryptjs');
-        const defaultParentPass = await bcrypt.hash('123456', 10);
+        const defaultParentPass = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
         let parentUser = null;
         if (parent_phone && parent_phone.trim()) {
-          parentUser = await db('users').where({ phone: parent_phone.trim(), role: 'parent' }).first();
+          parentUser = await db('users')
+            .where({ phone: parent_phone.trim(), role: 'parent', school_id: cls.school_id })
+            .first();
         }
         if (!parentUser) {
           parentUser = await insertAndReturn(db, 'users', {
@@ -581,6 +519,7 @@ class ClassService {
             phone: parent_phone ? parent_phone.trim() : null,
             student_code: studentUser ? studentUser.student_code : null,
             role: 'parent',
+            school_id: cls.school_id,
             password_hash: defaultParentPass,
           });
         }
@@ -593,16 +532,15 @@ class ClassService {
             student_id: targetStudentId,
           });
         }
-      } catch (e) {
-        console.error('Error linking parent:', e);
-      }
+      } catch (e) {}
     }
 
     const enrolled = await db('users').where({ id: targetStudentId }).first();
+    if (enrolled) delete enrolled.password_hash;
     return {
       ...(enrolled || {
         id: targetStudentId,
-        display_name: display_name.trim(),
+        display_name: display_name ? display_name.trim() : '',
         student_code: student_code || 'STD-1000',
         department: department || null,
         phone: phone || null,
@@ -612,30 +550,10 @@ class ClassService {
     };
   }
 
-  async batchAddStudents(classId, { raw_text = '', students = [] }) {
-    let cls = await db('classes').where({ id: classId }).first();
-    if (!cls) {
-      try {
-        const defaultTeacher = await db('users').where({ role: 'teacher' }).first();
-        const defaultSchool = await db('schools').first();
-        cls = await insertAndReturn(db, 'classes', {
-          id: classId,
-          name: `کلاس ${classId}`,
-          teacher_id: defaultTeacher?.id || null,
-          school_id: defaultSchool?.id || null,
-          grade: 'عمومی',
-        });
-      } catch (err) {
-        cls = await db('classes').first();
-      }
-    }
-    if (!cls) {
-      const error = new Error('کلاس مورد نظر یافت نشد');
-      error.statusCode = 404;
-      throw error;
-    }
+  async batchAddStudents(classId, actor, { raw_text = '', students = [] }) {
+    const cls = await assertOwnsClass(actor, classId);
 
-    let parsedList = [...students];
+    const parsedList = [...students];
 
     if (raw_text && raw_text.trim()) {
       const lines = raw_text.split('\n');
@@ -643,15 +561,12 @@ class ClassService {
         const line = rawLine.trim();
         if (!line) continue;
 
-        // Split by comma, dash, tab, or semicolon
-        const parts = line.split(/[,;\t\-–—]+/).map(p => p.trim()).filter(Boolean);
+        const parts = line.split(/[,;\t\-–—]+/).map((p) => p.trim()).filter(Boolean);
         if (parts.length > 0) {
           const name = parts[0];
-          // Check if parts[1] is student code or number
           let code = parts[1] || '';
           let dept = parts[2] || '';
 
-          // If code is empty or alphabetical, could be dept
           if (code && !/^\d+$/.test(code) && !dept) {
             dept = code;
             code = '';
@@ -672,8 +587,6 @@ class ClassService {
       throw error;
     }
 
-    const bcrypt = require('bcryptjs');
-    const defaultPasswordHash = await bcrypt.hash('123456', 10);
     const addedStudents = [];
 
     for (const item of parsedList) {
@@ -681,16 +594,22 @@ class ClassService {
 
       let studentUser = null;
       if (item.student_code && item.student_code.trim()) {
-        studentUser = await db('users').where({ student_code: item.student_code.trim() }).first();
+        studentUser = await db('users')
+          .where({ student_code: item.student_code.trim(), school_id: cls.school_id })
+          .first();
       }
 
       if (!studentUser) {
+        const randomHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
         studentUser = await insertAndReturn(db, 'users', {
           display_name: item.display_name.trim(),
-          student_code: item.student_code ? item.student_code.trim() : Math.floor(100000 + Math.random() * 900000).toString(),
+          student_code: item.student_code
+            ? item.student_code.trim()
+            : Math.floor(100000 + Math.random() * 900000).toString(),
           department: item.department ? item.department.trim() : cls.grade || null,
           role: 'student',
-          password_hash: defaultPasswordHash,
+          school_id: cls.school_id,
+          password_hash: randomHash,
         });
       }
 
@@ -704,6 +623,7 @@ class ClassService {
           user_id: studentUser.id,
           role: 'student',
         });
+        delete studentUser.password_hash;
         addedStudents.push(studentUser);
       }
     }
@@ -714,14 +634,35 @@ class ClassService {
     };
   }
 
-  async removeStudentFromClass(classId, studentId) {
+  async removeStudentFromClass(classId, studentId, actor) {
+    await assertOwnsClass(actor, classId);
     await db('class_members')
       .where({ class_id: classId, user_id: studentId })
       .del();
     return { success: true, message: 'دانش‌آموز از کلاس حذف شد' };
   }
 
-  async updateStudentInRoster(classId, studentId, { display_name, student_code, department, phone }) {
+  async updateStudentInRoster(classId, studentId, actor, { display_name, student_code, department, phone }) {
+    const cls = await assertOwnsClass(actor, classId);
+
+    const targetUser = await db('users').where({ id: studentId }).first();
+    if (!targetUser) {
+      throw notFoundError('دانش‌آموز یافت نشد');
+    }
+
+    assertSameSchool(actor, targetUser);
+
+    if (targetUser.role !== 'student') {
+      throw forbiddenError('فقط مشخصات دانش‌آموزان قابل ویرایش است', 'Only student records may be modified');
+    }
+
+    const membership = await db('class_members')
+      .where({ class_id: cls.id, user_id: studentId })
+      .first();
+    if (!membership) {
+      throw forbiddenError('این دانش‌آموز عضو این کلاس نیست', 'Student is not enrolled in this class');
+    }
+
     const updateData = {};
     if (display_name !== undefined) updateData.display_name = display_name.trim();
     if (student_code !== undefined) updateData.student_code = student_code.trim();
@@ -729,6 +670,7 @@ class ClassService {
     if (phone !== undefined) updateData.phone = phone.trim();
 
     const updated = await updateAndReturn(db, 'users', { id: studentId }, updateData);
+    if (updated) delete updated.password_hash;
     return updated;
   }
 }

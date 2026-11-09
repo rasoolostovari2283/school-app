@@ -18,8 +18,8 @@ RUN npm ci --omit=dev
 # Copy application source code
 COPY . .
 
-# Ensure upload directory exists
-RUN mkdir -p uploads
+# Ensure upload directory exists and is owned by non-root node user (#35/A22)
+RUN mkdir -p uploads && chown -R node:node /app
 
 # Expose backend port
 EXPOSE 5000
@@ -27,6 +27,9 @@ EXPOSE 5000
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=5000
+
+# Run as non-root user
+USER node
 
 # Run backend
 CMD ["node", "src/app.js"]

@@ -1,14 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertTeacherOfStudent,
+} = require('../../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
 
 /**
  * GET /api/v1/discipline
- * Fetch discipline records (filtered by student, parent's children, or all for teachers)
+ * Fetch discipline records scoped to the requester's school
  */
 router.get('/', async (req, res, next) => {
   try {
@@ -16,6 +21,7 @@ router.get('/', async (req, res, next) => {
     let query = db('discipline_records')
       .join('users as students', 'students.id', 'discipline_records.student_id')
       .leftJoin('users as issuers', 'issuers.id', 'discipline_records.issuer_id')
+      .where('students.school_id', req.user.school_id)
       .select(
         'discipline_records.*',
         'students.display_name as student_name',
@@ -34,12 +40,12 @@ router.get('/', async (req, res, next) => {
         .pluck('student_id');
       query = query.whereIn('discipline_records.student_id', childIds).where('discipline_records.is_parent_viewable', true);
     } else if (targetStudentId) {
+      await assertTeacherOfStudent(req.user, targetStudentId);
       query = query.where('discipline_records.student_id', targetStudentId);
     }
 
     const records = await query.orderBy('discipline_records.created_at', 'desc');
 
-    // Calculate total score for target student
     let baselineScore = 20.0;
     records.forEach((r) => {
       baselineScore += r.points;
@@ -64,18 +70,17 @@ router.get('/', async (req, res, next) => {
 
 /**
  * POST /api/v1/discipline
- * Add a reward or warning card
+ * Add a reward or warning card (same-school teacher/admin only)
  */
-router.post('/', async (req, res, next) => {
+router.post('/', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
-    if (req.user.role !== 'teacher') {
-      return res.status(403).json({ success: false, message: 'فقط کادر مدرسه مجاز به ثبت سوابق انضباطی هستند' });
-    }
-
     const { student_id, type, category, title, description, points, date, is_parent_viewable } = req.body;
     if (!student_id || !type || !title) {
       return res.status(400).json({ success: false, message: 'فیلدهای اجباری را تکمیل فرمایید' });
     }
+
+    const student = await assertTeacherOfStudent(req.user, student_id);
+    assertSameSchool(req.user, student);
 
     const newRecord = {
       id: uuidv4(),
@@ -104,7 +109,7 @@ router.post('/', async (req, res, next) => {
 
 /**
  * GET /api/v1/discipline/counseling
- * Fetch counseling sessions
+ * Fetch counseling sessions scoped to the requester's school
  */
 router.get('/counseling', async (req, res, next) => {
   try {
@@ -112,6 +117,7 @@ router.get('/counseling', async (req, res, next) => {
     let query = db('counseling_cases')
       .join('users as students', 'students.id', 'counseling_cases.student_id')
       .leftJoin('users as counselors', 'counselors.id', 'counseling_cases.counselor_id')
+      .where('students.school_id', req.user.school_id)
       .select(
         'counseling_cases.*',
         'students.display_name as student_name',
@@ -124,6 +130,7 @@ router.get('/counseling', async (req, res, next) => {
       const childIds = await db('parent_student_links').where('parent_id', req.user.id).pluck('student_id');
       query = query.whereIn('counseling_cases.student_id', childIds).where('counseling_cases.shared_with_parent', true);
     } else if (student_id) {
+      await assertTeacherOfStudent(req.user, student_id);
       query = query.where('counseling_cases.student_id', student_id);
     }
 
@@ -136,15 +143,17 @@ router.get('/counseling', async (req, res, next) => {
 
 /**
  * POST /api/v1/discipline/counseling
- * Add new counseling log
+ * Add new counseling log (same-school teacher/admin only)
  */
-router.post('/counseling', async (req, res, next) => {
+router.post('/counseling', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
-    if (req.user.role !== 'teacher') {
-      return res.status(403).json({ success: false, message: 'فقط مشاورین و کادر مدرسه مجاز به ثبت مشاوره هستند' });
+    const { student_id, session_title, session_date, student_concerns, counselor_notes, recommendations, follow_up_date, shared_with_parent } = req.body;
+    if (!student_id || !session_title) {
+      return res.status(400).json({ success: false, message: 'دانش‌آموز و عنوان جلسه الزامی است' });
     }
 
-    const { student_id, session_title, session_date, student_concerns, counselor_notes, recommendations, follow_up_date, shared_with_parent } = req.body;
+    const student = await assertTeacherOfStudent(req.user, student_id);
+    assertSameSchool(req.user, student);
 
     const newCase = {
       id: uuidv4(),

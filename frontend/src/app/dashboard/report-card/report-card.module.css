@@ -1773,14 +1773,11 @@
   .classStatsGrid,
   .categoriesBar,
   .modalHeader,
-  :global(aside),
-  :global(nav),
-  :global(header),
-  :global(button) {
+  .container button {
     display: none !important;
   }
 
-  :global(body) {
+  .container {
     background: #fff !important;
     color: #000 !important;
   }

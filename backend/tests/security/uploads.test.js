@@ -46,7 +46,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F9] GET /uploads/<file> must require authentication', async () => {
+test('[F9] GET /uploads/<file> must require authentication', async () => {
   const res = await get(baseUrl, `/uploads/${STATIC_UPLOAD_NAME}`);
 
   assert.equal(
@@ -56,7 +56,7 @@ expectFailure('[F9] GET /uploads/<file> must require authentication', async () =
   );
 });
 
-expectFailure('[F9] GET /api/v1/videos/stream/<file> must require authentication', async () => {
+test('[F9] GET /api/v1/videos/stream/<file> must require authentication', async () => {
   const res = await get(baseUrl, `/api/v1/videos/stream/${VIDEO_FIXTURE_FILE}`);
 
   assert.equal(
@@ -66,7 +66,7 @@ expectFailure('[F9] GET /api/v1/videos/stream/<file> must require authentication
   );
 });
 
-expectFailure('[F9] POST /api/v1/videos/convert-pptx must require authentication', async () => {
+test('[F9] POST /api/v1/videos/convert-pptx must require authentication', async () => {
   // A real multipart body, so the request gets past the upload middleware and
   // reaches the conversion handler. Reaching the handler at all proves the
   // endpoint is reachable without credentials.
@@ -91,7 +91,7 @@ expectFailure('[F9] POST /api/v1/videos/convert-pptx must require authentication
   );
 });
 
-expectFailure('[F9] GET /api/v1/videos/:id/stream must require authentication', async () => {
+test('[F9] GET /api/v1/videos/:id/stream must require authentication', async () => {
   const res = await get(baseUrl, `/api/v1/videos/${VIDEOS.b}/stream`);
 
   assert.equal(

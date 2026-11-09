@@ -1,8 +1,32 @@
 const db = require('../../config/database');
-const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const { insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const {
+  isSchoolAdmin,
+  assertOwnsClass,
+  forbiddenError,
+  notFoundError,
+} = require('../../middleware/auth');
 
 class QuizService {
-  async create(teacherId, classId, { title, description, duration_minutes, start_time, end_time, has_negative_marking, attachments, questions }) {
+  async assertQuizInClass(quizId, classId, currentUser = null, { allowEnrolled = false } = {}) {
+    const quiz = await db('quizzes').where({ id: quizId }).first();
+    if (!quiz) {
+      throw notFoundError('کوییز یافت نشد');
+    }
+    if (classId && quiz.class_id !== classId) {
+      throw forbiddenError('این آزمون متعلق به کلاس انتخاب‌شده نیست');
+    }
+    if (currentUser) {
+      await assertOwnsClass(currentUser, quiz.class_id, { allowEnrolled });
+    }
+    return quiz;
+  }
+
+  async create(teacherId, classId, { title, description, duration_minutes, start_time, end_time, has_negative_marking, attachments, questions }, currentUser = null) {
+    if (currentUser) {
+      await assertOwnsClass(currentUser, classId);
+    }
+
     const quiz = await insertAndReturn(db, 'quizzes', {
       class_id: classId,
       teacher_id: teacherId,
@@ -13,7 +37,7 @@ class QuizService {
       end_time: end_time || null,
       has_negative_marking: !!has_negative_marking,
       attachments: JSON.stringify(attachments || []),
-      is_published: true, // Auto-publish for smooth UX
+      is_published: true,
     });
 
     if (questions && Array.isArray(questions) && questions.length > 0) {
@@ -34,7 +58,6 @@ class QuizService {
       }
     }
 
-    // Automatically notify students when quiz is created/shared
     try {
       const members = await db('class_members').where({ class_id: classId, role: 'student' }).select('user_id');
       if (members && members.length > 0) {
@@ -59,7 +82,7 @@ class QuizService {
     const quizzes = await db('quizzes').where({ class_id: classId }).orderBy('created_at', 'desc');
     for (const q of quizzes) {
       if (typeof q.attachments === 'string') {
-        try { q.attachments = JSON.parse(q.attachments); } catch (e) { q.attachments = []; }
+        try { q.attachments = JSON.parse(q.attachments); } catch (_e) { q.attachments = []; }
       } else if (!q.attachments) {
         q.attachments = [];
       }
@@ -71,19 +94,47 @@ class QuizService {
     return quizzes;
   }
 
-  async getById(quizId, userId, role) {
+  async getById(quizId, userId, role, classId = null, currentUser = null) {
     const quiz = await db('quizzes')
       .join('classes', 'classes.id', 'quizzes.class_id')
       .where({ 'quizzes.id': quizId })
-      .select('quizzes.*', 'classes.name as class_name', 'classes.grade as class_grade', 'classes.subject as class_subject')
+      .select(
+        'quizzes.*',
+        'classes.name as class_name',
+        'classes.grade as class_grade',
+        'classes.subject as class_subject',
+        'classes.school_id as class_school_id',
+        'classes.teacher_id as class_teacher_id'
+      )
       .first();
 
     if (!quiz) return null;
 
+    if (classId && quiz.class_id !== classId) {
+      throw forbiddenError('این آزمون متعلق به کلاس انتخاب‌شده نیست');
+    }
+
+    const user = currentUser || await db('users').where({ id: userId }).first();
+    const sameSchool = Boolean(user && user.school_id && quiz.class_school_id === user.school_id);
+    const isOwnerOrSchoolAdmin = sameSchool && (
+      quiz.teacher_id === userId
+      || quiz.class_teacher_id === userId
+      || isSchoolAdmin(user)
+    );
+
+    if (!sameSchool) {
+      return {
+        id: quiz.id,
+        class_id: quiz.class_id,
+        questions: [],
+        attachments: [],
+      };
+    }
+
     if (typeof quiz.attachments === 'string') {
       try {
         quiz.attachments = JSON.parse(quiz.attachments);
-      } catch (e) {
+      } catch (_e) {
         quiz.attachments = [];
       }
     } else if (!quiz.attachments) {
@@ -93,7 +144,9 @@ class QuizService {
     quiz.questions = await db('quiz_questions').where({ quiz_id: quizId }).orderBy('order_index');
     quiz.questions.forEach((q) => {
       q.options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
-      if (role !== 'teacher' && role !== 'admin' && role !== 'manager') delete q.correct_option;
+      if (!isOwnerOrSchoolAdmin) {
+        delete q.correct_option;
+      }
     });
 
     if (role === 'student') {
@@ -101,7 +154,7 @@ class QuizService {
       if (quiz.attempt && typeof quiz.attempt.answers === 'string') {
         try {
           quiz.attempt.answers_data = JSON.parse(quiz.attempt.answers);
-        } catch (e) {
+        } catch (_e) {
           quiz.attempt.answers_data = {};
         }
       }
@@ -110,7 +163,9 @@ class QuizService {
       if (childIds.length === 0) {
         const parentUser = await db('users').where({ id: userId }).first();
         if (parentUser?.student_code) {
-          const matchedChild = await db('users').where({ student_code: parentUser.student_code, role: 'student' }).first();
+          const matchedChild = await db('users')
+            .where({ student_code: parentUser.student_code, role: 'student', school_id: quiz.class_school_id })
+            .first();
           if (matchedChild) childIds = [matchedChild.id];
         }
       }
@@ -118,7 +173,7 @@ class QuizService {
       if (quiz.attempt && typeof quiz.attempt.answers === 'string') {
         try {
           quiz.attempt.answers_data = JSON.parse(quiz.attempt.answers);
-        } catch (e) {
+        } catch (_e) {
           quiz.attempt.answers_data = {};
         }
       }
@@ -128,7 +183,7 @@ class QuizService {
       }
     }
 
-    if (role === 'teacher' || role === 'admin' || role === 'manager') {
+    if (isOwnerOrSchoolAdmin) {
       quiz.attempts = await db('quiz_attempts')
         .join('users', 'users.id', 'quiz_attempts.student_id')
         .where({ quiz_id: quizId })
@@ -145,7 +200,7 @@ class QuizService {
         if (typeof att.answers === 'string') {
           try {
             att.answers_data = JSON.parse(att.answers);
-          } catch (e) {
+          } catch (_e) {
             att.answers_data = {};
           }
         }
@@ -166,7 +221,7 @@ class QuizService {
             'users.phone as student_phone'
           );
         quiz.class_students = classStudents || [];
-      } catch (err) {
+      } catch (_err) {
         quiz.class_students = [];
       }
     }
@@ -174,11 +229,14 @@ class QuizService {
     return quiz;
   }
 
-  async publish(quizId) {
+  async publish(quizId, classId = null, currentUser = null) {
+    await this.assertQuizInClass(quizId, classId, currentUser);
     return updateAndReturn(db, 'quizzes', { id: quizId }, { is_published: true });
   }
 
-  async shareQuiz(quizId, teacherId, { sendToAnnouncements = true, customMessage = '' } = {}) {
+  async shareQuiz(quizId, teacherId, { sendToAnnouncements = true, customMessage = '' } = {}, classId = null, currentUser = null) {
+    await this.assertQuizInClass(quizId, classId, currentUser);
+
     const quiz = await db('quizzes')
       .join('classes', 'classes.id', 'quizzes.class_id')
       .where({ 'quizzes.id': quizId })
@@ -186,12 +244,9 @@ class QuizService {
       .first();
 
     if (!quiz) {
-      const err = new Error('آزمون یافت نشد');
-      err.statusCode = 404;
-      throw err;
+      throw notFoundError('آزمون یافت نشد');
     }
 
-    // Ensure published
     await db('quizzes').where({ id: quizId }).update({ is_published: true });
 
     let notifiedCount = 0;
@@ -217,6 +272,7 @@ class QuizService {
     if (sendToAnnouncements) {
       try {
         announcement = await insertAndReturn(db, 'announcements', {
+          teacher_id: teacherId,
           class_id: quiz.class_id,
           title: `📢 برگزاری آزمون آنلاین: ${quiz.title}`,
           content: customMessage || `دانش‌آموزان گرامی، آزمون آنلاین «${quiz.title}» برای کلاس شما به اشتراک گذاشته شد. مدت زمان آزمون ${quiz.duration_minutes} دقیقه می‌باشد. لطفاً از طریق منوی آزمون‌ها در آزمون شرکت فرمایید.`,
@@ -238,12 +294,12 @@ class QuizService {
     };
   }
 
-  async startAttempt(quizId, studentId) {
+  async startAttempt(quizId, studentId, classId = null, currentUser = null) {
+    await this.assertQuizInClass(quizId, classId, currentUser, { allowEnrolled: true });
+
     const quiz = await db('quizzes').where({ id: quizId, is_published: true }).first();
     if (!quiz) {
-      const e = new Error('کوییز یافت نشد یا هنوز فعال نشده است');
-      e.statusCode = 404;
-      throw e;
+      throw notFoundError('کوییز یافت نشد یا هنوز فعال نشده است');
     }
 
     const existing = await db('quiz_attempts').where({ quiz_id: quizId, student_id: studentId }).first();
@@ -261,12 +317,12 @@ class QuizService {
     });
   }
 
-  async submitAttempt(quizId, studentId, body = {}) {
+  async submitAttempt(quizId, studentId, body = {}, classId = null, currentUser = null) {
+    await this.assertQuizInClass(quizId, classId, currentUser, { allowEnrolled: true });
+
     const quiz = await db('quizzes').where({ id: quizId, is_published: true }).first();
     if (!quiz) {
-      const e = new Error('کوییز یافت نشد');
-      e.statusCode = 404;
-      throw e;
+      throw notFoundError('کوییز یافت نشد');
     }
 
     let answers = {};
@@ -360,7 +416,6 @@ class QuizService {
         ...payload,
       });
     } else {
-      // File-based exam (e.g. PDF questions paper)
       const diagnostic = {
         is_file_exam: true,
         submitted_answers: answers,

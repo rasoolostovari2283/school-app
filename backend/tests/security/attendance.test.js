@@ -25,7 +25,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[A10] a parent must not receive the phone number and e-mail of a classmate', async () => {
+test('[A10] a parent must not receive the phone number and e-mail of a classmate', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const parent = await loginAs(baseUrl, 'a', 'parent');
 
@@ -50,7 +50,7 @@ expectFailure('[A10] a parent must not receive the phone number and e-mail of a 
   );
 });
 
-expectFailure('[A10] a teacher of another school must not record attendance in a foreign class', async () => {
+test('[A10] a teacher of another school must not record attendance in a foreign class', async () => {
   const teacherA = await loginAs(baseUrl, 'a', 'teacher');
   const teacherB = await loginAs(baseUrl, 'b', 'teacher');
 
@@ -77,7 +77,7 @@ expectFailure('[A10] a teacher of another school must not record attendance in a
   );
 });
 
-expectFailure('[A10] a teacher of another school must not close a foreign attendance session', async () => {
+test('[A10] a teacher of another school must not close a foreign attendance session', async () => {
   const teacherA = await loginAs(baseUrl, 'a', 'teacher');
   const teacherB = await loginAs(baseUrl, 'b', 'teacher');
 

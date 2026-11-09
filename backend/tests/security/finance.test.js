@@ -27,7 +27,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F2] a school-A teacher must not read the tuition ledger of a school-B student', async () => {
+test('[F2] a school-A teacher must not read the tuition ledger of a school-B student', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -38,7 +38,7 @@ expectFailure('[F2] a school-A teacher must not read the tuition ledger of a sch
   });
 });
 
-expectFailure('[F2] a school-A student must not read the tuition ledger of a school-B student', async () => {
+test('[F2] a school-A student must not read the tuition ledger of a school-B student', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -49,7 +49,7 @@ expectFailure('[F2] a school-A student must not read the tuition ledger of a sch
   });
 });
 
-expectFailure('[F2] a school-A teacher must not submit a receipt for a school-B installment', async () => {
+test('[F2] a school-A teacher must not submit a receipt for a school-B installment', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -61,7 +61,7 @@ expectFailure('[F2] a school-A teacher must not submit a receipt for a school-B 
   });
 });
 
-expectFailure('[F7] a school-A teacher must not verify a school-B tuition installment', async () => {
+test('[F7] a school-A teacher must not verify a school-B tuition installment', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -72,7 +72,7 @@ expectFailure('[F7] a school-A teacher must not verify a school-B tuition instal
   });
 });
 
-expectFailure('[F12] GET /finance/ledger must not create a tuition ledger', async () => {
+test('[F12] GET /finance/ledger must not create a tuition ledger', async () => {
   // Remove the ledger so the read hits the auto-creation branch.
   await db('tuition_installments').where({ ledger_id: LEDGERS.a }).del();
   await db('tuition_ledgers').where({ id: LEDGERS.a }).del();
@@ -88,7 +88,7 @@ expectFailure('[F12] GET /finance/ledger must not create a tuition ledger', asyn
   );
 });
 
-expectFailure('[F12] a ledger created by a read must not contain pre-verified installments', async () => {
+test('[F12] a ledger created by a read must not contain pre-verified installments', async () => {
   await db('tuition_installments').where({ ledger_id: LEDGERS.a }).del();
   await db('tuition_ledgers').where({ id: LEDGERS.a }).del();
 

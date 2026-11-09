@@ -1,7 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertOwnsClass,
+  assertOwnsResource,
+} = require('../../middleware/auth');
 const upload = require('../../middleware/upload');
 const path = require('path');
 const fs = require('fs');
@@ -12,11 +18,24 @@ const os = require('os');
 const crypto = require('crypto');
 const { cacheMiddleware, cache } = require('../../utils/cache');
 
+// All video & conversion endpoints require authentication (#15/F9)
+router.use(authenticate);
+
+const MAX_CONCURRENT_CONVERSIONS = 1;
+let activeConversions = 0;
+
 /**
- * POST /api/v1/videos/convert-pptx — converts a PowerPoint presentation into a vector PDF using PowerPoint COM
- * Includes instant SHA-256 disk caching and high-speed cscript execution.
+ * POST /api/v1/videos/convert-pptx — converts a PowerPoint presentation into a vector PDF
  */
-router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
+router.post('/convert-pptx', authorize('teacher', 'admin', 'manager'), upload.single('file'), async (req, res, next) => {
+  let slotAcquired = false;
+  const releaseSlot = () => {
+    if (slotAcquired) {
+      slotAcquired = false;
+      activeConversions = Math.max(0, activeConversions - 1);
+    }
+  };
+
   try {
     const file = req.file;
     if (!file) {
@@ -25,10 +44,9 @@ router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
 
     const outputPdfFilename = `${path.parse(file.originalname || file.filename).name}.pdf`;
 
-    // 1. Check SHA256 Cache for Instant Response (0 seconds)
     const cacheDir = path.join(os.tmpdir(), 'educonnect_pptx_cache');
     if (!fs.existsSync(cacheDir)) {
-      try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (e) {}
+      try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (_e) {}
     }
 
     let fileHash = '';
@@ -38,7 +56,7 @@ router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
       const cachedPdfPath = path.join(cacheDir, `${fileHash}.pdf`);
 
       if (fs.existsSync(cachedPdfPath) && fs.statSync(cachedPdfPath).size > 1000) {
-        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (e) {}
+        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(outputPdfFilename)}"`);
         res.setHeader('X-Cache', 'HIT');
@@ -48,13 +66,22 @@ router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
       console.warn('Cache check error:', hashErr);
     }
 
-    // 2. Perform Conversion
+    if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
+      try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
+      return res.status(429).json({
+        success: false,
+        message: 'سرور در حال پردازش فایل دیگری است. لطفاً چند لحظه بعد مجدداً تلاش کنید.',
+      });
+    }
+
+    activeConversions += 1;
+    slotAcquired = true;
+
     const fileId = uuidv4();
     const tempInput = path.join(os.tmpdir(), `${fileId}.pptx`);
     const tempOutput = path.join(os.tmpdir(), `${fileId}.pdf`);
     const scriptPath = path.join(os.tmpdir(), `convert_${fileId}.vbs`);
 
-    // Copy to ASCII temp path so COM automation is never affected by non-ASCII folder names
     fs.copyFileSync(file.path, tempInput);
 
     const vbsContent = [
@@ -66,24 +93,23 @@ router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
       'ppt.Quit',
       'Set pres = Nothing',
       'Set ppt = Nothing',
-      'WScript.Echo "OK"'
+      'WScript.Echo "OK"',
     ].join('\r\n');
 
     fs.writeFileSync(scriptPath, vbsContent, 'ascii');
 
-    execFile('cscript', ['//nologo', scriptPath], (err, stdout, stderr) => {
-      // Clean up script and input temp
-      try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (e) {}
-      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
-      try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (e) {}
+    execFile('cscript', ['//nologo', scriptPath], (err) => {
+      try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_e) {}
+      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (_e) {}
+      try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
 
       if (fs.existsSync(tempOutput) && fs.statSync(tempOutput).size > 1000) {
-        // Save to cache for future instant access
+        releaseSlot();
         if (fileHash) {
           try {
             const cachedPdfPath = path.join(cacheDir, `${fileHash}.pdf`);
             fs.copyFileSync(tempOutput, cachedPdfPath);
-          } catch (cErr) {}
+          } catch (_cErr) {}
         }
 
         res.setHeader('Content-Type', 'application/pdf');
@@ -94,10 +120,9 @@ router.post('/convert-pptx', upload.single('file'), async (req, res, next) => {
         stream.on('finish', () => {
           try {
             if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
-          } catch (e) {}
+          } catch (_e) {}
         });
       } else {
-        // Fallback to powershell if cscript failed
         const psPath = path.join(os.tmpdir(), `convert_${fileId}.ps1`);
         const psContent = `
 $ErrorActionPreference = "Stop"
@@ -114,17 +139,18 @@ try {
 `;
         fs.writeFileSync(psPath, psContent, 'utf8');
         execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psPath], (psErr) => {
-          try { if (fs.existsSync(psPath)) fs.unlinkSync(psPath); } catch (e) {}
+          releaseSlot();
+          try { if (fs.existsSync(psPath)) fs.unlinkSync(psPath); } catch (_e) {}
           if (fs.existsSync(tempOutput) && fs.statSync(tempOutput).size > 1000) {
             if (fileHash) {
-              try { fs.copyFileSync(tempOutput, path.join(cacheDir, `${fileHash}.pdf`)); } catch (e) {}
+              try { fs.copyFileSync(tempOutput, path.join(cacheDir, `${fileHash}.pdf`)); } catch (_e) {}
             }
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(outputPdfFilename)}"`);
             const stream = fs.createReadStream(tempOutput);
             stream.pipe(res);
             stream.on('finish', () => {
-              try { if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput); } catch (e) {}
+              try { if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput); } catch (_e) {}
             });
           } else {
             return res.status(500).json({
@@ -137,13 +163,11 @@ try {
       }
     });
   } catch (err) {
+    releaseSlot();
     next(err);
   }
 });
 
-/**
- * Helper to stream video/audio files with HTTP 206 Partial Content & Range request support
- */
 function streamMediaFile(req, res, filePath) {
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ success: false, message: 'فایل چندرسانه‌ای یافت نشد' });
@@ -171,7 +195,6 @@ function streamMediaFile(req, res, filePath) {
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
-    // Stream in optimized chunks (max 3MB per chunk to prevent network saturation on mobile)
     const maxChunk = 3 * 1024 * 1024;
     const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunk - 1, fileSize - 1);
 
@@ -187,7 +210,7 @@ function streamMediaFile(req, res, filePath) {
       'Accept-Ranges': 'bytes',
       'Content-Length': chunksize,
       'Content-Type': mimeType,
-      'Cache-Control': 'public, max-age=604800, immutable',
+      'Cache-Control': 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
     });
     fileStream.pipe(res);
@@ -196,7 +219,7 @@ function streamMediaFile(req, res, filePath) {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=604800, immutable',
+      'Cache-Control': 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
     });
     fs.createReadStream(filePath).pipe(res);
@@ -204,8 +227,7 @@ function streamMediaFile(req, res, filePath) {
 }
 
 /**
- * GET /api/v1/videos/stream/:filename — High-speed video streaming by filename
- * Publicly accessible by HTML5 <video> / <audio> players with instant range seek
+ * GET /api/v1/videos/stream/:filename — High-speed video streaming by filename (authenticated)
  */
 router.get('/stream/:filename', (req, res) => {
   const cleanName = path.basename(req.params.filename);
@@ -215,7 +237,7 @@ router.get('/stream/:filename', (req, res) => {
 });
 
 /**
- * GET /api/v1/videos/:id/stream — High-speed video streaming by video ID
+ * GET /api/v1/videos/:id/stream — High-speed video streaming by video ID (authenticated & tenant-scoped)
  */
 router.get('/:id/stream', async (req, res, next) => {
   try {
@@ -224,11 +246,15 @@ router.get('/:id/stream', async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد' });
     }
 
+    const teacher = await db('users').where({ id: video.teacher_id }).first();
+    if (teacher) {
+      assertSameSchool(req.user, teacher);
+    }
+
     const filename = path.basename(video.file_url);
     const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
     const filePath = path.join(uploadsDir, filename);
 
-    // Increment view count asynchronously in background
     db('videos').where({ id: req.params.id }).increment('views_count', 1).catch(() => {});
 
     streamMediaFile(req, res, filePath);
@@ -237,43 +263,29 @@ router.get('/:id/stream', async (req, res, next) => {
   }
 });
 
-router.use(authenticate);
-
-let targetAudienceChecked = false;
-async function ensureTargetAudienceColumn() {
-  if (targetAudienceChecked) return;
-  try {
-    const hasCol = await db.schema.hasColumn('videos', 'target_audience');
-    if (!hasCol) {
-      await db.schema.table('videos', (t) => {
-        t.string('target_audience').defaultTo('all');
-      });
-    }
-    targetAudienceChecked = true;
-  } catch (e) {
-    console.warn('ensureTargetAudienceColumn warning:', e.message);
-  }
-}
-
 /**
- * GET /api/v1/videos/folders — list all folders with video counts (cached for 30s)
+ * GET /api/v1/videos/folders — list folders in requester's school
  */
-router.get('/folders', cacheMiddleware(30, () => 'all_video_folders'), async (req, res, next) => {
+router.get('/folders', cacheMiddleware(30, (req) => `video_folders_${req.user?.school_id || 'none'}`), async (req, res, next) => {
   try {
     let customFolders = [];
     try {
       customFolders = await db('video_folders')
-        .select('*')
-        .orderBy('name', 'asc');
-    } catch (e) {}
+        .leftJoin('users', 'users.id', 'video_folders.teacher_id')
+        .where('users.school_id', req.user.school_id)
+        .select('video_folders.*')
+        .orderBy('video_folders.name', 'asc');
+    } catch (_e) {}
 
     let videoFolderCounts = [];
     try {
       videoFolderCounts = await db('videos')
-        .select('folder_name')
-        .count('id as count')
-        .groupBy('folder_name');
-    } catch (e) {}
+        .join('users', 'users.id', 'videos.teacher_id')
+        .where('users.school_id', req.user.school_id)
+        .select('videos.folder_name')
+        .count('videos.id as count')
+        .groupBy('videos.folder_name');
+    } catch (_e) {}
 
     const countMap = {};
     videoFolderCounts.forEach((item) => {
@@ -301,17 +313,17 @@ router.get('/folders', cacheMiddleware(30, () => 'all_video_folders'), async (re
 /**
  * POST /api/v1/videos/folders — create a new folder
  */
-router.post('/folders', async (req, res, next) => {
+router.post('/folders', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { name, color } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'نام پوشه الزامی است' });
     }
     const folderName = name.trim();
-    const currentUserId = req.user?.id || 'teacher-default';
+    const currentUserId = req.user.id;
 
     const existing = await db('video_folders')
-      .where({ name: folderName })
+      .where({ name: folderName, teacher_id: currentUserId })
       .first();
 
     if (existing) {
@@ -337,7 +349,7 @@ router.post('/folders', async (req, res, next) => {
 /**
  * DELETE /api/v1/videos/folders/:name — delete a folder
  */
-router.delete('/folders/:name', async (req, res, next) => {
+router.delete('/folders/:name', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
   try {
     const folderName = decodeURIComponent(req.params.name);
     if (folderName === 'عمومی') {
@@ -353,15 +365,14 @@ router.delete('/folders/:name', async (req, res, next) => {
 });
 
 /**
- * GET /api/v1/videos — list all videos (filtered by role and optional folder)
+ * GET /api/v1/videos — list all videos scoped to requester's school
  */
 router.get('/', async (req, res, next) => {
   try {
-    await ensureTargetAudienceColumn();
-
     let query = db('videos')
       .join('users', 'users.id', 'videos.teacher_id')
       .leftJoin('classes', 'classes.id', 'videos.class_id')
+      .where('users.school_id', req.user.school_id)
       .select(
         'videos.*',
         'users.display_name as teacher_name',
@@ -433,6 +444,7 @@ router.get('/:id', async (req, res, next) => {
       .select(
         'videos.*',
         'users.display_name as teacher_name',
+        'users.school_id as teacher_school_id',
         'classes.name as class_name'
       )
       .where('videos.id', req.params.id)
@@ -442,7 +454,8 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد' });
     }
 
-    // Increment views
+    assertSameSchool(req.user, { school_id: video.teacher_school_id });
+
     await db('videos').where('id', req.params.id).increment('views_count', 1);
     video.views_count += 1;
     video.stream_url = video.file_url ? `/api/v1/videos/stream/${path.basename(video.file_url)}` : null;
@@ -454,8 +467,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 /**
- * POST /api/v1/videos — upload a new video (teacher only)
- * Accepts multipart: file (video/image), title, description, class_id, folder_name, category
+ * POST /api/v1/videos — upload a new video
  */
 router.post(
   '/',
@@ -466,9 +478,13 @@ router.post(
   ]),
   async (req, res, next) => {
     try {
-      const userRole = (req.user?.role || 'teacher').toLowerCase();
+      const userRole = (req.user?.role || '').toLowerCase();
       if (!['teacher', 'student', 'admin', 'manager'].includes(userRole)) {
         return res.status(403).json({ success: false, message: 'فقط کاربران مدرسه مجاز به بارگذاری هستند' });
+      }
+
+      if (req.body.class_id) {
+        await assertOwnsClass(req.user, req.body.class_id, { allowEnrolled: true });
       }
 
       const mainFile = req.files?.file?.[0];
@@ -491,9 +507,8 @@ router.post(
 
       const id = uuidv4();
       const folderName = (req.body.folder_name || req.body.folder || 'عمومی').trim();
-      const currentUserId = req.user?.id || 'teacher-default';
+      const currentUserId = req.user.id;
 
-      // Ensure custom folder is registered
       if (folderName && folderName !== 'عمومی') {
         try {
           const exists = await db('video_folders')
@@ -507,10 +522,8 @@ router.post(
               color: '#6366f1',
             });
           }
-        } catch (fErr) {}
+        } catch (_fErr) {}
       }
-
-      await ensureTargetAudienceColumn();
 
       const videoData = {
         id,
@@ -546,49 +559,50 @@ router.post(
 );
 
 /**
- * PUT /api/v1/videos/:id/audience — update target audience (teachers / students / parents / all)
+ * PUT /api/v1/videos/:id/audience — update target audience
  */
 router.put('/:id/audience', async (req, res, next) => {
   try {
-    await ensureTargetAudienceColumn();
     const { target_audience } = req.body;
-    let query = db('videos').where('id', req.params.id);
-    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-      query = query.where('teacher_id', req.user.id);
+    const video = await db('videos').where('id', req.params.id).first();
+    if (!video) {
+      return res.status(404).json({ success: false, message: 'ویدیو یافت نشد' });
     }
-    await query.update({ target_audience: target_audience || 'all' });
+    const owner = await db('users').where('id', video.teacher_id).first();
+    if (owner) assertSameSchool(req.user, owner);
+    assertOwnsResource(req.user, video, 'teacher_id');
+
+    await db('videos').where('id', req.params.id).update({ target_audience: target_audience || 'all' });
     res.json({ success: true, message: 'مخاطبان هدف ویدیو به‌روزرسانی شد' });
   } catch (err) {
     next(err);
   }
 });
 
-
 /**
- * DELETE /api/v1/videos/:id — delete a video (owner teacher or admin)
+ * DELETE /api/v1/videos/:id — delete a video (owner teacher or same-school admin)
  */
 router.delete('/:id', async (req, res, next) => {
   try {
-    let query = db('videos').where('id', req.params.id);
-    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-      query = query.where('teacher_id', req.user.id);
-    }
-    const video = await query.first();
+    const video = await db('videos').where('id', req.params.id).first();
     if (!video) {
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد یا دسترسی ندارید' });
     }
-    // Clean up files from disk if local
+    const owner = await db('users').where('id', video.teacher_id).first();
+    if (owner) assertSameSchool(req.user, owner);
+    assertOwnsResource(req.user, video, 'teacher_id');
+
     if (video.file_url && video.file_url.startsWith('/uploads/')) {
       const filePath = path.join(__dirname, '../../..', video.file_url);
       try {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (e) {}
+      } catch (_e) {}
     }
     if (video.pdf_url && video.pdf_url.startsWith('/uploads/')) {
       const pdfPath = path.join(__dirname, '../../..', video.pdf_url);
       try {
         if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-      } catch (e) {}
+      } catch (_e) {}
     }
     await db('videos').where('id', req.params.id).del();
     res.json({ success: true, message: 'ویدیو با موفقیت حذف شد' });
@@ -607,36 +621,21 @@ router.patch('/:id/folder', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'نام پوشه مقصد الزامی است' });
     }
     const cleanFolder = folder_name.trim();
-    const currentUserId = req.user?.id || 'teacher-default';
+    const currentUserId = req.user.id;
 
-    let video = await db('videos').where('id', req.params.id).first();
+    const video = await db('videos').where('id', req.params.id).first();
     if (!video) {
-      // If video was local-only or mock, ensure target folder exists and return success
-      if (cleanFolder !== 'عمومی') {
-        try {
-          const folderExists = await db('video_folders').where({ name: cleanFolder }).first();
-          if (!folderExists) {
-            await db('video_folders').insert({
-              id: uuidv4(),
-              name: cleanFolder,
-              teacher_id: currentUserId,
-              color: '#6366f1',
-            });
-          }
-        } catch (fErr) {}
-      }
-      return res.json({
-        success: true,
-        message: `ویدیو با موفقیت به پوشه «${cleanFolder}» منتقل شد`,
-        data: { video: { id: req.params.id, folder_name: cleanFolder } },
-      });
+      return res.status(404).json({ success: false, message: 'ویدیو یافت نشد' });
     }
 
-    // Ensure target folder exists in video_folders if not عمومی
+    const owner = await db('users').where('id', video.teacher_id).first();
+    if (owner) assertSameSchool(req.user, owner);
+    assertOwnsResource(req.user, video, 'teacher_id');
+
     if (cleanFolder !== 'عمومی') {
       try {
         const folderExists = await db('video_folders')
-          .where({ name: cleanFolder })
+          .where({ name: cleanFolder, teacher_id: video.teacher_id || currentUserId })
           .first();
         if (!folderExists) {
           await db('video_folders').insert({
@@ -646,7 +645,7 @@ router.patch('/:id/folder', async (req, res, next) => {
             color: '#6366f1',
           });
         }
-      } catch (fErr) {}
+      } catch (_fErr) {}
     }
 
     await db('videos').where('id', req.params.id).update({
@@ -671,24 +670,14 @@ router.patch('/:id/folder', async (req, res, next) => {
  */
 router.post('/:id/pdf', upload.single('pdf'), async (req, res, next) => {
   try {
-    let query = db('videos').where('id', req.params.id);
-    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-      query = query.where('teacher_id', req.user.id);
-    }
-    const video = await query.first();
+    const video = await db('videos').where('id', req.params.id).first();
     if (!video) {
-      // If it's a client-generated ID (e.g. whiteboard recording), still store the uploaded file gracefully
-      if (req.file) {
-        const pdfUrl = `/uploads/${req.file.filename}`;
-        const pdfName = req.body.pdf_name || req.file.originalname;
-        return res.json({
-          success: true,
-          message: 'فایل PDF جزوه با موفقیت پیوست شد 📄',
-          data: { video: null, pdf_url: pdfUrl, pdf_name: pdfName },
-        });
-      }
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد یا دسترسی ندارید' });
     }
+
+    const owner = await db('users').where('id', video.teacher_id).first();
+    if (owner) assertSameSchool(req.user, owner);
+    assertOwnsResource(req.user, video, 'teacher_id');
 
     let pdfUrl = null;
     let pdfName = null;
@@ -703,12 +692,11 @@ router.post('/:id/pdf', upload.single('pdf'), async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'فایل PDF ارسال نشده است' });
     }
 
-    // Clean up old pdf if exists and different
     if (video.pdf_url && video.pdf_url.startsWith('/uploads/') && video.pdf_url !== pdfUrl) {
       const oldPath = path.join(__dirname, '../../..', video.pdf_url);
       try {
         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      } catch (e) {}
+      } catch (_e) {}
     }
 
     await db('videos').where('id', req.params.id).update({
@@ -734,20 +722,20 @@ router.post('/:id/pdf', upload.single('pdf'), async (req, res, next) => {
  */
 router.delete('/:id/pdf', async (req, res, next) => {
   try {
-    let query = db('videos').where('id', req.params.id);
-    if (req.user.role !== 'admin' && req.user.role !== 'manager') {
-      query = query.where('teacher_id', req.user.id);
-    }
-    const video = await query.first();
+    const video = await db('videos').where('id', req.params.id).first();
     if (!video) {
       return res.status(404).json({ success: false, message: 'ویدیو یافت نشد یا دسترسی ندارید' });
     }
+
+    const owner = await db('users').where('id', video.teacher_id).first();
+    if (owner) assertSameSchool(req.user, owner);
+    assertOwnsResource(req.user, video, 'teacher_id');
 
     if (video.pdf_url && video.pdf_url.startsWith('/uploads/')) {
       const oldPath = path.join(__dirname, '../../..', video.pdf_url);
       try {
         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      } catch (e) {}
+      } catch (_e) {}
     }
 
     await db('videos').where('id', req.params.id).update({
@@ -763,4 +751,3 @@ router.delete('/:id/pdf', async (req, res, next) => {
 });
 
 module.exports = router;
-

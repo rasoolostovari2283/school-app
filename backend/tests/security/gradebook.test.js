@@ -25,7 +25,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F3] a school-A student must not read the gradebook of a school-B class', async () => {
+test('[F3] a school-A student must not read the gradebook of a school-B class', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -36,7 +36,7 @@ expectFailure('[F3] a school-A student must not read the gradebook of a school-B
   });
 });
 
-expectFailure('[F3] a school-A teacher must not read the gradebook of a school-B class', async () => {
+test('[F3] a school-A teacher must not read the gradebook of a school-B class', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -47,7 +47,7 @@ expectFailure('[F3] a school-A teacher must not read the gradebook of a school-B
   });
 });
 
-expectFailure('[F3] a school-A teacher must not write a score into a school-B category', async () => {
+test('[F3] a school-A teacher must not write a score into a school-B category', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -63,7 +63,7 @@ expectFailure('[F3] a school-A teacher must not write a score into a school-B ca
   });
 });
 
-expectFailure('[F3] a school-A teacher must not delete a school-B evaluation category', async () => {
+test('[F3] a school-A teacher must not delete a school-B evaluation category', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -74,7 +74,7 @@ expectFailure('[F3] a school-A teacher must not delete a school-B evaluation cat
   });
 });
 
-expectFailure('[F3] a school-A teacher must not read the report card of a school-B student', async () => {
+test('[F3] a school-A teacher must not read the report card of a school-B student', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {

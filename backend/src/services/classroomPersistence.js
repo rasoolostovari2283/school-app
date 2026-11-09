@@ -9,42 +9,11 @@
 const db = require('../config/database');
 
 const saveDebounceTimers = new Map();
-let tableInitialized = false;
-
-/**
- * Ensures the persistence table exists in SQLite
- */
-async function ensureTable() {
-  if (tableInitialized) return;
-  try {
-    const exists = await db.schema.hasTable('live_classroom_sessions');
-    if (!exists) {
-      await db.schema.createTable('live_classroom_sessions', (t) => {
-        t.string('class_id').primary();
-        t.string('teacher_id').nullable();
-        t.string('teacher_name').nullable();
-        t.string('board_type').defaultTo('white');
-        t.integer('current_page').defaultTo(1);
-        t.text('board_pages').nullable();
-        t.text('doc_state').nullable();
-        t.text('strokes').nullable();
-        t.text('chat_messages').nullable();
-        t.boolean('is_live').defaultTo(false);
-        t.timestamp('updated_at').defaultTo(db.fn.now());
-      });
-      console.log('[ClassroomPersistence] live_classroom_sessions table created successfully.');
-    }
-    tableInitialized = true;
-  } catch (err) {
-    console.warn('[ClassroomPersistence] ensureTable warning:', err.message);
-  }
-}
 
 /**
  * Loads saved state from database on classroom startup
  */
 async function loadClassroomSnapshot(classId) {
-  await ensureTable();
   try {
     const row = await db('live_classroom_sessions').where({ class_id: classId }).first();
     if (!row) return null;
@@ -88,7 +57,6 @@ function scheduleSave(classId, room) {
 
   const timer = setTimeout(async () => {
     saveDebounceTimers.delete(classId);
-    await ensureTable();
 
     try {
       // Keep max 2000 strokes and 200 chat messages to bound DB footprint
@@ -129,7 +97,6 @@ function scheduleSave(classId, room) {
  * Clears or resets session upon teacher explicitly ending class
  */
 async function clearSession(classId) {
-  await ensureTable();
   try {
     await db('live_classroom_sessions').where({ class_id: classId }).update({
       is_live: false,

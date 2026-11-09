@@ -1033,7 +1033,7 @@
 }
 
 @media print {
-  body * {
+  .container * {
     visibility: hidden;
   }
   .modalBackdrop, .modalBackdrop * {

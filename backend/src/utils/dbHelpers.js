@@ -29,4 +29,41 @@ async function updateAndReturn(db, tableName, whereClause, data) {
   return row;
 }
 
-module.exports = { generateId, insertAndReturn, updateAndReturn };
+function now() {
+  return new Date().toISOString();
+}
+
+function parsePagination({ page = 1, limit = 50 } = {}) {
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+  return {
+    page: safePage,
+    limit: safeLimit,
+    offset: (safePage - 1) * safeLimit,
+  };
+}
+
+function paginatedResponse(items, totalCount, page = 1, limit = 50) {
+  const { page: safePage, limit: safeLimit } = parsePagination({ page, limit });
+  const total = Number(totalCount || 0);
+  return {
+    items,
+    messages: items,
+    notifications: items,
+    pagination: {
+      total,
+      page: safePage,
+      limit: safeLimit,
+      total_pages: Math.max(1, Math.ceil(total / safeLimit)),
+    },
+  };
+}
+
+module.exports = {
+  generateId,
+  now,
+  parsePagination,
+  paginatedResponse,
+  insertAndReturn,
+  updateAndReturn,
+};

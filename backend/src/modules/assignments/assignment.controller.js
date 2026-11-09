@@ -6,7 +6,8 @@ class AssignmentController {
       const assignment = await assignmentService.create(
         req.user.id,
         req.params.classId,
-        req.body
+        req.body,
+        req.user
       );
       res.status(201).json({
         success: true,
@@ -36,7 +37,8 @@ class AssignmentController {
     try {
       const assignments = await assignmentService.getAllUserAssignments(
         req.user.id,
-        req.user.role
+        req.user.role,
+        req.user.school_id
       );
       res.json({ success: true, data: { assignments } });
     } catch (err) {
@@ -49,7 +51,9 @@ class AssignmentController {
       const assignment = await assignmentService.getById(
         req.params.id,
         req.user.id,
-        req.user.role
+        req.user.role,
+        req.params.classId,
+        req.user
       );
       if (!assignment) {
         return res.status(404).json({ success: false, message: 'تکلیف یافت نشد' });
@@ -65,7 +69,9 @@ class AssignmentController {
       const submission = await assignmentService.submit(
         req.params.id,
         req.user.id,
-        req.body
+        req.body,
+        req.params.classId,
+        req.user
       );
       res.json({
         success: true,
@@ -80,7 +86,13 @@ class AssignmentController {
 
   async grade(req, res, next) {
     try {
-      const submission = await assignmentService.grade(req.params.subId, req.body);
+      const submission = await assignmentService.grade(
+        req.params.subId,
+        req.body,
+        req.params.id,
+        req.params.classId,
+        req.user
+      );
       res.json({
         success: true,
         message: 'نمره با موفقیت ثبت شد',

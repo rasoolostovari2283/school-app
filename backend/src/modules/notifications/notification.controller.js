@@ -28,6 +28,7 @@ class NotificationController {
     try {
       const { teacher_ids, title, body, priority, category } = req.body;
       const result = await notificationService.notifyTeachers({
+        sender: req.user,
         sender_id: req.user.id,
         sender_name: req.user.display_name,
         teacher_ids,
@@ -59,6 +60,7 @@ class NotificationController {
       } = req.body;
 
       const result = await notificationService.sendBroadcast({
+        sender: req.user,
         sender_id: req.user.id,
         sender_name: req.user.display_name,
         target_audience: target_audience || 'students',

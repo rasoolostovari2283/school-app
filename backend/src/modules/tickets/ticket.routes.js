@@ -1,27 +1,31 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  assertSameSchool,
+  forbiddenError,
+} = require('../../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
 
 /**
  * GET /api/v1/tickets
- * List tickets
+ * List tickets scoped to the requester's school
  */
 router.get('/', async (req, res, next) => {
   try {
     let query = db('school_tickets')
       .join('users', 'users.id', 'school_tickets.user_id')
+      .where('users.school_id', req.user.school_id)
       .select(
         'school_tickets.*',
         'users.display_name as creator_name',
         'users.role as creator_role'
       );
 
-    if (req.user.role !== 'teacher') {
-      // Students and parents only see their own tickets
+    if (!['teacher', 'admin', 'manager'].includes(req.user.role)) {
       query = query.where('school_tickets.user_id', req.user.id);
     }
 
@@ -59,7 +63,6 @@ router.post('/', async (req, res, next) => {
 
     await db('school_tickets').insert(newTicket);
 
-    // Also add first message to thread
     await db('school_ticket_messages').insert({
       id: uuidv4(),
       ticket_id: ticketId,
@@ -88,7 +91,8 @@ router.get('/:id', async (req, res, next) => {
       .select(
         'school_tickets.*',
         'users.display_name as creator_name',
-        'users.role as creator_role'
+        'users.role as creator_role',
+        'users.school_id as creator_school_id'
       )
       .where('school_tickets.id', req.params.id)
       .first();
@@ -97,9 +101,10 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'تیکت یافت نشد' });
     }
 
-    // Security: user can only see own ticket unless teacher
-    if (req.user.role !== 'teacher' && ticket.user_id !== req.user.id) {
-      return res.status(403).json({ success: false, message: 'دسترسی غیرمجاز' });
+    assertSameSchool(req.user, { school_id: ticket.creator_school_id });
+
+    if (!['teacher', 'admin', 'manager'].includes(req.user.role) && ticket.user_id !== req.user.id) {
+      throw forbiddenError('دسترسی غیرمجاز');
     }
 
     const messages = await db('school_ticket_messages')
@@ -120,7 +125,7 @@ router.get('/:id', async (req, res, next) => {
 
 /**
  * POST /api/v1/tickets/:id/reply
- * Reply to ticket thread
+ * Reply to ticket thread (same school + owner or staff only)
  */
 router.post('/:id/reply', async (req, res, next) => {
   try {
@@ -133,6 +138,13 @@ router.post('/:id/reply', async (req, res, next) => {
     const ticket = await db('school_tickets').where('id', id).first();
     if (!ticket) return res.status(404).json({ success: false, message: 'تیکت یافت نشد' });
 
+    const creator = await db('users').where('id', ticket.user_id).first();
+    assertSameSchool(req.user, creator);
+
+    if (!['teacher', 'admin', 'manager'].includes(req.user.role) && ticket.user_id !== req.user.id) {
+      throw forbiddenError('شما مجاز به پاسخ به این تیکت نیستید');
+    }
+
     const reply = {
       id: uuidv4(),
       ticket_id: id,
@@ -143,8 +155,7 @@ router.post('/:id/reply', async (req, res, next) => {
 
     await db('school_ticket_messages').insert(reply);
 
-    // Update ticket status
-    const newStatus = req.user.role === 'teacher' ? 'resolved' : 'in_progress';
+    const newStatus = ['teacher', 'admin', 'manager'].includes(req.user.role) ? 'resolved' : 'in_progress';
     await db('school_tickets')
       .where('id', id)
       .update({

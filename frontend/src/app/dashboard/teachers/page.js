@@ -107,19 +107,8 @@ export default function TeachersDatabasePage() {
       principal: principalName,
     });
 
-    // Load Teachers from persistent storage fallback
-    const storageKey = `mgmt_teachers_${currentCode}`;
-    const saved = localStorage.getItem(storageKey);
     let loaded = [];
-    if (saved) {
-      try {
-        loaded = JSON.parse(saved);
-      } catch (e) {}
-    }
-    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
-    loaded = Array.isArray(loaded) ? loaded.filter((t) => !isDummyTeacher(t)) : [];
-
-    if (user && user.role === 'teacher' && loaded.length === 0) {
+    if (user && user.role === 'teacher') {
       loaded = [
         {
           id: user.id || 'tch-current',
@@ -144,7 +133,6 @@ export default function TeachersDatabasePage() {
           const dbTeachers = res.data.data.teachers;
           if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
             setTeachers(dbTeachers);
-            saveTeachersToStorage(dbTeachers, currentCode);
           }
         }
         setLoading(false);
@@ -154,15 +142,8 @@ export default function TeachersDatabasePage() {
       });
   }, [user]);
 
-  // Save to storage and sync database across system
-  const saveTeachersToStorage = (newList, code = schoolData.code) => {
-    try {
-      localStorage.setItem(`mgmt_teachers_${code}`, JSON.stringify(newList));
-      localStorage.setItem('school_teachers_database', JSON.stringify(newList));
-    } catch (e) {
-      console.error('Storage error:', e);
-    }
-  };
+  // No-op: Backend API is the single source of truth for school teachers
+  const saveTeachersToStorage = () => {};
 
   // Copy School Code
   const copySchoolCode = () => {

@@ -28,7 +28,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F1] a school-A teacher must not read a school-B class', async () => {
+test('[F1] a school-A teacher must not read a school-B class', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -39,7 +39,7 @@ expectFailure('[F1] a school-A teacher must not read a school-B class', async ()
   });
 });
 
-expectFailure('[F1] a school-A teacher must not read the roster of a school-B class', async () => {
+test('[F1] a school-A teacher must not read the roster of a school-B class', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -50,7 +50,7 @@ expectFailure('[F1] a school-A teacher must not read the roster of a school-B cl
   });
 });
 
-expectFailure('[F1] a school-A teacher must not rename a school-B class', async () => {
+test('[F1] a school-A teacher must not rename a school-B class', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -62,7 +62,7 @@ expectFailure('[F1] a school-A teacher must not rename a school-B class', async 
   });
 });
 
-expectFailure('[F1] a school-A teacher must not overwrite the live settings of a school-B class', async () => {
+test('[F1] a school-A teacher must not overwrite the live settings of a school-B class', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -78,7 +78,7 @@ expectFailure('[F1] a school-A teacher must not overwrite the live settings of a
   });
 });
 
-expectFailure('[A13] a school-A administrator must not delete a school-B teacher', async () => {
+test('[A13] a school-A administrator must not delete a school-B teacher', async () => {
   const admin = await loginAs(baseUrl, 'a', 'admin');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -89,7 +89,7 @@ expectFailure('[A13] a school-A administrator must not delete a school-B teacher
   });
 });
 
-expectFailure('[A13] a school-A teacher must not delete a school-B student', async () => {
+test('[A13] a school-A teacher must not delete a school-B student', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -100,7 +100,7 @@ expectFailure('[A13] a school-A teacher must not delete a school-B student', asy
   });
 });
 
-expectFailure('[A14] a school-A teacher must not rewrite the record of a school-B user', async () => {
+test('[A14] a school-A teacher must not rewrite the record of a school-B user', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   await expectCrossTenantDenied(baseUrl, {
@@ -112,7 +112,7 @@ expectFailure('[A14] a school-A teacher must not rewrite the record of a school-
   });
 });
 
-expectFailure('[A26] a student request must not auto-enrol the student in a foreign class', async () => {
+test('[A26] a student request must not auto-enrol the student in a foreign class', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
 
   await get(baseUrl, `/api/v1/classes/${CLASSES.b}`, { token: student.accessToken });
@@ -128,7 +128,7 @@ expectFailure('[A26] a student request must not auto-enrol the student in a fore
   );
 });
 
-expectFailure('[A26] opening a gradebook must not auto-enrol every student of the deployment', async () => {
+test('[A26] opening a gradebook must not auto-enrol every student of the deployment', async () => {
   const teacherB = await loginAs(baseUrl, 'b', 'teacher');
   const teacherA = await loginAs(baseUrl, 'a', 'teacher');
 

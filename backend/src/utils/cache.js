@@ -78,7 +78,7 @@ function cacheMiddleware(ttlSeconds = 45, keyGenerator = null) {
 
     const cacheKey = keyGenerator
       ? keyGenerator(req)
-      : `${req.user?.id || 'anon'}:${req.originalUrl || req.url}`;
+      : `${req.user?.school_id || 'public'}:${req.user?.id || 'anon'}:${req.originalUrl || req.url}`;
 
     const cachedData = memoryCache.get(cacheKey);
     if (cachedData) {

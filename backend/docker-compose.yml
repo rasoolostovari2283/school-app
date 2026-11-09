@@ -7,19 +7,14 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - PORT=5000
       - NODE_ENV=production
-      - JWT_SECRET=prod_secret_school_enterprise_jwt_2026
-      - JWT_REFRESH_SECRET=prod_refresh_secret_school_2026
+      - JWT_SECRET
+      - JWT_REFRESH_SECRET
     volumes:
       # Persistent storage for SQLite database and uploaded media files
       - ./educonnect.db:/app/educonnect.db
       - ./uploads:/app/uploads
-
-  # اختیاری: اتصال خودکار با Cloudflare Tunnel در صورت تمایل
-  # tunnel:
-  #   image: cloudflare/cloudflared:latest
-  #   container_name: educonnect-tunnel
-  #   restart: unless-stopped
-  #   command: tunnel --no-autoupdate run --token YOUR_CLOUDFLARE_TUNNEL_TOKEN

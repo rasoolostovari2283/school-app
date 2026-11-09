@@ -1,105 +1,68 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
-const { v4: uuidv4 } = require('uuid');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertTeacherOfStudent,
+  forbiddenError,
+} = require('../../middleware/auth');
+const { logAudit } = require('../../utils/auditLogger');
 
 router.use(authenticate);
 
 /**
  * GET /api/v1/finance/ledger
- * Returns tuition summary and list of installments for student or parent's child
+ * Returns tuition summary and list of installments without side effects on read (#8/F2, #10/F12)
  */
 router.get('/ledger', async (req, res, next) => {
   try {
-    let studentId = req.query.student_id || req.user.id;
+    let studentId = req.user.id;
 
-    if (req.user.role === 'parent') {
-      const firstChild = await db('parent_student_links')
+    if (req.user.role === 'student') {
+      if (req.query.student_id && req.query.student_id !== req.user.id) {
+        throw forbiddenError('شما فقط مجاز به مشاهده وضعیت مالی خودتان هستید');
+      }
+      studentId = req.user.id;
+    } else if (req.user.role === 'parent') {
+      const childIds = await db('parent_student_links')
         .where('parent_id', req.user.id)
-        .first();
-      if (firstChild) studentId = firstChild.student_id;
+        .pluck('student_id');
+      if (req.user.student_code) {
+        const byCode = await db('users')
+          .where({ student_code: req.user.student_code, role: 'student', school_id: req.user.school_id })
+          .first();
+        if (byCode && !childIds.includes(byCode.id)) {
+          childIds.push(byCode.id);
+        }
+      }
+      const requestedId = req.query.student_id || childIds[0];
+      if (!requestedId || !childIds.includes(requestedId)) {
+        throw forbiddenError('شما فقط مجاز به مشاهده وضعیت مالی فرزند خود هستید');
+      }
+      studentId = requestedId;
+    } else if (req.query.student_id && req.query.student_id !== req.user.id) {
+      const targetStudent = await assertTeacherOfStudent(req.user, req.query.student_id);
+      assertSameSchool(req.user, targetStudent);
+      studentId = targetStudent.id;
     }
 
-    let ledger = await db('tuition_ledgers')
+    const student = await db('users').where('id', studentId).first();
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'دانش‌آموز یافت نشد' });
+    }
+    assertSameSchool(req.user, student);
+
+    const ledger = await db('tuition_ledgers')
       .where('student_id', studentId)
       .first();
 
-    // If no ledger exists, create a default one for this student
-    if (!ledger) {
-      const defaultTotal = 25000000; // 25 million Tomans
-      ledger = {
-        id: uuidv4(),
-        student_id: studentId,
-        academic_year: '۱۴۰۳-۱۴۰۴',
-        total_amount: defaultTotal,
-        discount_amount: 3000000,
-        discount_reason: 'تخفیف رتبه برتر و دانش‌آموزان ممتاز',
-        paid_amount: 11000000,
-        balance: defaultTotal - 3000000 - 11000000,
-        status: 'partial',
-      };
-      await db('tuition_ledgers').insert(ledger);
-
-      // Create installments
-      const installments = [
-        {
-          id: uuidv4(),
-          ledger_id: ledger.id,
-          installment_number: 1,
-          title: 'پیش‌پرداخت ثبت‌نام و شهریه ثابت',
-          amount: 6000000,
-          due_date: '۱۴۰۳/۰۶/۲۵',
-          status: 'verified',
-          paid_at: '۱۴۰۳/۰۶/۲۰',
-          tracking_number: 'TRX-948102',
-          bank_name: 'بانک ملی ایران',
-        },
-        {
-          id: uuidv4(),
-          ledger_id: ledger.id,
-          installment_number: 2,
-          title: 'قسط اول (مهرماه - کلاس‌های المپیاد)',
-          amount: 5000000,
-          due_date: '۱۴۰۳/۰۷/۳۰',
-          status: 'verified',
-          paid_at: '۱۴۰۳/۰۷/۲۸',
-          tracking_number: 'TRX-953841',
-          bank_name: 'بانک ملت',
-        },
-        {
-          id: uuidv4(),
-          ledger_id: ledger.id,
-          installment_number: 3,
-          title: 'قسط دوم (آذرماه - کارگاه‌های علمی)',
-          amount: 5500000,
-          due_date: '۱۴۰۳/۰۹/۳۰',
-          status: 'pending',
-          paid_at: null,
-          tracking_number: null,
-          bank_name: null,
-        },
-        {
-          id: uuidv4(),
-          ledger_id: ledger.id,
-          installment_number: 4,
-          title: 'قسط سوم و تسویه‌حساب نهایی (بهمن‌ماه)',
-          amount: 5500000,
-          due_date: '۱۴۰۳/۱۱/۳۰',
-          status: 'pending',
-          paid_at: null,
-          tracking_number: null,
-          bank_name: null,
-        },
-      ];
-      await db('tuition_installments').insert(installments);
-    }
-
-    const installments = await db('tuition_installments')
-      .where('ledger_id', ledger.id)
-      .orderBy('installment_number', 'asc');
-
-    const student = await db('users').where('id', studentId).first();
+    const installments = ledger
+      ? await db('tuition_installments')
+          .where('ledger_id', ledger.id)
+          .orderBy('installment_number', 'asc')
+      : [];
 
     res.json({
       success: true,
@@ -109,7 +72,7 @@ router.get('/ledger', async (req, res, next) => {
           display_name: student.display_name,
           student_code: student.student_code || 'STD-140301',
         },
-        ledger,
+        ledger: ledger || null,
         installments,
       },
     });
@@ -120,7 +83,7 @@ router.get('/ledger', async (req, res, next) => {
 
 /**
  * POST /api/v1/finance/pay-installment/:id
- * Submit payment receipt & tracking number for an installment
+ * Submit payment receipt & tracking number for an installment (#8/F2)
  */
 router.post('/pay-installment/:id', async (req, res, next) => {
   try {
@@ -130,6 +93,30 @@ router.post('/pay-installment/:id', async (req, res, next) => {
     const installment = await db('tuition_installments').where('id', id).first();
     if (!installment) {
       return res.status(404).json({ success: false, message: 'قسط مورد نظر یافت نشد' });
+    }
+
+    const ledger = await db('tuition_ledgers').where('id', installment.ledger_id).first();
+    if (!ledger) {
+      return res.status(404).json({ success: false, message: 'دفتر کل شهریه یافت نشد' });
+    }
+
+    const student = await db('users').where('id', ledger.student_id).first();
+    assertSameSchool(req.user, student);
+
+    if (req.user.role === 'student') {
+      if (ledger.student_id !== req.user.id) {
+        throw forbiddenError('شما فقط مجاز به ثبت فیش برای اقساط خودتان هستید');
+      }
+    } else if (req.user.role === 'parent') {
+      const link = await db('parent_student_links')
+        .where({ parent_id: req.user.id, student_id: ledger.student_id })
+        .first();
+      const matchedCode = req.user.student_code && student && req.user.student_code === student.student_code;
+      if (!link && !matchedCode) {
+        throw forbiddenError('شما فقط مجاز به ثبت فیش برای فرزند خود هستید');
+      }
+    } else {
+      await assertTeacherOfStudent(req.user, ledger.student_id);
     }
 
     await db('tuition_installments')
@@ -153,34 +140,54 @@ router.post('/pay-installment/:id', async (req, res, next) => {
 
 /**
  * POST /api/v1/finance/verify-installment/:id
- * Accountant/Teacher verifies payment
+ * School administrator/manager verifies payment (#9/F7)
  */
-router.post('/verify-installment/:id', async (req, res, next) => {
+router.post('/verify-installment/:id', authorize('admin', 'manager'), async (req, res, next) => {
   try {
-    if (req.user.role !== 'teacher') {
-      return res.status(403).json({ success: false, message: 'فقط واحد حسابداری یا مدیریت مجاز به تایید فیش هستند' });
-    }
-
     const { id } = req.params;
     const installment = await db('tuition_installments').where('id', id).first();
-    if (!installment) return res.status(404).json({ success: false, message: 'قسط یافت نشد' });
+    if (!installment) {
+      return res.status(404).json({ success: false, message: 'قسط یافت نشد' });
+    }
+
+    const ledger = await db('tuition_ledgers').where('id', installment.ledger_id).first();
+    if (!ledger) {
+      return res.status(404).json({ success: false, message: 'دفتر کل شهریه یافت نشد' });
+    }
+
+    const student = await db('users').where('id', ledger.student_id).first();
+    assertSameSchool(req.user, student);
+
+    if (installment.status === 'verified') {
+      return res.status(409).json({
+        success: false,
+        message: 'این قسط قبلاً تایید و در مانده حساب اعمال شده است',
+      });
+    }
 
     await db('tuition_installments').where('id', id).update({
       status: 'verified',
       verified_by: req.user.id,
     });
 
-    // Update ledger paid amount & balance
-    const ledger = await db('tuition_ledgers').where('id', installment.ledger_id).first();
-    if (ledger) {
-      const newPaid = ledger.paid_amount + installment.amount;
-      const newBalance = Math.max(0, ledger.balance - installment.amount);
-      await db('tuition_ledgers').where('id', ledger.id).update({
-        paid_amount: newPaid,
-        balance: newBalance,
-        status: newBalance === 0 ? 'settled' : 'partial',
-      });
-    }
+    const newPaid = ledger.paid_amount + installment.amount;
+    const newBalance = Math.max(0, ledger.balance - installment.amount);
+    await db('tuition_ledgers').where('id', ledger.id).update({
+      paid_amount: newPaid,
+      balance: newBalance,
+      status: newBalance === 0 ? 'settled' : 'partial',
+    });
+
+    logAudit({
+      userId: req.user.id,
+      userName: req.user.display_name,
+      userRole: req.user.role,
+      action: 'VERIFY_INSTALLMENT',
+      module: 'FINANCE',
+      targetId: id,
+      details: { ledger_id: ledger.id, student_id: ledger.student_id, amount: installment.amount },
+      ip: req.ip,
+    });
 
     res.json({ success: true, message: 'فیش واریزی تایید شد و مانده حساب به‌روزرسانی گردید.' });
   } catch (err) {

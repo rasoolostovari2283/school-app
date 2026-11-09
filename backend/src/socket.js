@@ -1,8 +1,46 @@
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const db = require('./config/database');
+const { isSchoolAdmin, assertOwnsClass } = require('./middleware/auth');
 const { loadClassroomSnapshot, scheduleSave, clearSession } = require('./services/classroomPersistence');
 
 // In-memory active live classrooms manager
 const activeClassrooms = new Map();
+
+function parseCookieHeader(cookieHeader, name) {
+  if (!cookieHeader || typeof cookieHeader !== 'string') return null;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name && v.length > 0) {
+      try {
+        return decodeURIComponent(v.join('='));
+      } catch {
+        return v.join('=');
+      }
+    }
+  }
+  return null;
+}
+
+function extractSocketToken(socket) {
+  const authToken = socket.handshake?.auth?.token;
+  if (typeof authToken === 'string' && authToken.trim()) {
+    return authToken.trim().replace(/^Bearer\s+/i, '');
+  }
+
+  const header = socket.handshake?.headers?.authorization;
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    return header.slice(7).trim();
+  }
+
+  const cookieToken = parseCookieHeader(socket.handshake?.headers?.cookie, 'access_token');
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  return null;
+}
 
 function getOrCreateClassroom(classId) {
   if (!activeClassrooms.has(classId)) {
@@ -14,17 +52,16 @@ function getOrCreateClassroom(classId) {
       teacherId: null,
       teacherName: null,
       title: '',
-      participants: new Map(), // socketId -> { userId, name, role, avatar, handRaised, micOn, cameraOn }
-      whiteboardStrokes: [], // History of draw actions to sync new joiners
-      boardType: 'white', // 'white' | 'grid' | 'blackboard'
-      docState: null, // Shared document/PDF/PPTX/Image state
+      participants: new Map(),
+      whiteboardStrokes: [],
+      boardType: 'white',
+      docState: null,
       boardPages: null,
       currentPage: 1,
       chatMessages: [],
     };
     activeClassrooms.set(classId, room);
 
-    // Asynchronously restore persisted state from SQLite
     loadClassroomSnapshot(classId).then((snapshot) => {
       if (snapshot && activeClassrooms.has(classId)) {
         const currentRoom = activeClassrooms.get(classId);
@@ -32,6 +69,7 @@ function getOrCreateClassroom(classId) {
           currentRoom.whiteboardStrokes = snapshot.strokes;
         }
         if (currentRoom.chatMessages.length === 0 && snapshot.chatMessages?.length > 0) {
+          currentRoom.whiteboardStrokes = currentRoom.whiteboardStrokes || [];
           currentRoom.chatMessages = snapshot.chatMessages;
         }
         if (!currentRoom.docState && snapshot.docState) {
@@ -52,64 +90,109 @@ function initSocket(server, config) {
   const io = new Server(server, {
     cors: {
       origin: (origin, callback) => {
-        // Domestic intranet friendly: allow frontendUrl, localhost, 127.0.0.1, or local IP
         callback(null, true);
       },
       methods: ['GET', 'POST'],
       credentials: true,
     },
-    // Domestic resilient transports: starts with websocket, smoothly falls back to polling
     transports: ['websocket', 'polling'],
     maxHttpBufferSize: 5 * 1024 * 1024,
     pingTimeout: 35000,
     pingInterval: 15000,
   });
 
+  // Authenticate every Socket.IO handshake using JWT (#3/F8)
+  io.use(async (socket, next) => {
+    try {
+      const token = extractSocketToken(socket);
+      if (!token) {
+        return next(new Error('احراز هویت برای اتصال وب‌سوکت الزامی است'));
+      }
+
+      const decoded = jwt.verify(token, config.jwt.secret);
+      if (decoded.typ === 'refresh') {
+        return next(new Error('توکن نامعتبر است'));
+      }
+
+      const user = await db('users')
+        .where({ id: decoded.userId })
+        .select('id', 'email', 'display_name', 'role', 'school_id', 'avatar_url', 'student_code', 'is_active')
+        .first();
+
+      if (!user || user.is_active === false || user.is_active === 0) {
+        return next(new Error('کاربر یافت نشد یا غیرفعال است'));
+      }
+
+      socket.data.user = user;
+      return next();
+    } catch (_err) {
+      return next(new Error('توکن احراز هویت نامعتبر یا منقضی شده است'));
+    }
+  });
+
   io.on('connection', (socket) => {
+    const authUser = socket.data.user;
+    if (!authUser) {
+      socket.disconnect(true);
+      return;
+    }
+
     let currentClassId = null;
-    let currentUser = null;
+    const currentUser = {
+      id: authUser.id,
+      name: authUser.display_name || 'کاربر',
+      role: authUser.role || 'student',
+      school_id: authUser.school_id,
+      avatar: authUser.avatar_url || null,
+    };
 
     // ── Join a Class Room ──
-    socket.on('join_class', ({ classId, user }) => {
+    socket.on('join_class', async ({ classId } = {}) => {
       if (!classId) return;
-      currentClassId = classId;
-      currentUser = user || { id: socket.id, name: 'کاربر مهمان', role: 'student' };
 
+      let cls = null;
+      try {
+        cls = await assertOwnsClass(authUser, classId, { allowEnrolled: true });
+      } catch (_err) {
+        socket.emit('error_message', { message: 'شما مجاز به ورود به این کلاس نیستید' });
+        return;
+      }
+
+      currentClassId = classId;
       socket.join(`class:${classId}`);
 
       const room = getOrCreateClassroom(classId);
 
-      // Track participant
-      const isTeacher = (currentUser.role === 'teacher' || currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'school_admin');
-      const canDraw = isTeacher; // default false for student, true for teacher
+      // Derive teacher privileges strictly from verified server-side user + class ownership (#3/F8)
+      const isTeacher = (authUser.role === 'teacher' && cls.teacher_id === authUser.id)
+        || isSchoolAdmin(authUser);
+      const canDraw = isTeacher;
       const canMic = isTeacher;
       const canScreenShare = isTeacher;
 
       room.participants.set(socket.id, {
         socketId: socket.id,
         userId: currentUser.id,
-        name: currentUser.name || currentUser.full_name || 'کاربر',
-        role: currentUser.role || 'student',
-        avatar: currentUser.avatar || null,
+        name: currentUser.name,
+        role: isTeacher ? authUser.role : 'student',
+        avatar: currentUser.avatar,
         handRaised: false,
         micOn: false,
         cameraOn: false,
-        canDraw: canDraw,
-        canMic: canMic,
-        canScreenShare: canScreenShare,
+        canDraw,
+        canMic,
+        canScreenShare,
         joinedAt: new Date().toISOString(),
       });
 
-      if (currentUser.role === 'teacher' || currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'school_admin') {
+      if (isTeacher) {
         room.teacherSocketId = socket.id;
         room.teacherId = currentUser.id;
-        room.teacherName = currentUser.name || currentUser.full_name;
+        room.teacherName = currentUser.name;
       }
 
-      // Convert participants Map to array for client
       const participantsList = Array.from(room.participants.values());
 
-      // Send initial state to the newly connected user
       socket.emit('init_class_state', {
         isLive: room.isLive,
         startedAt: room.startedAt,
@@ -123,31 +206,38 @@ function initSocket(server, config) {
         currentPage: room.currentPage || 1,
         chatMessages: room.chatMessages.slice(-50),
         participants: participantsList,
-        canDraw: canDraw,
-        canMic: canMic,
-        canScreenShare: canScreenShare,
+        canDraw,
+        canMic,
+        canScreenShare,
         screenSharingUser: room.screenSharingUser || null,
       });
 
-      // Broadcast to other members that a user joined
       socket.to(`class:${classId}`).emit('participant_joined', {
         participant: room.participants.get(socket.id),
         participantsCount: room.participants.size,
       });
     });
 
+    const isRoomTeacher = (room) => {
+      if (!room) return false;
+      if (room.teacherSocketId === socket.id) return true;
+      const participant = room.participants.get(socket.id);
+      return Boolean(participant && (participant.role === 'teacher' || participant.role === 'admin' || participant.role === 'manager'));
+    };
+
     // ── Teacher Starts Live Class ──
-    socket.on('start_live', ({ classId, title, boardType }) => {
+    socket.on('start_live', ({ classId, title, boardType } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
+
       room.isLive = true;
       room.startedAt = new Date().toISOString();
       room.title = title || 'کلاس آنلاین زنده';
       room.boardType = boardType || room.boardType || 'white';
       room.teacherSocketId = socket.id;
-      if (currentUser) {
-        room.teacherId = currentUser.id;
-        room.teacherName = currentUser.name;
-      }
+      room.teacherId = currentUser.id;
+      room.teacherName = currentUser.name;
 
       io.to(`class:${classId}`).emit('class_live_started', {
         classId,
@@ -161,8 +251,11 @@ function initSocket(server, config) {
     });
 
     // ── Teacher Ends Live Class ──
-    socket.on('end_live', ({ classId }) => {
+    socket.on('end_live', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
+
       room.isLive = false;
       const durationSeconds = room.startedAt
         ? Math.round((Date.now() - new Date(room.startedAt).getTime()) / 1000)
@@ -175,43 +268,32 @@ function initSocket(server, config) {
 
       room.startedAt = null;
       clearSession(classId);
-      room.whiteboardStrokes = []; // reset for next session
+      room.whiteboardStrokes = [];
     });
 
-    // ── Helper to verify Whiteboard Access Permission ──
     const canUserDraw = (room) => {
       if (!room) return false;
-      if (room.teacherSocketId === socket.id) return true;
+      if (isRoomTeacher(room)) return true;
       const participant = room.participants.get(socket.id);
-      if (participant && (participant.role === 'teacher' || participant.role === 'admin' || participant.canDraw)) {
-        return true;
-      }
-      if (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin')) {
-        return true;
-      }
-      return false;
+      return Boolean(participant && participant.canDraw);
     };
 
-    // ── Whiteboard Drawing Synchronization (Guarded by Permission) ──
-    socket.on('wb_draw', ({ classId, stroke }) => {
+    socket.on('wb_draw', ({ classId, stroke } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
-      if (!canUserDraw(room)) {
-        // Drop drawing if user has not been granted permission by teacher
-        return;
-      }
+      if (!canUserDraw(room)) return;
       if (room) {
-        // Keep strokes history (limit to last 2000 to prevent memory blowup)
         room.whiteboardStrokes.push(stroke);
         if (room.whiteboardStrokes.length > 2000) {
           room.whiteboardStrokes.shift();
         }
         scheduleSave(classId, room);
       }
-      // Broadcast to everyone else in the room
       socket.to(`class:${classId}`).emit('wb_draw', stroke);
     });
 
-    socket.on('wb_clear', ({ classId }) => {
+    socket.on('wb_clear', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -221,7 +303,8 @@ function initSocket(server, config) {
       socket.to(`class:${classId}`).emit('wb_clear');
     });
 
-    socket.on('wb_undo', ({ classId }) => {
+    socket.on('wb_undo', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room && room.whiteboardStrokes.length > 0) {
@@ -233,7 +316,8 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('wb_change_bg', ({ classId, boardType }) => {
+    socket.on('wb_change_bg', ({ classId, boardType } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -243,7 +327,8 @@ function initSocket(server, config) {
       socket.to(`class:${classId}`).emit('wb_change_bg', { boardType });
     });
 
-    socket.on('wb_sync_all', ({ classId, strokes, boardType, docState, boardPages, currentPage }) => {
+    socket.on('wb_sync_all', ({ classId, strokes, boardType, docState, boardPages, currentPage } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -263,7 +348,8 @@ function initSocket(server, config) {
       });
     });
 
-    socket.on('wb_doc_change', ({ classId, docState }) => {
+    socket.on('wb_doc_change', ({ classId, docState } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -273,7 +359,8 @@ function initSocket(server, config) {
       socket.to(`class:${classId}`).emit('wb_doc_change', docState);
     });
 
-    socket.on('wb_page_change', ({ classId, pageNum, boardPages }) => {
+    socket.on('wb_page_change', ({ classId, pageNum, boardPages } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -284,15 +371,11 @@ function initSocket(server, config) {
       socket.to(`class:${classId}`).emit('wb_page_change', { pageNum, boardPages });
     });
 
-    // ── Whiteboard Permissions Controls (Teacher Grants/Revokes) ──
-    socket.on('grant_whiteboard_access', ({ classId, targetSocketId, targetUserId }) => {
+    socket.on('grant_whiteboard_access', ({ classId, targetSocketId, targetUserId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
-      const isTeacherUser = socket.id === room.teacherSocketId ||
-        (requester && (requester.role === 'teacher' || requester.role === 'admin')) ||
-        (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin'));
-
-      if (!isTeacherUser) return;
 
       let target = null;
       if (targetSocketId && room.participants.has(targetSocketId)) {
@@ -318,14 +401,11 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('revoke_whiteboard_access', ({ classId, targetSocketId, targetUserId }) => {
+    socket.on('revoke_whiteboard_access', ({ classId, targetSocketId, targetUserId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
-      const isTeacherUser = socket.id === room.teacherSocketId ||
-        (requester && (requester.role === 'teacher' || requester.role === 'admin')) ||
-        (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin'));
-
-      if (!isTeacherUser) return;
 
       let target = null;
       if (targetSocketId && room.participants.has(targetSocketId)) {
@@ -351,17 +431,14 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('set_all_whiteboard_access', ({ classId, canDraw }) => {
+    socket.on('set_all_whiteboard_access', ({ classId, canDraw } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
-      const isTeacherUser = socket.id === room.teacherSocketId ||
-        (requester && (requester.role === 'teacher' || requester.role === 'admin')) ||
-        (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin'));
-
-      if (!isTeacherUser) return;
 
       for (const p of room.participants.values()) {
-        if (p.role !== 'teacher' && p.role !== 'admin') {
+        if (p.role !== 'teacher' && p.role !== 'admin' && p.role !== 'manager') {
           p.canDraw = !!canDraw;
         }
       }
@@ -372,7 +449,8 @@ function initSocket(server, config) {
       });
     });
 
-    socket.on('request_whiteboard_access', ({ classId }) => {
+    socket.on('request_whiteboard_access', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room.participants.get(socket.id);
       if (participant) {
@@ -385,15 +463,11 @@ function initSocket(server, config) {
       }
     });
 
-    // ── Unified Student Permission Management (Mic, ScreenShare, Whiteboard) ──
-    socket.on('set_student_permission', ({ classId, targetSocketId, targetUserId, permissionType, allowed }) => {
+    socket.on('set_student_permission', ({ classId, targetSocketId, targetUserId, permissionType, allowed } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
-      const isTeacherUser = socket.id === room.teacherSocketId ||
-        (requester && (requester.role === 'teacher' || requester.role === 'admin')) ||
-        (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin'));
-
-      if (!isTeacherUser) return;
 
       let target = null;
       if (targetSocketId && room.participants.has(targetSocketId)) {
@@ -423,13 +497,12 @@ function initSocket(server, config) {
       }
     });
 
-    // ── Participant Microphone Toggle ──
-    socket.on('toggle_mic', ({ classId, micOn }) => {
+    socket.on('toggle_mic', ({ classId, micOn } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (participant) {
-        const isTeacherUser = participant.role === 'teacher' || participant.role === 'admin' || socket.id === room.teacherSocketId;
-        if (!isTeacherUser && !participant.canMic) return; // Disallow if no permission
+        if (!isRoomTeacher(room) && !participant.canMic) return;
 
         participant.micOn = !!micOn;
         io.to(`class:${classId}`).emit('participant_mic_changed', {
@@ -441,13 +514,12 @@ function initSocket(server, config) {
       }
     });
 
-    // ── Screen Sharing Broadcast ──
-    socket.on('start_screen_share', ({ classId }) => {
+    socket.on('start_screen_share', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (participant) {
-        const isTeacherUser = participant.role === 'teacher' || participant.role === 'admin' || socket.id === room.teacherSocketId;
-        if (!isTeacherUser && !participant.canScreenShare) return;
+        if (!isRoomTeacher(room) && !participant.canScreenShare) return;
 
         room.screenSharingUser = {
           socketId: socket.id,
@@ -461,7 +533,8 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('stop_screen_share', ({ classId }) => {
+    socket.on('stop_screen_share', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       if (room && room.screenSharingUser?.socketId === socket.id) {
         room.screenSharingUser = null;
@@ -471,16 +544,16 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('screen_frame', ({ classId, frame }) => {
+    socket.on('screen_frame', ({ classId, frame } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       socket.to(`class:${classId}`).emit('screen_frame', frame);
     });
 
-    // ── Live Audio Stream Forwarding (Low-latency Web Voice) ──
-    socket.on('audio_chunk', ({ classId, chunk }) => {
+    socket.on('audio_chunk', ({ classId, chunk } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
-      const isTeacherUser = participant?.role === 'teacher' || participant?.role === 'admin' || socket.id === room.teacherSocketId;
-      if (!isTeacherUser && !participant?.canMic) return;
+      if (!isRoomTeacher(room) && !participant?.canMic) return;
 
       socket.to(`class:${classId}`).emit('audio_chunk', {
         senderSocketId: socket.id,
@@ -489,15 +562,15 @@ function initSocket(server, config) {
       });
     });
 
-    // ── Live Chat ──
-    socket.on('send_chat_message', ({ classId, text }) => {
+    socket.on('send_chat_message', ({ classId, text } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       if (!text || !text.trim()) return;
       const room = getOrCreateClassroom(classId);
       const msg = {
         id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-        senderId: currentUser?.id,
-        senderName: currentUser?.name || 'کاربر',
-        senderRole: currentUser?.role || 'student',
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderRole: currentUser.role,
         text: text.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -511,8 +584,8 @@ function initSocket(server, config) {
       io.to(`class:${classId}`).emit('new_chat_message', msg);
     });
 
-    // ── Hand Raise (اجازه گرفتن دانش‌آموز) ──
-    socket.on('toggle_hand_raise', ({ classId }) => {
+    socket.on('toggle_hand_raise', ({ classId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room.participants.get(socket.id);
       if (participant) {
@@ -526,9 +599,11 @@ function initSocket(server, config) {
       }
     });
 
-    // ── Teacher Controls Student (e.g., lower student's hand) ──
-    socket.on('lower_student_hand', ({ classId, targetSocketId, targetUserId }) => {
+    socket.on('lower_student_hand', ({ classId, targetSocketId, targetUserId } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
+
       let participant = targetSocketId ? room.participants.get(targetSocketId) : null;
       if (!participant && targetUserId) {
         for (const p of room.participants.values()) {
@@ -549,17 +624,14 @@ function initSocket(server, config) {
       }
     });
 
-    socket.on('set_all_student_permission', ({ classId, permissionType, allowed }) => {
+    socket.on('set_all_student_permission', ({ classId, permissionType, allowed } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
-      const isTeacherUser = socket.id === room.teacherSocketId ||
-        (requester && (requester.role === 'teacher' || requester.role === 'admin')) ||
-        (currentUser && (currentUser.role === 'teacher' || currentUser.role === 'admin'));
-
-      if (!isTeacherUser) return;
 
       for (const p of room.participants.values()) {
-        if (p.role !== 'teacher' && p.role !== 'admin') {
+        if (p.role !== 'teacher' && p.role !== 'admin' && p.role !== 'manager') {
           if (permissionType === 'whiteboard') p.canDraw = !!allowed;
           if (permissionType === 'mic') p.canMic = !!allowed;
           if (permissionType === 'screen') p.canScreenShare = !!allowed;
@@ -573,8 +645,7 @@ function initSocket(server, config) {
       });
     });
 
-    // ── WebRTC Signaling (100% Domestic Resilient Peer-to-Peer & Server Forwarding) ──
-    socket.on('webrtc_signal', ({ targetSocketId, signal, senderData }) => {
+    socket.on('webrtc_signal', ({ targetSocketId, signal, senderData } = {}) => {
       if (targetSocketId) {
         io.to(targetSocketId).emit('webrtc_signal', {
           senderSocketId: socket.id,
@@ -582,7 +653,6 @@ function initSocket(server, config) {
           senderData,
         });
       } else if (currentClassId) {
-        // Broadcast to entire room except sender
         socket.to(`class:${currentClassId}`).emit('webrtc_signal', {
           senderSocketId: socket.id,
           signal,
@@ -591,13 +661,11 @@ function initSocket(server, config) {
       }
     });
 
-    // ── Fallback Video Stream Frame (Broadcasting when WebRTC P2P is blocked by strict carrier NAT) ──
-    socket.on('live_video_frame', ({ classId, frame }) => {
-      // Forward teacher's video frame snapshot to all students in room
+    socket.on('live_video_frame', ({ classId, frame } = {}) => {
+      if (!classId || classId !== currentClassId) return;
       socket.to(`class:${classId}`).emit('live_video_frame', frame);
     });
 
-    // ── Disconnection ──
     socket.on('disconnect', () => {
       if (currentClassId && activeClassrooms.has(currentClassId)) {
         const room = activeClassrooms.get(currentClassId);
@@ -615,7 +683,6 @@ function initSocket(server, config) {
           participantsCount: room.participants.size,
         });
 
-        // Memory cleanup: If room is empty and class is not active live, clean up memory
         if (room.participants.size === 0 && !room.isLive) {
           activeClassrooms.delete(currentClassId);
         }

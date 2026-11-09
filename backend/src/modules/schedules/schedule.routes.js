@@ -1,7 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertOwnsClass,
+  assertOwnsResource,
+} = require('../../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
@@ -17,10 +23,6 @@ const PERIOD_TIMES = [
 
 /**
  * GET /api/v1/schedules
- * Fetch schedules:
- * - If teacher: fetches schedule for this teacher
- * - If student: fetches schedule for their enrolled classes
- * - Query param ?class_id=...: fetches schedule for specific class
  */
 router.get('/', async (req, res, next) => {
   try {
@@ -28,6 +30,7 @@ router.get('/', async (req, res, next) => {
     let query = db('weekly_schedules')
       .join('classes', 'classes.id', 'weekly_schedules.class_id')
       .join('users as teachers', 'teachers.id', 'weekly_schedules.teacher_id')
+      .where('classes.school_id', req.user.school_id)
       .select(
         'weekly_schedules.*',
         'classes.name as class_name',
@@ -36,6 +39,7 @@ router.get('/', async (req, res, next) => {
       );
 
     if (class_id) {
+      await assertOwnsClass(req.user, class_id, { allowEnrolled: true });
       query = query.where('weekly_schedules.class_id', class_id);
     } else if (req.user.role === 'teacher') {
       query = query.where('weekly_schedules.teacher_id', req.user.id);
@@ -76,7 +80,7 @@ router.get('/', async (req, res, next) => {
  * POST /api/v1/schedules
  * Add period with AUTOMATIC CLASH DETECTION
  */
-router.post('/', async (req, res, next) => {
+router.post('/', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
   try {
     const { class_id, teacher_id, subject, day_of_week, period_number, start_time, end_time, room } = req.body;
 
@@ -86,7 +90,9 @@ router.post('/', async (req, res, next) => {
 
     let targetClassId = class_id;
     if (!targetClassId || targetClassId === 'default_class') {
-      const anyClass = await db('classes').first();
+      const anyClass = await db('classes')
+        .where({ school_id: req.user.school_id, teacher_id: req.user.id })
+        .first();
       if (anyClass) targetClassId = anyClass.id;
     }
 
@@ -94,13 +100,20 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'اطلاعات زنگ کلاسی ناقص است' });
     }
 
-    // ── CLASH CHECK 1: Teacher Conflict ──
+    await assertOwnsClass(req.user, targetClassId);
+
+    if (targetTeacherId !== req.user.id) {
+      const targetTeacher = await db('users').where({ id: targetTeacherId }).first();
+      assertSameSchool(req.user, targetTeacher);
+    }
+
     const teacherClash = await db('weekly_schedules')
       .join('classes', 'classes.id', 'weekly_schedules.class_id')
       .where({
         'weekly_schedules.teacher_id': targetTeacherId,
         'weekly_schedules.day_of_week': dayNum,
         'weekly_schedules.period_number': periodNum,
+        'classes.school_id': req.user.school_id,
       })
       .select('classes.name as conflicting_class', 'weekly_schedules.subject as conflicting_subject')
       .first();
@@ -113,7 +126,6 @@ router.post('/', async (req, res, next) => {
       });
     }
 
-    // ── CLASH CHECK 2: Class Conflict ──
     const classClash = await db('weekly_schedules')
       .join('users as teachers', 'teachers.id', 'weekly_schedules.teacher_id')
       .where({
@@ -132,7 +144,6 @@ router.post('/', async (req, res, next) => {
       });
     }
 
-    // ── CLASH CHECK 3: Room/Lab Conflict ──
     if (room && room !== 'کلاس اصلی') {
       const roomClash = await db('weekly_schedules')
         .join('classes', 'classes.id', 'weekly_schedules.class_id')
@@ -140,6 +151,7 @@ router.post('/', async (req, res, next) => {
           'weekly_schedules.room': room,
           'weekly_schedules.day_of_week': dayNum,
           'weekly_schedules.period_number': periodNum,
+          'classes.school_id': req.user.school_id,
         })
         .select('classes.name as room_class')
         .first();
@@ -180,8 +192,15 @@ router.post('/', async (req, res, next) => {
 /**
  * DELETE /api/v1/schedules/:id
  */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
   try {
+    const entry = await db('weekly_schedules').where('id', req.params.id).first();
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'زنگ درسی یافت نشد' });
+    }
+    await assertOwnsClass(req.user, entry.class_id);
+    assertOwnsResource(req.user, entry, 'teacher_id');
+
     await db('weekly_schedules').where('id', req.params.id).del();
     res.json({ success: true, message: 'زنگ درسی حذف گردید.' });
   } catch (err) {

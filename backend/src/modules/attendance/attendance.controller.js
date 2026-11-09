@@ -4,7 +4,7 @@ class AttendanceController {
   async createSession(req, res, next) {
     try {
       const session = await attendanceService.createSession(
-        req.user.id, req.params.classId, req.body
+        req.user.id, req.params.classId, req.body, req.user
       );
       res.status(201).json({
         success: true,
@@ -24,7 +24,7 @@ class AttendanceController {
   async checkIn(req, res, next) {
     try {
       const record = await attendanceService.checkIn(
-        req.params.id, req.user.id
+        req.params.id, req.user.id, req.params.classId, req.user
       );
       res.json({
         success: true,
@@ -39,7 +39,9 @@ class AttendanceController {
       const record = await attendanceService.recordStudentAttendance(
         req.params.id,
         req.body.student_id,
-        req.body.status
+        req.body.status,
+        req.params.classId,
+        req.user
       );
       res.json({
         success: true,
@@ -52,7 +54,7 @@ class AttendanceController {
   async getReport(req, res, next) {
     try {
       const report = await attendanceService.getSessionReport(
-        req.params.id, req.params.classId
+        req.params.id, req.params.classId, req.user
       );
       if (!report) return res.status(404).json({ success: false, message: 'جلسه یافت نشد' });
       res.json({ success: true, data: report });
@@ -62,14 +64,14 @@ class AttendanceController {
   async getHistory(req, res, next) {
     try {
       const studentId = req.user.role === 'student' ? req.user.id : req.query.student_id;
-      const history = await attendanceService.getHistory(req.params.classId, studentId);
+      const history = await attendanceService.getHistory(req.params.classId, studentId, req.user);
       res.json({ success: true, data: { sessions: history } });
     } catch (err) { next(err); }
   }
 
   async closeSession(req, res, next) {
     try {
-      const session = await attendanceService.closeSession(req.params.id);
+      const session = await attendanceService.closeSession(req.params.id, req.params.classId, req.user);
       res.json({
         success: true,
         message: 'جلسه حضور و غیاب بسته شد',

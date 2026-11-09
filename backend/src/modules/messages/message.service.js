@@ -1,1014 +1,1029 @@
+const { v4: uuidv4 } = require('uuid');
 const db = require('../../config/database');
-const { insertAndReturn, updateAndReturn, generateId } = require('../../utils/dbHelpers');
+const { generateId, now, parsePagination, paginatedResponse } = require('../../utils/dbHelpers');
+const { ensureUserHasUsername } = require('../../utils/usernameHelper');
+const {
+  isSchoolAdmin,
+  assertSameSchool,
+  assertOwnsClass,
+  forbiddenError,
+  notFoundError,
+} = require('../../middleware/auth');
 
 class MessageService {
-  async send(senderId, { receiver_id, class_id, content, attachments, is_broadcast }) {
-    let finalReceiverId = receiver_id || null;
-
-    if (finalReceiverId) {
-      let targetUser = await db('users').where({ id: finalReceiverId }).first();
-      if (!targetUser) {
-        targetUser = await db('users').where(function () {
-          this.where('personnel_code', finalReceiverId)
-            .orWhere('student_code', finalReceiverId)
-            .orWhere('username', finalReceiverId);
-        }).first();
-        if (targetUser) {
-          finalReceiverId = targetUser.id;
-        } else {
-          // If still not in users table, insert lightweight user to avoid foreign key violation
-          try {
-            await insertAndReturn(db, 'users', {
-              id: finalReceiverId,
-              display_name: finalReceiverId.startsWith('tch-') ? 'دبیر مدرسه' : 'کاربر مدرسه',
-              role: finalReceiverId.startsWith('tch-') ? 'teacher' : (finalReceiverId.startsWith('std-') ? 'student' : 'student'),
-              is_verified: true,
-            });
-          } catch (e) {
-            // ignore if exists
-          }
-        }
-      }
-    }
-
-    const msg = await insertAndReturn(db, 'messages', {
-      sender_id: senderId,
-      receiver_id: finalReceiverId,
-      class_id: class_id || null,
-      content,
-      attachments: JSON.stringify(attachments || []),
-      is_broadcast: !!is_broadcast,
-    });
-
-    if (finalReceiverId) {
-      const sender = await db('users').where({ id: senderId }).first();
-      await insertAndReturn(db, 'notifications', {
-        user_id: finalReceiverId,
-        type: 'message',
-        title: `پیام جدید از ${sender ? sender.display_name : 'کاربر'}`,
-        body: content ? (content.substring(0, 80) + (content.length > 80 ? '...' : '')) : 'فایل ارسال شد',
-        data: JSON.stringify({ message_id: msg.id, sender_id: senderId }),
-      });
-    }
-
-    if (typeof msg.attachments === 'string') {
-      try { msg.attachments = JSON.parse(msg.attachments); } catch (e) { msg.attachments = []; }
-    }
-    if (!Array.isArray(msg.attachments)) {
-      msg.attachments = [];
-    }
-
-    return msg;
+  normalizeTeacherRecord(row) {
+    return {
+      id: row.id,
+      display_name: row.display_name || row.name || 'دبیر',
+      role: row.role || 'teacher',
+      subject: row.department || row.job_title || 'عمومی',
+      email: row.email || '',
+      phone: row.phone || '',
+      username: row.username || '',
+      grade_level: '',
+    };
   }
 
-  async getConversations(userId) {
-    // Find all users the current user has exchanged messages with
-    const rawExchanges = await db('messages')
-      .where('sender_id', userId)
-      .orWhere('receiver_id', userId)
-      .select('sender_id', 'receiver_id', 'sent_at', 'content', 'is_read', 'id')
-      .orderBy('sent_at', 'desc');
+  async assertGroupAccess(user, groupId, { requireMember = true } = {}) {
+    const group = await db('message_groups').where({ id: groupId }).first();
+    if (!group) {
+      throw notFoundError('گروه یافت نشد');
+    }
 
-    const partnerMap = new Map();
-    for (const msg of rawExchanges) {
-      const partnerId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
-      if (!partnerId) continue;
-      if (!partnerMap.has(partnerId)) {
-        partnerMap.set(partnerId, {
-          last_message: msg,
-          unread_count: 0,
-        });
+    if (group.created_by) {
+      const creator = await db('users').where({ id: group.created_by }).first();
+      if (creator) {
+        assertSameSchool(user, creator, 'دسترسی به گروه مدرسه دیگر مجاز نیست');
       }
-      if (msg.receiver_id === userId && !msg.is_read) {
-        partnerMap.get(partnerId).unread_count++;
+    } else {
+      const memberWithSchool = await db('message_group_members as gm')
+        .join('users as u', 'u.id', 'gm.user_id')
+        .where({ 'gm.group_id': groupId })
+        .whereNotNull('u.school_id')
+        .select('u.school_id')
+        .first();
+      if (memberWithSchool) {
+        assertSameSchool(user, memberWithSchool, 'دسترسی به گروه مدرسه دیگر مجاز نیست');
       }
     }
 
-    // Include other staff / contacts if fewer than 5 conversations exist
-    if (partnerMap.size < 5) {
-      const otherStaff = await db('users')
-        .where('id', '!=', userId)
-        .whereIn('role', ['teacher', 'student', 'parent'])
-        .limit(10)
-        .pluck('id');
-      for (const sid of otherStaff) {
-        if (!partnerMap.has(sid)) {
-          partnerMap.set(sid, { last_message: null, unread_count: 0 });
-        }
+    if (requireMember && !isSchoolAdmin(user) && group.created_by !== user.id) {
+      const membership = await db('message_group_members')
+        .where({ group_id: groupId, user_id: user.id })
+        .first();
+      if (!membership) {
+        throw forbiddenError('شما عضو این گروه نیستید');
       }
     }
 
-    const partnerIds = Array.from(partnerMap.keys());
-    if (partnerIds.length === 0) return [];
+    return group;
+  }
 
-    const users = await db('users')
-      .whereIn('id', partnerIds)
-      .select('id', 'display_name', 'avatar_url', 'role', 'personnel_code', 'student_code', 'job_title', 'department', 'username');
+  async getDirectory(currentUser) {
+    const userId = currentUser.id;
+    const schoolId = currentUser.school_id;
 
-    // Enrich parents with student info
-    const allStudents = await db('users')
-      .where({ role: 'student' })
-      .select('id', 'display_name', 'student_code', 'department');
-    const studentByCode = new Map();
-    allStudents.forEach(st => {
-      if (st.student_code) studentByCode.set(st.student_code.toLowerCase(), st);
-    });
-
-    const enrichedUsers = users.map(u => {
-      if (u.role === 'parent' && u.student_code && studentByCode.has(u.student_code.toLowerCase())) {
-        const st = studentByCode.get(u.student_code.toLowerCase());
-        return {
-          ...u,
-          student_name: st.display_name,
-          student_department: st.department,
-        };
-      }
-      return u;
-    });
-
-    const conversations = enrichedUsers.map(u => {
-      const data = partnerMap.get(u.id);
+    if (!schoolId) {
       return {
-        id: u.id,
-        user: u,
-        last_message: data ? data.last_message : null,
-        unread_count: data ? data.unread_count : 0,
+        all: [],
+        staff: [],
+        teachers: [],
+        students: [],
+        parents: [],
+        classes: [],
+        studentsByGrade: {},
+        grades: [],
+        stats: { totalStudents: 0, totalStaff: 0, totalParents: 0, totalClasses: 0 },
+      };
+    }
+
+    const teacherRows = await db('users')
+      .where({ school_id: schoolId })
+      .whereIn('role', ['teacher', 'admin', 'manager'])
+      .whereNot('id', userId)
+      .select('id', 'display_name', 'role', 'department', 'job_title', 'email', 'phone', 'username', 'avatar_url')
+      .orderBy('display_name', 'asc');
+
+    for (const r of teacherRows) {
+      if (!r.username) {
+        r.username = await ensureUserHasUsername(r.id);
+      }
+    }
+    const teachers = teacherRows.map((r) => this.normalizeTeacherRecord(r));
+
+    const classRows = await db('classes')
+      .leftJoin('users as t', 't.id', 'classes.teacher_id')
+      .where({ 'classes.is_active': true, 'classes.school_id': schoolId })
+      .select(
+        'classes.id',
+        'classes.name',
+        'classes.join_code as class_code',
+        'classes.grade as grade_level',
+        'classes.subject',
+        'classes.teacher_id',
+        't.display_name as teacher_name'
+      );
+
+    const allStudents = await db('users')
+      .where({ role: 'student', school_id: schoolId })
+      .whereNot('id', userId)
+      .select('id', 'display_name', 'email', 'phone', 'username', 'student_code', 'avatar_url')
+      .orderBy('display_name', 'asc');
+
+    for (const s of allStudents) {
+      if (!s.username) {
+        s.username = await ensureUserHasUsername(s.id);
+      }
+    }
+
+    let memberships = [];
+    try {
+      const schoolClassIds = classRows.map((c) => c.id);
+      if (schoolClassIds.length > 0) {
+        memberships = await db('class_members as cm')
+          .join('classes as c', 'c.id', 'cm.class_id')
+          .whereIn('cm.class_id', schoolClassIds)
+          .select('cm.user_id', 'cm.class_id', 'c.name as class_name', 'c.grade as grade_level', 'c.subject');
+      }
+    } catch (_e) { /* ignore */ }
+
+    const studentClassMap = {};
+    memberships.forEach((m) => {
+      if (!studentClassMap[m.user_id]) studentClassMap[m.user_id] = [];
+      studentClassMap[m.user_id].push(m);
+    });
+
+    const students = allStudents.map((s) => {
+      const mList = studentClassMap[s.id] || [];
+      const firstClass = mList[0];
+      return {
+        id: s.id,
+        display_name: s.display_name || 'دانش‌آموز',
+        role: 'student',
+        grade_level: firstClass?.grade_level || 'عمومی',
+        class_name: firstClass?.class_name || `پایه ${firstClass?.grade_level || 'عمومی'}`,
+        class_id: firstClass?.class_id || null,
+        student_code: s.student_code || '',
+        phone: s.phone || '',
+        username: s.username || '',
       };
     });
 
-    conversations.sort((a, b) => {
-      const timeA = a.last_message ? new Date(a.last_message.sent_at).getTime() : 0;
-      const timeB = b.last_message ? new Date(b.last_message.sent_at).getTime() : 0;
-      return timeB - timeA;
-    });
+    const parentRows = await db('users')
+      .where({ role: 'parent', school_id: schoolId })
+      .whereNot('id', userId)
+      .select('id', 'display_name', 'email', 'phone', 'username', 'student_code', 'avatar_url')
+      .orderBy('display_name', 'asc');
 
-    return conversations;
-  }
-
-  async getConversationMessages(userId, otherUserId, page = 1, limit = 50) {
-    const offset = (page - 1) * limit;
-
-    // Mark messages received from otherUserId as read
-    await db('messages')
-      .where({ sender_id: otherUserId, receiver_id: userId, is_read: false })
-      .update({ is_read: true });
-
-    const messages = await db('messages')
-      .where(function () {
-        this.where({ sender_id: userId, receiver_id: otherUserId })
-          .orWhere({ sender_id: otherUserId, receiver_id: userId });
-      })
-      .orderBy('sent_at', 'asc')
-      .limit(limit)
-      .offset(offset);
-
-    messages.forEach(m => {
-      if (typeof m.attachments === 'string') {
-        try { m.attachments = JSON.parse(m.attachments); } catch (e) { m.attachments = []; }
-      }
-      if (!Array.isArray(m.attachments)) {
-        m.attachments = [];
-      }
-    });
-
-    return messages;
-  }
-
-  /**
-   * Helper to parse grade from department or string
-   */
-  extractGrade(deptOrGrade) {
-    if (!deptOrGrade) return null;
-    const str = String(deptOrGrade);
-    if (str.includes('دوازدهم') || str.includes('12')) return 'پایه دوازدهم';
-    if (str.includes('یازدهم') || str.includes('11')) return 'پایه یازدهم';
-    if (str.includes('دهم') || str.includes('10')) return 'پایه دهم';
-    if (str.includes('نهم') || str.includes('9')) return 'پایه نهم';
-    if (str.includes('هشتم') || str.includes('8')) return 'پایه هشتم';
-    if (str.includes('هفتم') || str.includes('7')) return 'پایه هفتم';
-    return null;
-  }
-
-  /**
-   * School Directory: Complete roster of Personnel with personnel codes, Students, and Parents
-   */
-  async getDirectory({ query = '', role = '', grade = '', currentUser = null } = {}) {
-    // 1. Fetch students for lookup map
-    const allStudents = await db('users')
-      .where({ role: 'student' })
-      .select('id', 'display_name', 'student_code', 'department');
-
-    const studentByCode = new Map();
-    const studentById = new Map();
-    allStudents.forEach(st => {
-      if (st.student_code) studentByCode.set(st.student_code.toLowerCase(), st);
-      studentById.set(st.id, st);
-    });
-
-    // 2. Fetch parent-student links
-    const parentLinks = await db('parent_student_links').select('parent_id', 'student_id');
-    const parentToStudentId = new Map();
-    parentLinks.forEach(l => parentToStudentId.set(l.parent_id, l.student_id));
-
-    // 3. Query users
-    let q = db('users').select(
-      'id',
-      'display_name',
-      'role',
-      'avatar_url',
-      'personnel_code',
-      'student_code',
-      'department',
-      'job_title',
-      'username'
-    );
-
-    if (role && role !== 'all') {
-      q = q.where({ role });
-    }
-
-    let allUsers = await q.orderBy('created_at', 'asc');
-
-    // 4. Enrich students & parents with grade information
-    allUsers = allUsers.map(u => {
-      if (u.role === 'student') {
-        const studentGrade = this.extractGrade(u.department) || 'پایه دهم';
-        return {
-          ...u,
-          grade: studentGrade,
-        };
-      }
-      if (u.role === 'parent') {
-        let st = null;
-        if (u.student_code && studentByCode.has(u.student_code.toLowerCase())) {
-          st = studentByCode.get(u.student_code.toLowerCase());
-        } else if (parentToStudentId.has(u.id)) {
-          st = studentById.get(parentToStudentId.get(u.id));
-        }
-
-        const childGrade = st ? (this.extractGrade(st.department) || 'پایه دهم') : (this.extractGrade(u.department) || 'پایه دهم');
-
-        return {
-          ...u,
-          student_code: u.student_code || (st ? st.student_code : null),
-          student_id: st ? st.id : null,
-          student_name: st ? st.display_name : null,
-          student_department: st ? st.department : null,
-          grade: childGrade,
-          student_grade: childGrade,
-        };
-      }
-      return u;
-    });
-
-    // 5. Apply Role-based Grade Isolation (Students and Parents only see students of same grade)
-    if (currentUser) {
-      if (currentUser.role === 'student') {
-        const myGrade = this.extractGrade(currentUser.department) || this.extractGrade(currentUser.grade) || 'پایه دهم';
-        allUsers = allUsers.filter(u => {
-          // All school teachers are accessible
-          if (u.role === 'teacher' || u.role === 'manager' || u.role === 'admin') return true;
-          // Students must be of the EXACT SAME GRADE
-          if (u.role === 'student') {
-            return u.grade === myGrade || (u.department && u.department.includes(myGrade));
-          }
-          // Parents of the same grade only
-          if (u.role === 'parent') {
-            return u.grade === myGrade;
-          }
-          return false;
-        });
-      } else if (currentUser.role === 'parent') {
-        let childGrade = this.extractGrade(currentUser.student_department) ||
-                         this.extractGrade(currentUser.grade) ||
-                         this.extractGrade(currentUser.department);
-        if (!childGrade && currentUser.student_code) {
-          const st = studentByCode.get(currentUser.student_code.toLowerCase());
-          if (st) childGrade = this.extractGrade(st.department);
-        }
-        if (!childGrade) childGrade = 'پایه دهم';
-
-        allUsers = allUsers.filter(u => {
-          // All school teachers are accessible
-          if (u.role === 'teacher' || u.role === 'manager' || u.role === 'admin') return true;
-          // Students of the child's grade only
-          if (u.role === 'student') {
-            return u.grade === childGrade || (u.department && u.department.includes(childGrade));
-          }
-          // Parents of the child's grade only
-          if (u.role === 'parent') {
-            return u.grade === childGrade;
-          }
-          return false;
-        });
-      } else if (grade && grade !== 'all') {
-        // Teacher / Manager filtering by selected grade
-        allUsers = allUsers.filter(u => {
-          if (u.role === 'teacher' || u.role === 'manager' || u.role === 'admin') return true;
-          return u.grade === grade || (u.department && u.department.includes(grade));
-        });
+    for (const p of parentRows) {
+      if (!p.username) {
+        p.username = await ensureUserHasUsername(p.id);
       }
     }
 
-    // 6. If search query, match display_name, username, personnel_code, student_code, department, job_title, and linked student_name
-    if (query && query.trim()) {
-      const clean = query.trim().toLowerCase();
-      const cleanAt = clean.replace(/^@/, '');
-      allUsers = allUsers.filter(u => {
-        const dName = (u.display_name || '').toLowerCase();
-        const uName = (u.username || '').toLowerCase();
-        const pCode = (u.personnel_code || '').toLowerCase();
-        const sCode = (u.student_code || '').toLowerCase();
-        const dept = (u.department || '').toLowerCase();
-        const job = (u.job_title || '').toLowerCase();
-        const stName = (u.student_name || '').toLowerCase();
+    const studentsByGrade = {};
+    students.forEach((s) => {
+      const g = s.grade_level || 'سایر';
+      if (!studentsByGrade[g]) studentsByGrade[g] = [];
+      studentsByGrade[g].push(s);
+    });
 
-        return (
-          dName.includes(clean) ||
-          uName.includes(cleanAt) ||
-          pCode.includes(clean) ||
-          sCode.includes(clean) ||
-          dept.includes(clean) ||
-          job.includes(clean) ||
-          stName.includes(clean)
-        );
-      });
-    }
-
-    // Categorize
-    const staff = allUsers.filter(u => u.role === 'teacher' || u.role === 'manager' || u.role === 'admin');
-    const students = allUsers.filter(u => u.role === 'student');
-    const parents = allUsers.filter(u => u.role === 'parent');
+    const all = [...teachers, ...students, ...parentRows];
 
     return {
-      all: allUsers,
-      staff,
+      all,
+      staff: teachers,
+      teachers,
       students,
-      parents,
+      parents: parentRows,
+      classes: classRows,
+      studentsByGrade,
+      grades: Object.keys(studentsByGrade),
       stats: {
-        totalStaff: staff.length,
         totalStudents: students.length,
-        totalParents: parents.length,
+        totalStaff: teachers.length,
+        totalParents: parentRows.length,
+        totalClasses: classRows.length,
       },
     };
   }
 
-  /**
-  * Group Chat methods
-  */
-  async searchUserByIdentifier(query) {
-    if (!query || !query.trim()) return [];
-    const clean = query.trim().toLowerCase().replace(/^@/, '');
-    return db('users')
+  async searchUserByIdentifier(query, currentUser) {
+    if (!query || !String(query).trim() || !currentUser?.school_id) return [];
+    const clean = String(query).trim().replace(/^@/, '').toLowerCase();
+
+    const rows = await db('users')
+      .where({ school_id: currentUser.school_id })
       .where(function () {
         this.whereRaw('LOWER(username) LIKE ?', [`%${clean}%`])
-          .orWhereRaw('LOWER(student_code) LIKE ?', [`%${clean}%`])
-          .orWhereRaw('LOWER(personnel_code) LIKE ?', [`%${clean}%`])
           .orWhereRaw('LOWER(display_name) LIKE ?', [`%${clean}%`])
-          .orWhereRaw('LOWER(email) LIKE ?', [`%${clean}%`])
-          .orWhere('phone', 'like', `%${clean}%`);
+          .orWhere('phone', 'like', `%${clean}%`)
+          .orWhere('student_code', 'like', `%${clean}%`);
       })
-      .select('id', 'display_name', 'avatar_url', 'role', 'username', 'student_code', 'personnel_code', 'job_title', 'department')
-      .limit(10);
-  }
+      .select('id', 'display_name', 'username', 'role', 'department', 'phone', 'student_code', 'avatar_url')
+      .limit(20);
 
-  async getGroups(userId) {
-    const groups = await db('message_groups').select('*').orderBy('created_at', 'desc');
-
-    for (const g of groups) {
-      if (!g.invite_code) {
-        const code = 'grp-' + Math.random().toString(36).substring(2, 9);
-        await db('message_groups').where({ id: g.id }).update({ invite_code: code });
-        g.invite_code = code;
+    for (const r of rows) {
+      if (!r.username) {
+        r.username = await ensureUserHasUsername(r.id);
       }
-
-      const membersCount = await db('message_group_members').where({ group_id: g.id }).count('id as count').first();
-      g.members_count = parseInt(membersCount ? membersCount.count : 0, 10);
-
-      const membership = await db('message_group_members').where({ group_id: g.id, user_id: userId }).first();
-      g.is_member = !!membership;
-      g.is_admin = membership ? membership.role === 'admin' : (g.created_by === userId);
-
-      const lastMsg = await db('message_group_messages')
-        .join('users', 'users.id', 'message_group_messages.sender_id')
-        .where({ group_id: g.id })
-        .select('message_group_messages.*', 'users.display_name as sender_name')
-        .orderBy('sent_at', 'desc')
-        .first();
-
-      g.last_message = lastMsg || null;
     }
-
-    return groups;
+    return rows;
   }
 
-  async ensureUserExists(uIdOrObj) {
-    if (!uIdOrObj) return null;
-    const rawId = typeof uIdOrObj === 'object' ? uIdOrObj.id : String(uIdOrObj).trim();
-    if (!rawId) return null;
+  async ensureUserExists(uIdOrObj, schoolId = null) {
+    const id = typeof uIdOrObj === 'string' ? uIdOrObj : uIdOrObj?.id;
+    if (!id) return null;
 
-    // 1. Direct check by ID
-    let user = await db('users').where({ id: rawId }).first();
-    if (user) return user;
-
-    // 2. Search by clean identifier (username, student_code, personnel_code, email, phone)
-    const clean = rawId.toLowerCase().replace(/^@/, '');
-    user = await db('users')
-      .where(function () {
-        this.whereRaw('LOWER(username) = ?', [clean])
-          .orWhereRaw('LOWER(student_code) = ?', [clean])
-          .orWhereRaw('LOWER(personnel_code) = ?', [clean])
-          .orWhereRaw('LOWER(email) = ?', [clean])
-          .orWhere('phone', clean);
-      })
-      .first();
-    if (user) return user;
-
-    // 3. Search by display name
-    user = await db('users')
-      .whereRaw('LOWER(display_name) = ?', [clean])
-      .first();
-    if (user) return user;
-
-    // 4. Auto-provision lightweight user record if safe
-    try {
-      const displayName = typeof uIdOrObj === 'object' && uIdOrObj.display_name
-        ? uIdOrObj.display_name
-        : (rawId.startsWith('tch-') ? 'دبیر مدرسه' : (rawId.startsWith('std-') ? 'دانش‌آموز' : rawId));
-      const role = typeof uIdOrObj === 'object' && uIdOrObj.role
-        ? uIdOrObj.role
-        : (rawId.startsWith('tch-') ? 'teacher' : (rawId.startsWith('std-') ? 'student' : 'student'));
-
-      user = await insertAndReturn(db, 'users', {
-        id: rawId,
-        display_name: displayName,
-        role: role,
-        username: typeof uIdOrObj === 'object' && uIdOrObj.username ? uIdOrObj.username : rawId.replace(/[^a-zA-Z0-9_]/g, '_'),
-        is_verified: true,
-      });
-      return user;
-    } catch (insertErr) {
-      return await db('users').where({ id: rawId }).first();
+    const query = db('users').where({ id });
+    if (schoolId) {
+      query.andWhere({ school_id: schoolId });
     }
+    const existing = await query.first();
+    if (existing) {
+      if (!existing.username) {
+        await ensureUserHasUsername(existing.id);
+      }
+      return existing.id;
+    }
+
+    if (typeof uIdOrObj === 'string') {
+      const clean = uIdOrObj.trim().replace(/^@/, '').toLowerCase();
+      const byUsernameQuery = db('users').whereRaw('LOWER(username) = ?', [clean]);
+      if (schoolId) {
+        byUsernameQuery.andWhere({ school_id: schoolId });
+      }
+      const byUsername = await byUsernameQuery.first();
+      if (byUsername) return byUsername.id;
+    }
+
+    return null;
   }
 
-  async createGroup(userId, { name, description, category, member_ids = [], member_identifiers = [] }) {
-    if (!name || !name.trim()) {
-      const err = new Error('لطفاً نام گروه را وارد کنید');
+  async checkQuietHours(senderId, receiverId, classId) {
+    let cls = null;
+    if (classId) {
+      cls = await db('classes').where({ id: classId }).first();
+    } else if (receiverId) {
+      cls = await db('classes').where({ teacher_id: receiverId }).first();
+    }
+
+    if (!cls || !cls.quiet_hours) return { allowed: true };
+
+    const sender = await db('users').where({ id: senderId }).first();
+    if (sender && ['teacher', 'admin', 'manager'].includes(sender.role)) return { allowed: true };
+
+    return { allowed: true, delayed_for_quiet_hours: false };
+  }
+
+  async send(senderOrId, { receiver_id, receiver_username, class_id, content, attachments }) {
+    const sender = typeof senderOrId === 'object' && senderOrId !== null
+      ? senderOrId
+      : await db('users').where({ id: senderOrId }).first();
+
+    if (!sender) {
+      throw notFoundError('فرستنده یافت نشد');
+    }
+
+    if (!content || !String(content).trim()) {
+      const err = new Error('متن پیام نمی‌تواند خالی باشد');
       err.statusCode = 400;
       throw err;
     }
 
-    // Ensure creator user exists to prevent FK violation
-    await this.ensureUserExists(userId);
+    if (class_id) {
+      await assertOwnsClass(sender, class_id, { allowEnrolled: true });
+    }
 
-    const inviteCode = 'grp-' + Math.random().toString(36).substring(2, 9);
-    const group = await insertAndReturn(db, 'message_groups', {
-      name: name.trim(),
-      description: description ? description.trim() : '',
-      category: category || 'general',
-      created_by: userId,
-      invite_code: inviteCode,
-    });
-
-    // Add creator as admin
-    await insertAndReturn(db, 'message_group_members', {
-      group_id: group.id,
-      user_id: userId,
-      role: 'admin',
-    }).catch((e) => console.warn('Could not add creator as admin:', e.message));
-
-    const addedUserIds = new Set([userId]);
-
-    // Add selected members by user_id
-    if (Array.isArray(member_ids)) {
-      for (const mid of member_ids) {
-        if (!mid) continue;
-        try {
-          const target = await this.ensureUserExists(mid);
-          if (target && !addedUserIds.has(target.id)) {
-            await insertAndReturn(db, 'message_group_members', {
-              group_id: group.id,
-              user_id: target.id,
-              role: 'member',
-            });
-            addedUserIds.add(target.id);
-          }
-        } catch (mErr) {
-          console.warn('Skipping member insert due to error:', mErr.message);
-        }
+    let finalReceiverId = receiver_id || null;
+    if (!finalReceiverId && receiver_username) {
+      const clean = String(receiver_username).trim().replace(/^@/, '').toLowerCase();
+      const targetUser = await db('users')
+        .where({ school_id: sender.school_id })
+        .whereRaw('LOWER(username) = ?', [clean])
+        .first();
+      if (!targetUser) {
+        throw notFoundError(`کاربری با نام کاربری @${clean} یافت نشد`);
       }
+      finalReceiverId = targetUser.id;
     }
 
-    // Add members entered by identifier (username / student_code / personnel_code / phone)
-    if (Array.isArray(member_identifiers)) {
-      for (const idStr of member_identifiers) {
-        if (!idStr || typeof idStr !== 'string') continue;
-        try {
-          const target = await this.ensureUserExists(idStr.trim());
-          if (target && !addedUserIds.has(target.id)) {
-            await insertAndReturn(db, 'message_group_members', {
-              group_id: group.id,
-              user_id: target.id,
-              role: 'member',
-            });
-            addedUserIds.add(target.id);
-          }
-        } catch (idErr) {
-          console.warn('Skipping identifier member insert due to error:', idErr.message);
-        }
+    if (finalReceiverId) {
+      const targetUser = await db('users').where({ id: finalReceiverId }).first();
+      if (!targetUser) {
+        throw notFoundError('مخاطب مورد نظر یافت نشد');
       }
+      assertSameSchool(sender, targetUser, 'ارسال پیام به کاربران مدرسه دیگر مجاز نیست');
+      finalReceiverId = targetUser.id;
     }
 
-    group.members_count = addedUserIds.size;
-    group.invite_code = inviteCode;
-    return group;
-  }
+    const qhCheck = await this.checkQuietHours(sender.id, finalReceiverId, class_id);
 
-  async deleteGroup(groupId, userId) {
-    const group = await db('message_groups').where({ id: groupId }).first();
-    if (!group) {
-      const err = new Error('گروه مورد نظر یافت نشد');
-      err.statusCode = 404;
-      throw err;
-    }
-    const membership = await db('message_group_members').where({ group_id: groupId, user_id: userId }).first();
-    const isCreator = group.created_by === userId;
-    const isAdmin = membership && membership.role === 'admin';
-    const user = await db('users').where({ id: userId }).first();
-    const isSuperAdmin = user && (user.role === 'admin' || user.role === 'manager');
-
-    if (!isCreator && !isAdmin && !isSuperAdmin) {
-      const err = new Error('تنها سازنده یا مدیر گروه اجازه حذف گروه را دارد');
-      err.statusCode = 403;
-      throw err;
-    }
-
-    await db('message_group_messages').where({ group_id: groupId }).delete().catch(() => {});
-    await db('message_group_members').where({ group_id: groupId }).delete().catch(() => {});
-    await db('message_groups').where({ id: groupId }).delete();
-    return { success: true, message: 'گروه با موفقیت حذف شد' };
-  }
-
-  async getGroupMembers(groupId) {
-    return db('message_group_members')
-      .join('users', 'users.id', 'message_group_members.user_id')
-      .where({ 'message_group_members.group_id': groupId })
-      .select(
-        'users.id',
-        'users.display_name',
-        'users.avatar_url',
-        'users.role',
-        'users.username',
-        'users.student_code',
-        'users.personnel_code',
-        'users.job_title',
-        'users.department',
-        'message_group_members.role as member_role',
-        'message_group_members.joined_at'
-      )
-      .orderByRaw("CASE WHEN message_group_members.role = 'admin' THEN 0 ELSE 1 END")
-      .orderBy('message_group_members.joined_at', 'asc');
-  }
-
-  async addMemberToGroup(groupId, identifier, addedByUserId) {
-    if (!identifier || !identifier.trim()) {
-      const error = new Error('لطفاً آیدی، نام کاربری یا کد کاربر را وارد کنید');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const group = await db('message_groups').where({ id: groupId }).first();
-    if (!group) {
-      const error = new Error('گروه مورد نظر یافت نشد');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const targetUser = await this.ensureUserExists(identifier.trim());
-
-    if (!targetUser) {
-      const error = new Error(`کاربری با شناسه یا آیدی «${identifier.trim()}» یافت نشد. لطفاً از صحت آیدی (@username) یا کد دانش‌آموزی/پرسنلی اطمینان حاصل فرمایید.`);
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const existingMember = await db('message_group_members')
-      .where({ group_id: groupId, user_id: targetUser.id })
-      .first();
-
-    if (existingMember) {
-      const error = new Error(`«${targetUser.display_name}» از قبل در این گروه عضو است.`);
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await insertAndReturn(db, 'message_group_members', {
-      group_id: groupId,
-      user_id: targetUser.id,
-      role: 'member',
+    const id = generateId();
+    const timestamp = now();
+    await db('messages').insert({
+      id,
+      sender_id: sender.id,
+      receiver_id: finalReceiverId || null,
+      class_id: class_id || null,
+      content: String(content).trim(),
+      attachments: JSON.stringify(attachments || []),
+      is_broadcast: false,
+      is_read: false,
+      is_edited: false,
+      sent_at: timestamp,
     });
 
-    // Post announcement in group
-    const adder = await db('users').where({ id: addedByUserId }).first();
-    const adderName = adder ? adder.display_name : 'مدیر گروه';
-    await insertAndReturn(db, 'message_group_messages', {
-      group_id: groupId,
-      sender_id: addedByUserId,
-      content: `🔔 کاربر «${targetUser.display_name}» (${targetUser.username ? '@' + targetUser.username : targetUser.role}) توسط ${adderName} به گروه افزوده شد.`,
-      attachments: '[]',
-    });
+    if (finalReceiverId && finalReceiverId !== sender.id) {
+      try {
+        await db('notifications').insert({
+          id: generateId(),
+          user_id: finalReceiverId,
+          title: `💬 پیام جدید از ${sender?.display_name || 'کاربر'}`,
+          body: String(content).trim().slice(0, 120),
+          type: 'message',
+          data: JSON.stringify({ sender_id: sender.id, message_id: id }),
+          is_read: false,
+          created_at: timestamp,
+        });
+      } catch (_e) { /* ignore notification table failures */ }
+    }
 
-    // Notify added user
-    await insertAndReturn(db, 'notifications', {
-      user_id: targetUser.id,
-      type: 'message',
-      title: `عضویت در گروه «${group.name}»`,
-      body: `شما توسط ${adderName} به گروه «${group.name}» افزوده شدید.`,
-      data: JSON.stringify({ group_id: groupId }),
-    });
-
-    const memberCount = await db('message_group_members').where({ group_id: groupId }).count('id as count').first();
-
+    const msg = await db('messages').where({ id }).first();
     return {
-      user: {
-        id: targetUser.id,
-        display_name: targetUser.display_name,
-        avatar_url: targetUser.avatar_url,
-        role: targetUser.role,
-        username: targetUser.username,
-        student_code: targetUser.student_code,
-        personnel_code: targetUser.personnel_code,
-      },
-      members_count: parseInt(memberCount?.count || 0, 10),
-      message: `«${targetUser.display_name}» با موفقیت به گروه افزوده شد 🎉`,
+      ...msg,
+      sender_name: sender?.display_name || 'کاربر',
+      sender_role: sender?.role || 'student',
+      sender_username: sender?.username || '',
+      quiet_hours_delayed: qhCheck.delayed_for_quiet_hours || false,
     };
   }
 
-  async getGroupInviteLink(groupId) {
-    let group = await db('message_groups').where({ id: groupId }).first();
-    if (!group) {
-      const error = new Error('گروه یافت نشد');
-      error.statusCode = 404;
-      throw error;
+  async editMessage(userId, messageId, newContent) {
+    if (!newContent || !String(newContent).trim()) {
+      const err = new Error('متن پیام نمی‌تواند خالی باشد');
+      err.statusCode = 400;
+      throw err;
     }
 
+    const msg = await db('messages').where({ id: messageId }).first();
+    if (!msg) {
+      throw notFoundError('پیام مورد نظر یافت نشد');
+    }
+    if (msg.sender_id !== userId) {
+      throw forbiddenError('شما فقط می‌توانید پیام‌های خودتان را ویرایش کنید');
+    }
+
+    const timestamp = now();
+    await db('messages').where({ id: messageId }).update({
+      content: String(newContent).trim(),
+      is_edited: true,
+      edited_at: timestamp,
+    });
+
+    return db('messages').where({ id: messageId }).first();
+  }
+
+  async deleteMessage(userId, messageId) {
+    const msg = await db('messages').where({ id: messageId }).first();
+    if (!msg) {
+      throw notFoundError('پیام یافت نشد');
+    }
+
+    const user = await db('users').where({ id: userId }).first();
+    const isAdmin = user && ['admin', 'manager'].includes(user.role);
+    if (msg.sender_id !== userId && !isAdmin) {
+      throw forbiddenError('شما فقط می‌توانید پیام‌های خودتان را حذف کنید');
+    }
+
+    if (msg.sender_id !== userId && isAdmin) {
+      const sender = await db('users').where({ id: msg.sender_id }).first();
+      if (sender) {
+        assertSameSchool(user, sender);
+      }
+    }
+
+    await db('messages').where({ id: messageId }).del();
+    return { deleted: true, id: messageId };
+  }
+
+  async getConversations(userOrId) {
+    const currentUser = typeof userOrId === 'object' && userOrId !== null
+      ? userOrId
+      : await db('users').where({ id: userOrId }).first();
+    if (!currentUser) return [];
+
+    const userId = currentUser.id;
+    const schoolId = currentUser.school_id;
+
+    const sent = await db('messages')
+      .where({ sender_id: userId })
+      .whereNotNull('receiver_id')
+      .select('receiver_id as other_id')
+      .groupBy('receiver_id');
+
+    const received = await db('messages')
+      .where({ receiver_id: userId })
+      .select('sender_id as other_id')
+      .groupBy('sender_id');
+
+    const otherIds = [...new Set([...sent.map((r) => r.other_id), ...received.map((r) => r.other_id)])];
+
+    let otherUsers = [];
+    if (otherIds.length > 0) {
+      const userQuery = db('users')
+        .whereIn('id', otherIds)
+        .select('id', 'display_name', 'avatar_url', 'role', 'department', 'username', 'phone', 'school_id');
+      if (schoolId) {
+        userQuery.andWhere({ school_id: schoolId });
+      }
+      otherUsers = await userQuery;
+    }
+    const usersById = new Map(otherUsers.map((u) => [u.id, u]));
+
+    let pairMessages = [];
+    const validOtherIds = Array.from(usersById.keys());
+    if (validOtherIds.length > 0) {
+      pairMessages = await db('messages')
+        .where(function () {
+          this.where({ sender_id: userId }).whereIn('receiver_id', validOtherIds)
+            .orWhere({ receiver_id: userId }).whereIn('sender_id', validOtherIds);
+        })
+        .orderBy('sent_at', 'desc');
+    }
+
+    const lastMessageByOther = new Map();
+    const unreadCountByOther = new Map();
+    for (const msg of pairMessages) {
+      const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
+      if (!lastMessageByOther.has(otherId)) {
+        lastMessageByOther.set(otherId, msg);
+      }
+      if (msg.sender_id === otherId && msg.receiver_id === userId && !msg.is_read) {
+        unreadCountByOther.set(otherId, (unreadCountByOther.get(otherId) || 0) + 1);
+      }
+    }
+
+    const conversations = [];
+    for (const otherId of validOtherIds) {
+      const otherUser = usersById.get(otherId);
+      if (!otherUser) continue;
+
+      if (!otherUser.username) {
+        otherUser.username = await ensureUserHasUsername(otherUser.id);
+      }
+
+      conversations.push({
+        user: otherUser,
+        last_message: lastMessageByOther.get(otherId) || null,
+        unread_count: unreadCountByOther.get(otherId) || 0,
+      });
+    }
+
+    if (conversations.length < 3 && schoolId) {
+      const existingIds = new Set(conversations.map((c) => c.user.id));
+      existingIds.add(userId);
+
+      const otherStaff = await db('users')
+        .where({ school_id: schoolId })
+        .whereIn('role', ['teacher', 'admin', 'manager'])
+        .whereNotIn('id', Array.from(existingIds))
+        .select('id', 'display_name', 'avatar_url', 'role', 'department', 'username', 'phone')
+        .limit(8);
+
+      for (const staff of otherStaff) {
+        if (!staff.username) {
+          staff.username = await ensureUserHasUsername(staff.id);
+        }
+        conversations.push({
+          user: staff,
+          last_message: null,
+          unread_count: 0,
+        });
+      }
+    }
+
+    return conversations.sort((a, b) => {
+      const timeA = a.last_message?.sent_at || a.last_message?.created_at || '';
+      const timeB = b.last_message?.sent_at || b.last_message?.created_at || '';
+      return timeB.localeCompare(timeA);
+    });
+  }
+
+  async getConversationMessages(userOrId, otherUserId, page = 1, limit = 100) {
+    const currentUser = typeof userOrId === 'object' && userOrId !== null
+      ? userOrId
+      : await db('users').where({ id: userOrId }).first();
+    if (!currentUser) {
+      throw notFoundError('کاربر یافت نشد');
+    }
+
+    const otherUser = await db('users').where({ id: otherUserId }).first();
+    if (!otherUser) {
+      throw notFoundError('مخاطب یافت نشد');
+    }
+    assertSameSchool(currentUser, otherUser, 'مشاهده پیام‌های مدرسه دیگر مجاز نیست');
+
+    const userId = currentUser.id;
+    const { offset } = parsePagination({ page, limit });
+
+    await db('messages')
+      .where({ sender_id: otherUserId, receiver_id: userId, is_read: false })
+      .update({ is_read: true });
+
+    const baseQuery = db('messages')
+      .where(function () {
+        this.where({ sender_id: userId, receiver_id: otherUserId })
+          .orWhere({ sender_id: otherUserId, receiver_id: userId });
+      });
+
+    const [{ count }] = await baseQuery.clone().count('id as count');
+    const messages = await baseQuery
+      .leftJoin('users as s', 's.id', 'messages.sender_id')
+      .select(
+        'messages.*',
+        's.display_name as sender_name',
+        's.role as sender_role',
+        's.username as sender_username'
+      )
+      .orderBy('messages.sent_at', 'asc')
+      .limit(limit)
+      .offset(offset);
+
+    return paginatedResponse(messages, count, page, limit);
+  }
+
+  generateInviteCode() {
+    return uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
+  }
+
+  async getGroups(user) {
+    const allGroups = await db('message_groups')
+      .join('users as creator', 'creator.id', 'message_groups.created_by')
+      .where('creator.school_id', user.school_id)
+      .select('message_groups.*')
+      .orderBy('message_groups.created_at', 'desc');
+
+    const myMemberships = await db('message_group_members')
+      .where({ user_id: user.id })
+      .select('group_id', 'role');
+    const myGroupMap = {};
+    myMemberships.forEach((m) => { myGroupMap[m.group_id] = m.role; });
+
+    const visibleGroups = allGroups.filter((g) => {
+      if (isSchoolAdmin(user)) return true;
+      if (g.created_by === user.id) return true;
+      if (myGroupMap[g.id]) return true;
+      return false;
+    });
+
+    const visibleGroupIds = visibleGroups.map((g) => g.id);
+    const lastMessagesByGroup = new Map();
+    const memberCountsByGroup = new Map();
+
+    if (visibleGroupIds.length > 0) {
+      const groupMsgs = await db('message_group_messages')
+        .whereIn('group_id', visibleGroupIds)
+        .orderBy('sent_at', 'desc');
+      for (const m of groupMsgs) {
+        if (!lastMessagesByGroup.has(m.group_id)) {
+          lastMessagesByGroup.set(m.group_id, m);
+        }
+      }
+
+      const memberCounts = await db('message_group_members')
+        .whereIn('group_id', visibleGroupIds)
+        .groupBy('group_id')
+        .select('group_id')
+        .count('id as cnt');
+      for (const row of memberCounts) {
+        memberCountsByGroup.set(row.group_id, Number(row.cnt || 0));
+      }
+    }
+
+    const enriched = [];
+    for (const g of visibleGroups) {
+      const lastMsg = lastMessagesByGroup.get(g.id) || null;
+      const memberCount = memberCountsByGroup.get(g.id) || 1;
+
+      enriched.push({
+        ...g,
+        last_message: lastMsg,
+        members_count: Math.max(Number(memberCount), 1),
+        my_role: myGroupMap[g.id] || (['admin', 'manager', 'teacher'].includes(user.role) ? 'admin' : 'member'),
+      });
+    }
+
+    return enriched;
+  }
+
+  async createGroup(user, { name, description, avatar_url, category, member_ids }) {
+    if (!name || !String(name).trim()) {
+      const err = new Error('نام گروه الزامی است');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const id = generateId();
+    const timestamp = now();
+
+    await db('message_groups').insert({
+      id,
+      name: String(name).trim(),
+      description: description || '',
+      category: category || 'general',
+      avatar_url: avatar_url || null,
+      created_by: user.id,
+      created_at: timestamp,
+    });
+
+    await db('message_group_members').insert({
+      id: generateId(),
+      group_id: id,
+      user_id: user.id,
+      role: 'admin',
+      joined_at: timestamp,
+    });
+
+    if (Array.isArray(member_ids) && member_ids.length > 0) {
+      for (const mId of member_ids) {
+        if (mId && mId !== user.id) {
+          const validMemberId = await this.ensureUserExists(mId, user.school_id);
+          if (!validMemberId) continue;
+          const exists = await db('message_group_members').where({ group_id: id, user_id: validMemberId }).first();
+          if (!exists) {
+            await db('message_group_members').insert({
+              id: generateId(),
+              group_id: id,
+              user_id: validMemberId,
+              role: 'member',
+              joined_at: timestamp,
+            });
+          }
+        }
+      }
+    }
+
+    return db('message_groups').where({ id }).first();
+  }
+
+  async getGroupMembers(groupId, currentUser) {
+    await this.assertGroupAccess(currentUser, groupId);
+
+    const rows = await db('message_group_members as gm')
+      .join('users as u', 'u.id', 'gm.user_id')
+      .where({ 'gm.group_id': groupId, 'u.school_id': currentUser.school_id })
+      .select(
+        'u.id',
+        'u.display_name',
+        'u.username',
+        'u.role as user_role',
+        'u.department',
+        'u.phone',
+        'gm.role as group_role',
+        'gm.joined_at'
+      )
+      .orderBy('gm.joined_at', 'asc');
+
+    for (const r of rows) {
+      if (!r.username) {
+        r.username = await ensureUserHasUsername(r.id);
+      }
+    }
+    return rows;
+  }
+
+  async addMemberToGroup(groupId, identifier, adderUser) {
+    const group = await this.assertGroupAccess(adderUser, groupId);
+
+    if (!identifier || !String(identifier).trim()) {
+      const err = new Error('لطفاً نام کاربری، شماره تلفن یا شناسه کاربر را وارد کنید');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const clean = String(identifier).trim().replace(/^@/, '').toLowerCase();
+    const targetUser = await db('users')
+      .where({ school_id: adderUser.school_id })
+      .where(function () {
+        this.where({ id: identifier })
+          .orWhereRaw('LOWER(username) = ?', [clean])
+          .orWhere({ phone: clean })
+          .orWhere({ student_code: clean })
+          .orWhereRaw('LOWER(display_name) = ?', [clean]);
+      })
+      .first();
+
+    if (!targetUser) {
+      throw notFoundError(`کاربری با مشخصات «${identifier}» در سامانه یافت نشد`);
+    }
+
+    const exists = await db('message_group_members')
+      .where({ group_id: groupId, user_id: targetUser.id })
+      .first();
+
+    if (exists) {
+      return { already_member: true, user: targetUser };
+    }
+
+    const timestamp = now();
+    await db('message_group_members').insert({
+      id: generateId(),
+      group_id: groupId,
+      user_id: targetUser.id,
+      role: 'member',
+      joined_at: timestamp,
+    });
+
+    try {
+      await db('notifications').insert({
+        id: generateId(),
+        user_id: targetUser.id,
+        title: `👥 عضویت در گروه «${group.name}»`,
+        body: `${adderUser.display_name || 'مدیر گروه'} شما را به گروه «${group.name}» اضافه کرد.`,
+        type: 'group_invite',
+        data: JSON.stringify({ group_id: groupId }),
+        is_read: false,
+        created_at: timestamp,
+      });
+    } catch (_e) { /* ignore */ }
+
+    return { added: true, user: targetUser };
+  }
+
+  async removeMemberFromGroup(groupId, targetUserId, requester) {
+    const group = await this.assertGroupAccess(requester, groupId);
+
+    const isOwnerOrAdmin = group.created_by === requester.id || ['admin', 'manager', 'teacher'].includes(requester.role);
+    if (!isOwnerOrAdmin && requester.id !== targetUserId) {
+      throw forbiddenError('شما مجوز حذف عضو از این گروه را ندارید');
+    }
+
+    await db('message_group_members').where({ group_id: groupId, user_id: targetUserId }).del();
+    return { removed: true, user_id: targetUserId };
+  }
+
+  async getGroupInviteLink(groupId, currentUser) {
+    const group = await this.assertGroupAccess(currentUser, groupId);
+
     if (!group.invite_code) {
-      const code = 'grp-' + Math.random().toString(36).substring(2, 9);
-      await db('message_groups').where({ id: groupId }).update({ invite_code: code });
+      const code = this.generateInviteCode();
+      try {
+        await db('message_groups').where({ id: groupId }).update({ invite_code: code });
+      } catch (_e) { /* ignore */ }
       group.invite_code = code;
     }
 
     return {
       group_id: group.id,
-      name: group.name,
+      group_name: group.name,
       invite_code: group.invite_code,
-      invite_path: `/dashboard/messages?joinGroup=${group.invite_code}`,
+      invite_link: `https://educonnect.ir/join/${group.invite_code}`,
     };
   }
 
-  async joinGroupByLinkOrCode(userId, codeOrId) {
-    if (!codeOrId || !codeOrId.trim()) {
-      const error = new Error('لطفاً لینک یا کد دعوت گروه را وارد کنید');
-      error.statusCode = 400;
-      throw error;
+  async joinGroupByLinkOrCode(user, codeOrLink) {
+    if (!codeOrLink || !String(codeOrLink).trim()) {
+      const err = new Error('کد دعوت یا لینک گروه الزامی است');
+      err.statusCode = 400;
+      throw err;
     }
 
-    const raw = codeOrId.trim();
-    let cleanCode = raw;
-    if (raw.includes('joinGroup=')) {
-      cleanCode = raw.split('joinGroup=')[1].split('&')[0];
-    } else if (raw.includes('/')) {
-      cleanCode = raw.split('/').pop();
-    }
+    const raw = String(codeOrLink).trim();
+    const code = raw.includes('/join/') ? raw.split('/join/').pop().trim() : raw;
 
     const group = await db('message_groups')
-      .where({ invite_code: cleanCode })
-      .orWhere({ id: cleanCode })
+      .where({ invite_code: code.toUpperCase() })
+      .orWhere({ id: code })
       .first();
 
     if (!group) {
-      const error = new Error(`گروهی با این لینک یا کد دعوت («${raw}») یافت نشد.`);
-      error.statusCode = 404;
-      throw error;
+      throw notFoundError('گروهی با این لینک یا کد دعوت یافت نشد');
     }
 
-    const user = await db('users').where({ id: userId }).first();
+    await this.assertGroupAccess(user, group.id, { requireMember: false });
 
-    // Check if already a member
-    const isMember = await db('message_group_members')
-      .where({ group_id: group.id, user_id: userId })
+    const exists = await db('message_group_members')
+      .where({ group_id: group.id, user_id: user.id })
       .first();
 
-    if (!isMember) {
-      await insertAndReturn(db, 'message_group_members', {
+    const timestamp = now();
+    if (!exists) {
+      await db('message_group_members').insert({
+        id: generateId(),
         group_id: group.id,
-        user_id: userId,
+        user_id: user.id,
         role: 'member',
-      });
-
-      // Announce in group
-      await insertAndReturn(db, 'message_group_messages', {
-        group_id: group.id,
-        sender_id: userId,
-        content: `👋 کاربر «${user ? user.display_name : 'عضو جدید'}» از طریق لینک دعوت به گروه پیوست.`,
-        attachments: '[]',
+        joined_at: timestamp,
       });
     }
 
-    const memberCount = await db('message_group_members').where({ group_id: group.id }).count('id as count').first();
-    group.members_count = parseInt(memberCount?.count || 0, 10);
-
-    return {
-      group,
-      already_member: !!isMember,
-      message: isMember
-        ? `شما از قبل در گروه «${group.name}» عضو هستید.`
-        : `با موفقیت به گروه «${group.name}» پیوستید 🎉`,
-    };
+    return { joined: true, group };
   }
 
-  async getGroupMessages(groupId, page = 1, limit = 50) {
-    const offset = (page - 1) * limit;
-    const messages = await db('message_group_messages')
-      .join('users', 'users.id', 'message_group_messages.sender_id')
-      .where({ group_id: groupId })
+  async deleteGroup(groupId, user) {
+    const group = await this.assertGroupAccess(user, groupId, { requireMember: false });
+    if (group.created_by !== user.id && !['admin', 'manager'].includes(user.role)) {
+      throw forbiddenError('فقط سازنده گروه یا مدیر مدرسه می‌تواند گروه را حذف کند');
+    }
+
+    await db('message_group_messages').where({ group_id: groupId }).del();
+    await db('message_group_members').where({ group_id: groupId }).del();
+    await db('message_groups').where({ id: groupId }).del();
+    return { deleted: true };
+  }
+
+  async getGroupMessages(groupId, currentUser, limit = 100) {
+    const group = await this.assertGroupAccess(currentUser, groupId);
+    const messages = await db('message_group_messages as gm')
+      .leftJoin('users as u', 'u.id', 'gm.sender_id')
+      .where({ 'gm.group_id': groupId })
       .select(
-        'message_group_messages.*',
-        'users.display_name as sender_name',
-        'users.role as sender_role',
-        'users.avatar_url as sender_avatar',
-        'users.personnel_code as sender_personnel_code',
-        'users.student_code as sender_student_code'
+        'gm.*',
+        'u.display_name as sender_name',
+        'u.role as sender_role'
       )
-      .orderBy('sent_at', 'asc')
-      .limit(limit)
-      .offset(offset);
+      .orderBy('gm.sent_at', 'asc')
+      .limit(Number(limit) || 100);
 
-    messages.forEach(m => {
-      if (typeof m.attachments === 'string') {
-        try { m.attachments = JSON.parse(m.attachments); } catch (e) { m.attachments = []; }
-      }
-      if (!Array.isArray(m.attachments)) {
-        m.attachments = [];
-      }
-    });
-
-    return messages;
+    return { group, messages };
   }
 
-  async sendGroupMessage(senderId, groupId, { content, attachments }) {
-    const msg = await insertAndReturn(db, 'message_group_messages', {
+  async sendGroupMessage(user, groupId, { content, attachments }) {
+    const group = await this.assertGroupAccess(user, groupId);
+
+    if (!content || !String(content).trim()) {
+      const err = new Error('متن پیام نمی‌تواند خالی باشد');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const id = generateId();
+    const timestamp = now();
+    await db('message_group_messages').insert({
+      id,
       group_id: groupId,
-      sender_id: senderId,
-      content,
+      sender_id: user.id,
+      content: String(content).trim(),
       attachments: JSON.stringify(attachments || []),
+      is_edited: false,
+      sent_at: timestamp,
     });
 
-    const sender = await db('users').where({ id: senderId }).first();
-    msg.sender_name = sender ? sender.display_name : 'کاربر';
-    msg.sender_role = sender ? sender.role : 'member';
-    msg.sender_personnel_code = sender ? sender.personnel_code : null;
-    msg.sender_student_code = sender ? sender.student_code : null;
-    if (typeof msg.attachments === 'string') {
-      try { msg.attachments = JSON.parse(msg.attachments); } catch (e) { msg.attachments = []; }
-    }
-    if (!Array.isArray(msg.attachments)) {
-      msg.attachments = [];
-    }
-
-    return msg;
-  }
-
-  /**
-   * Voice & Video Calling Session Management
-   */
-  async initiateCall(callerId, { receiver_id, group_id, call_type = 'video' }) {
-    const session = await insertAndReturn(db, 'call_sessions', {
-      caller_id: callerId,
-      receiver_id: receiver_id || null,
-      group_id: group_id || null,
-      call_type,
-      status: 'active',
-      started_at: new Date().toISOString(),
-    });
-
-    const caller = await db('users').where({ id: callerId }).first();
-    let receiver = null;
-    let group = null;
-
-    if (receiver_id) {
-      receiver = await db('users').where({ id: receiver_id }).first();
-    }
-    if (group_id) {
-      group = await db('message_groups').where({ id: group_id }).first();
-    }
-
+    const msg = await db('message_group_messages').where({ id }).first();
     return {
-      session_id: session.id,
-      room_id: `room-${session.id}`,
-      call_type,
-      caller: {
-        id: caller.id,
-        name: caller.display_name,
-        role: caller.role,
-        personnel_code: caller.personnel_code,
-      },
-      receiver: receiver ? {
-        id: receiver.id,
-        name: receiver.display_name,
-        role: receiver.role,
-        personnel_code: receiver.personnel_code,
-        student_code: receiver.student_code,
-      } : null,
-      group: group ? { id: group.id, name: group.name } : null,
-      network: {
-        provider: 'Iran National Information Network (شبکه ملی)',
-        encryption: 'AES-256-GCM End-to-End',
-        status: 'Connected',
-      },
+      ...msg,
+      sender_name: user.display_name || 'کاربر',
+      sender_role: user.role || 'student',
     };
   }
 
-  async endCall(sessionId, durationSeconds = 0) {
-    return updateAndReturn(db, 'call_sessions', { id: sessionId }, {
-      status: 'ended',
-      duration_seconds: durationSeconds,
-      ended_at: new Date().toISOString(),
-    });
-  }
+  async editGroupMessage(userOrId, groupId, messageId, newContent) {
+    const user = typeof userOrId === 'object' && userOrId !== null
+      ? userOrId
+      : await db('users').where({ id: userOrId }).first();
+    if (!user) throw notFoundError('کاربر یافت نشد');
 
-  async broadcast(senderId, classId, { content, attachments }) {
-    const members = await db('class_members').where({ class_id: classId }).select('user_id');
-    const results = [];
-    for (const m of members) {
-      const msg = await insertAndReturn(db, 'messages', {
-        sender_id: senderId,
-        receiver_id: m.user_id,
-        class_id: classId,
-        content,
-        attachments: JSON.stringify(attachments || []),
-        is_broadcast: true,
-      });
-      results.push(msg);
+    await this.assertGroupAccess(user, groupId);
 
-      await insertAndReturn(db, 'notifications', {
-        user_id: m.user_id,
-        type: 'announcement',
-        title: 'اطلاعیه جدید کلاسی',
-        body: content ? content.substring(0, 100) : 'یک فایل پیوست شد',
-        data: JSON.stringify({ class_id: classId }),
-      });
-    }
-    return results;
-  }
-
-  async getAnnouncements(classId) {
-    return db('announcements')
-      .join('users', 'users.id', 'announcements.teacher_id')
-      .where({ class_id: classId })
-      .select('announcements.*', 'users.display_name as teacher_name', 'users.avatar_url as teacher_avatar')
-      .orderBy('announcements.created_at', 'desc');
-  }
-
-  async createAnnouncement(teacherId, classId, { title, content, attachments, is_pinned }) {
-    const announcement = await insertAndReturn(db, 'announcements', {
-      class_id: classId,
-      teacher_id: teacherId,
-      title,
-      content,
-      attachments: JSON.stringify(attachments || []),
-      is_pinned: !!is_pinned,
-    });
-
-    const members = await db('class_members').where({ class_id: classId }).select('user_id');
-    for (const m of members) {
-      await insertAndReturn(db, 'notifications', {
-        user_id: m.user_id,
-        type: 'announcement',
-        title: `اطلاعیه: ${title}`,
-        body: content ? content.substring(0, 80) : '',
-        data: JSON.stringify({ class_id: classId, announcement_id: announcement.id }),
-      });
+    if (!newContent || !String(newContent).trim()) {
+      const err = new Error('متن پیام نمی‌تواند خالی باشد');
+      err.statusCode = 400;
+      throw err;
     }
 
-    return announcement;
-  }
-
-  /**
-   * 1-on-1 Message Edit & Delete
-   */
-  async editMessage(userId, messageId, { content }) {
-    const msg = await db('messages').where({ id: messageId }).first();
+    const msg = await db('message_group_messages').where({ id: messageId, group_id: groupId }).first();
     if (!msg) {
-      const err = new Error('پیام مورد نظر یافت نشد');
-      err.statusCode = 404;
-      throw err;
+      throw notFoundError('پیام گروه یافت نشد');
+    }
+    if (msg.sender_id !== user.id) {
+      throw forbiddenError('فقط فرستنده پیام می‌تواند آن را ویرایش کند');
     }
 
-    if (msg.sender_id !== userId) {
-      const err = new Error('شما مجاز به ویرایش این پیام نیستید');
-      err.statusCode = 403;
-      throw err;
-    }
-
-    const updated = await updateAndReturn(db, 'messages', { id: messageId }, {
-      content: content.trim(),
+    const timestamp = now();
+    await db('message_group_messages').where({ id: messageId }).update({
+      content: String(newContent).trim(),
       is_edited: true,
-      edited_at: new Date().toISOString(),
+      edited_at: timestamp,
     });
 
-    if (typeof updated.attachments === 'string') {
-      try { updated.attachments = JSON.parse(updated.attachments); } catch (e) { updated.attachments = []; }
-    }
-    if (!Array.isArray(updated.attachments)) {
-      updated.attachments = [];
-    }
-
-    return updated;
+    return db('message_group_messages').where({ id: messageId }).first();
   }
 
-  async deleteMessage(userId, userRole, messageId) {
-    const msg = await db('messages').where({ id: messageId }).first();
+  async deleteGroupMessage(userOrId, groupId, messageId) {
+    const user = typeof userOrId === 'object' && userOrId !== null
+      ? userOrId
+      : await db('users').where({ id: userOrId }).first();
+    if (!user) throw notFoundError('کاربر یافت نشد');
+
+    await this.assertGroupAccess(user, groupId);
+
+    const msg = await db('message_group_messages').where({ id: messageId, group_id: groupId }).first();
     if (!msg) {
-      const err = new Error('پیام مورد نظر یافت نشد');
-      err.statusCode = 404;
-      throw err;
+      throw notFoundError('پیام گروه یافت نشد');
     }
 
-    const canDelete = msg.sender_id === userId || userRole === 'teacher' || userRole === 'admin';
-    if (!canDelete) {
-      const err = new Error('شما مجاز به حذف این پیام نیستید');
-      err.statusCode = 403;
-      throw err;
-    }
-
-    await db('messages').where({ id: messageId }).del();
-    return { id: messageId, deleted: true };
-  }
-
-  /**
-   * Group Message Edit & Delete
-   */
-  async editGroupMessage(userId, groupId, messageId, { content }) {
-    const msg = await db('message_group_messages')
-      .where({ id: messageId, group_id: groupId })
-      .first();
-
-    if (!msg) {
-      const err = new Error('پیام مورد نظر در گروه یافت نشد');
-      err.statusCode = 404;
-      throw err;
-    }
-
-    if (msg.sender_id !== userId) {
-      const err = new Error('شما مجاز به ویرایش این پیام نیستید');
-      err.statusCode = 403;
-      throw err;
-    }
-
-    const updated = await updateAndReturn(db, 'message_group_messages', { id: messageId }, {
-      content: content.trim(),
-      is_edited: true,
-      edited_at: new Date().toISOString(),
-    });
-
-    const sender = await db('users').where({ id: updated.sender_id }).first();
-    updated.sender_name = sender ? sender.display_name : 'کاربر';
-    updated.sender_role = sender ? sender.role : 'member';
-    updated.sender_personnel_code = sender ? sender.personnel_code : null;
-    updated.sender_student_code = sender ? sender.student_code : null;
-
-    if (typeof updated.attachments === 'string') {
-      try { updated.attachments = JSON.parse(updated.attachments); } catch (e) { updated.attachments = []; }
-    }
-    if (!Array.isArray(updated.attachments)) {
-      updated.attachments = [];
-    }
-
-    return updated;
-  }
-
-  async deleteGroupMessage(userId, userRole, groupId, messageId) {
-    const msg = await db('message_group_messages')
-      .where({ id: messageId, group_id: groupId })
-      .first();
-
-    if (!msg) {
-      const err = new Error('پیام مورد نظر در گروه یافت نشد');
-      err.statusCode = 404;
-      throw err;
-    }
-
-    const canDelete = msg.sender_id === userId || userRole === 'teacher' || userRole === 'admin';
-    if (!canDelete) {
-      const err = new Error('شما مجاز به حذف این پیام نیستید');
-      err.statusCode = 403;
-      throw err;
+    const isAdmin = ['admin', 'manager', 'teacher'].includes(user.role);
+    if (msg.sender_id !== user.id && !isAdmin) {
+      throw forbiddenError('شما مجوز حذف این پیام را ندارید');
     }
 
     await db('message_group_messages').where({ id: messageId }).del();
-    return { id: messageId, group_id: groupId, deleted: true };
+    return { deleted: true, id: messageId };
+  }
+
+  async broadcast(senderOrId, classId, { content, title }) {
+    const sender = typeof senderOrId === 'object' && senderOrId !== null
+      ? senderOrId
+      : await db('users').where({ id: senderOrId }).first();
+    if (!sender) {
+      throw notFoundError('فرستنده یافت نشد');
+    }
+
+    await assertOwnsClass(sender, classId);
+
+    const members = await db('class_members')
+      .join('users', 'users.id', 'class_members.user_id')
+      .where({
+        'class_members.class_id': classId,
+        'class_members.role': 'student',
+        'users.school_id': sender.school_id,
+      })
+      .select('class_members.user_id');
+
+    const timestamp = now();
+    const messageRows = members.map((m) => ({
+      id: generateId(),
+      sender_id: sender.id,
+      receiver_id: m.user_id,
+      class_id: classId,
+      content,
+      is_broadcast: true,
+      is_read: false,
+      sent_at: timestamp,
+    }));
+
+    const notifRows = members.map((m) => ({
+      id: generateId(),
+      user_id: m.user_id,
+      title: title || 'پیام جدید از معلم',
+      body: content.substring(0, 100),
+      type: 'broadcast',
+      data: JSON.stringify({ class_id: classId }),
+      is_read: false,
+      created_at: timestamp,
+    }));
+
+    if (messageRows.length) await db('messages').insert(messageRows);
+    if (notifRows.length) await db('notifications').insert(notifRows);
+
+    return { recipients_count: members.length };
+  }
+
+  async getAnnouncements(classId, user, page = 1, limit = 50) {
+    await assertOwnsClass(user, classId, { allowEnrolled: true });
+    const { offset } = parsePagination({ page, limit });
+
+    const baseQuery = db('announcements').where({ class_id: classId });
+    const [{ count }] = await baseQuery.clone().count('id as count');
+    const rows = await baseQuery
+      .leftJoin('users as u', 'u.id', 'announcements.teacher_id')
+      .select('announcements.*', 'u.display_name as teacher_name')
+      .orderBy('announcements.is_pinned', 'desc')
+      .orderBy('announcements.created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    const paged = paginatedResponse(rows, count, page, limit);
+    return {
+      announcements: paged.items,
+      pagination: paged.pagination,
+    };
+  }
+
+  async createAnnouncement(user, classId, { title, content, attachments, is_pinned }) {
+    await assertOwnsClass(user, classId);
+    const id = generateId();
+    const timestamp = now();
+
+    await db('announcements').insert({
+      id,
+      class_id: classId,
+      teacher_id: user.id,
+      title,
+      content: content || '',
+      attachments: JSON.stringify(attachments || []),
+      is_pinned: Boolean(is_pinned),
+      created_at: timestamp,
+    });
+
+    return db('announcements').where({ id }).first();
+  }
+
+  async initiateCall(user, { receiver_id, call_type = 'audio' }) {
+    if (receiver_id) {
+      const target = await db('users').where({ id: receiver_id }).first();
+      if (!target) throw notFoundError('مخاطب تماس یافت نشد');
+      assertSameSchool(user, target, 'برقراری تماس با کاربران مدرسه دیگر مجاز نیست');
+    }
+    return {
+      id: generateId(),
+      caller_id: user.id,
+      receiver_id: receiver_id || null,
+      call_type,
+      status: 'ringing',
+      started_at: now(),
+    };
+  }
+
+  async endCall(user, callId, { duration_seconds = 0 } = {}) {
+    return {
+      id: callId,
+      ended_by: user.id,
+      duration_seconds,
+      status: 'ended',
+      ended_at: now(),
+    };
   }
 }
 

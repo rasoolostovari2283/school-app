@@ -130,41 +130,8 @@ export default function ClassRostersPage() {
   const fetchClassRoster = async (classId) => {
     if (!classId) return;
 
-    // Helper to get school students pool not in this class
-    const getSchoolStudentsPool = (enrolledIds = new Set(), enrolledCodes = new Set()) => {
-      let pool = [];
-      try {
-        const currentCode = user?.school_code || user?.schoolId || '402100';
-        const mgmtSaved = localStorage.getItem(`mgmt_students_${currentCode}`);
-        if (mgmtSaved) {
-          const list = JSON.parse(mgmtSaved);
-          if (Array.isArray(list) && list.length > 0) pool = list;
-        }
-        if (pool.length === 0) {
-          const dbSaved = localStorage.getItem('school_students_database');
-          if (dbSaved) {
-            const list = JSON.parse(dbSaved);
-            if (Array.isArray(list) && list.length > 0) pool = list;
-          }
-        }
-      } catch (e) {}
-
-      if (pool.length === 0) {
-        pool = [];
-      }
-
-      return pool
-        .filter((s) => !enrolledIds.has(s.id) && !enrolledCodes.has(s.code || s.student_code))
-        .map((s) => ({
-          id: s.id,
-          display_name: s.name || s.display_name,
-          student_code: s.code || s.student_code,
-          department: s.grade || s.department,
-          phone: s.phone || '',
-          parent_name: s.parent_name || '',
-          parent_phone: s.parent_phone || '',
-        }));
-    };
+    // Helper to get school students pool not in this class (populated via API available_students)
+    const getSchoolStudentsPool = () => [];
 
     try {
       const res = await api.get(`/classes/${classId}/roster`);
@@ -319,38 +286,7 @@ export default function ClassRostersPage() {
       return newRoster;
     });
 
-    // 2. Save to global school database so student is accessible in attendance, gradebook, messages, etc.
-    try {
-      const currentCode = user?.school_code || user?.schoolId || '402100';
-      const mgmtKey = `mgmt_students_${currentCode}`;
-      let allSchoolStudents = [];
-      const savedMgmt = localStorage.getItem(mgmtKey);
-      if (savedMgmt) {
-        allSchoolStudents = JSON.parse(savedMgmt);
-      }
-      const existingIdx = allSchoolStudents.findIndex(
-        (s) => s.id === addedStudent.id || (s.code && s.code === addedStudent.student_code)
-      );
-      const formattedForMgmt = {
-        id: addedStudent.id,
-        name: addedStudent.display_name,
-        code: addedStudent.student_code,
-        grade: addedStudent.department || activeClass?.grade || 'پایه عمومی',
-        class_name: activeClass?.name || 'کلاس عمومی',
-        phone: addedStudent.phone,
-        parent_name: addedStudent.parent_name,
-        parent_phone: addedStudent.parent_phone,
-      };
-      if (existingIdx >= 0) {
-        allSchoolStudents[existingIdx] = { ...allSchoolStudents[existingIdx], ...formattedForMgmt };
-      } else {
-        allSchoolStudents.push(formattedForMgmt);
-      }
-      localStorage.setItem(mgmtKey, JSON.stringify(allSchoolStudents));
-      localStorage.setItem('school_students_database', JSON.stringify(allSchoolStudents));
-    } catch (e) {
-      console.warn('Could not sync student to school database:', e);
-    }
+    // 2. Backend API (/classes/:id/students) already persisted the student to SQLite
 
     // 3. Update classes count
     setClasses((prev) =>

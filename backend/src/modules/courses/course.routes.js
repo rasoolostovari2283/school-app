@@ -1,13 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const {
+  authenticate,
+  assertSameSchool,
+  assertTeacherOfStudent,
+  forbiddenError,
+} = require('../../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
 
 /**
- * GET /api/v1/courses — list available courses
+ * GET /api/v1/courses — list available courses in the requester's school
  */
 router.get('/', async (req, res, next) => {
   try {
@@ -15,9 +20,11 @@ router.get('/', async (req, res, next) => {
       .leftJoin('users', 'users.id', 'courses.teacher_id')
       .select('courses.*', 'users.display_name as teacher_name')
       .where('courses.is_active', true)
+      .andWhere(function () {
+        this.where('users.school_id', req.user.school_id).orWhereNull('courses.teacher_id');
+      })
       .orderBy('courses.code', 'asc');
 
-    // If student, attach enrollment status
     if (req.user.role === 'student') {
       for (const c of courses) {
         const enrollment = await db('course_enrollments')
@@ -43,6 +50,13 @@ router.post('/:id/enroll', async (req, res, next) => {
     const course = await db('courses').where({ id: req.params.id, is_active: true }).first();
     if (!course) {
       return res.status(404).json({ success: false, message: 'درس یافت نشد' });
+    }
+
+    if (course.teacher_id) {
+      const teacher = await db('users').where({ id: course.teacher_id }).first();
+      if (teacher && teacher.school_id && req.user.school_id && teacher.school_id !== req.user.school_id) {
+        return res.status(403).json({ success: false, message: 'دسترسی به درس مدرسه دیگر مجاز نیست' });
+      }
     }
 
     if (course.enrolled_count >= course.capacity) {
@@ -82,6 +96,14 @@ router.post('/:id/drop', async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'ثبت‌نامی یافت نشد' });
     }
 
+    const course = await db('courses').where({ id: req.params.id }).first();
+    if (course && course.teacher_id) {
+      const teacher = await db('users').where({ id: course.teacher_id }).first();
+      if (teacher) {
+        assertSameSchool(req.user, teacher);
+      }
+    }
+
     await db('course_enrollments')
       .where('id', enrollment.id)
       .update({ status: 'dropped', dropped_at: new Date().toISOString() });
@@ -96,7 +118,37 @@ router.post('/:id/drop', async (req, res, next) => {
  */
 router.get('/transcript', async (req, res, next) => {
   try {
-    const studentId = req.query.student_id || req.user.id;
+    let studentId = req.user.id;
+
+    if (req.user.role === 'student') {
+      if (req.query.student_id && req.query.student_id !== req.user.id) {
+        throw forbiddenError('شما فقط مجاز به مشاهده کارنامه خودتان هستید');
+      }
+      studentId = req.user.id;
+    } else if (req.user.role === 'parent') {
+      const childIds = await db('parent_student_links').where({ parent_id: req.user.id }).pluck('student_id');
+      if (req.user.student_code) {
+        const byCode = await db('users')
+          .where({ student_code: req.user.student_code, role: 'student', school_id: req.user.school_id })
+          .first();
+        if (byCode && !childIds.includes(byCode.id)) {
+          childIds.push(byCode.id);
+        }
+      }
+      const requestedId = req.query.student_id || childIds[0];
+      if (!requestedId || !childIds.includes(requestedId)) {
+        throw forbiddenError('شما فقط مجاز به مشاهده کارنامه فرزند خود هستید');
+      }
+      const childUser = await db('users').where({ id: requestedId }).first();
+      if (childUser) {
+        assertSameSchool(req.user, childUser);
+      }
+      studentId = requestedId;
+    } else if (req.query.student_id && req.query.student_id !== req.user.id) {
+      const student = await assertTeacherOfStudent(req.user, req.query.student_id);
+      assertSameSchool(req.user, student);
+      studentId = student.id;
+    }
 
     const enrollments = await db('course_enrollments')
       .join('courses', 'courses.id', 'course_enrollments.course_id')
@@ -110,9 +162,9 @@ router.get('/transcript', async (req, res, next) => {
       .where('course_enrollments.student_id', studentId)
       .orderBy('courses.semester', 'desc');
 
-    // Calculate GPA
-    const completed = enrollments.filter(e => e.status === 'completed' && e.grade_point != null);
-    let totalCredits = 0, totalWeighted = 0;
+    const completed = enrollments.filter((e) => e.status === 'completed' && e.grade_point != null);
+    let totalCredits = 0;
+    let totalWeighted = 0;
     for (const e of completed) {
       totalCredits += e.credits;
       totalWeighted += e.grade_point * e.credits;

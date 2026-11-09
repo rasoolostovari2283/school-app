@@ -35,13 +35,6 @@ export default function ClassesPage() {
 
   useEffect(() => {
     fetchClasses();
-    try {
-      const code = user?.school_code || 'SCH-4821';
-      const saved = localStorage.getItem('school_teachers_database') || localStorage.getItem(`mgmt_teachers_${code}`);
-      if (saved) {
-        setTeachersList(JSON.parse(saved));
-      }
-    } catch (e) {}
   }, [user]);
 
   const handleCreate = async (e, launchLive = false) => {

@@ -1,8 +1,14 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
 const bcrypt = require('bcryptjs');
-const { authenticate, authorize } = require('../../middleware/auth');
+const {
+  authenticate,
+  authorize,
+  assertSameSchool,
+  assertOwnsResource,
+} = require('../../middleware/auth');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
 
 /**
@@ -19,33 +25,30 @@ function normalizeUrl(url) {
 }
 
 /**
- * Helper: Resolve active school for user
+ * Helper: Resolve active school for user strictly within user's tenant
  */
 async function resolveSchool(user) {
-  let school = null;
-  if (user && user.school_id) {
-    school = await db('schools').where({ id: user.school_id }).first();
+  if (!user) return null;
+  if (user.school_id) {
+    return db('schools').where({ id: user.school_id }).first();
   }
-  if (!school && user) {
-    let settings = {};
-    try {
-      settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : (user.settings || {});
-    } catch (e) {}
+  let settings = {};
+  try {
+    settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : (user.settings || {});
+  } catch (e) {}
 
-    const schoolCode = user.school_code || settings.school_code;
-    const schoolName = user.school_name || settings.school_name;
+  const schoolCode = user.school_code || settings.school_code;
+  const schoolName = user.school_name || settings.school_name;
 
-    if (schoolCode) {
-      school = await db('schools').whereRaw('UPPER(code) = ?', [schoolCode.toUpperCase()]).first();
-    }
-    if (!school && schoolName) {
-      school = await db('schools').where('name', schoolName).first();
-    }
+  if (schoolCode) {
+    const byCode = await db('schools').whereRaw('UPPER(code) = ?', [schoolCode.toUpperCase()]).first();
+    if (byCode) return byCode;
   }
-  if (!school) {
-    school = await db('schools').first();
+  if (schoolName) {
+    const byName = await db('schools').where('name', schoolName).first();
+    if (byName) return byName;
   }
-  return school;
+  return null;
 }
 
 // ── All routes require authentication ──
@@ -72,7 +75,6 @@ router.get('/info', async (req, res, next) => {
       });
     }
 
-    // Find principal / admin
     let principalName = req.user?.display_name;
     try {
       const adminUser = await db('users')
@@ -101,31 +103,23 @@ router.get('/info', async (req, res, next) => {
 
 /**
  * GET /api/v1/school/members
- * Get all teachers and students registered in the database for this school
+ * Get all teachers and students registered in the database for this school only
  */
 router.get('/members', async (req, res, next) => {
   try {
-    const school = await resolveSchool(req.user);
-    const schoolId = school ? school.id : null;
-
-    let teachersQuery = db('users').where({ role: 'teacher' });
-    let studentsQuery = db('users').where({ role: 'student' });
-
-    if (schoolId) {
-      teachersQuery = teachersQuery.where(function () {
-        this.where({ school_id: schoolId }).orWhereNull('school_id');
-      });
-      studentsQuery = studentsQuery.where(function () {
-        this.where({ school_id: schoolId }).orWhereNull('school_id');
+    const schoolId = req.user.school_id || (await resolveSchool(req.user))?.id || null;
+    if (!schoolId) {
+      return res.json({
+        success: true,
+        data: { teachers: [], students: [] },
       });
     }
 
     const [rawTeachers, rawStudents] = await Promise.all([
-      teachersQuery.orderBy('created_at', 'desc'),
-      studentsQuery.orderBy('created_at', 'desc'),
+      db('users').where({ role: 'teacher', school_id: schoolId }).orderBy('created_at', 'desc'),
+      db('users').where({ role: 'student', school_id: schoolId }).orderBy('created_at', 'desc'),
     ]);
 
-    // Format teachers
     const teachers = rawTeachers.map((t) => {
       let settings = {};
       try {
@@ -143,7 +137,6 @@ router.get('/members', async (req, res, next) => {
       };
     });
 
-    // Format students
     const students = rawStudents.map((s) => {
       let settings = {};
       try {
@@ -180,19 +173,21 @@ router.get('/members', async (req, res, next) => {
  */
 router.post('/teachers', authorize('admin', 'manager'), async (req, res, next) => {
   try {
-    const { name, code, subject, phone, grades } = req.body;
+    const { name, code, subject, phone, grades, password } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'نام و نام خانوادگی دبیر الزامی است' });
     }
 
     const school = await resolveSchool(req.user);
-    const schoolId = school ? school.id : null;
+    const schoolId = req.user.school_id || (school ? school.id : null);
 
     const cleanName = name.trim();
     const cleanCode = (code || `TCH-${Math.floor(1000 + Math.random() * 9000)}`).trim().toUpperCase();
     const cleanPhone = phone && phone.trim() ? phone.trim() : null;
-    const defaultPassword = cleanCode || '123456';
-    const password_hash = await bcrypt.hash(defaultPassword, 10);
+    const secretToHash = password && String(password).trim()
+      ? String(password).trim()
+      : crypto.randomBytes(24).toString('hex');
+    const password_hash = await bcrypt.hash(secretToHash, 10);
 
     const teacherSettings = JSON.stringify({
       taught_grades: Array.isArray(grades) && grades.length > 0 ? grades : ['پایه دهم'],
@@ -235,14 +230,27 @@ router.post('/teachers', authorize('admin', 'manager'), async (req, res, next) =
 
 /**
  * DELETE /api/v1/school/teachers/:id
- * Remove teacher from database
+ * Remove teacher from database (scoped to caller's school)
  */
 router.delete('/teachers/:id', authorize('admin', 'manager'), async (req, res, next) => {
   try {
     const teacherId = req.params.id;
+    const teacher = await db('users').where({ id: teacherId, role: 'teacher' }).first();
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'معلم یافت نشد',
+      });
+    }
+
+    assertSameSchool(req.user, teacher);
+
     await db('class_members').where({ user_id: teacherId }).del().catch(() => {});
-    await db('classes').where({ teacher_id: teacherId }).update({ teacher_id: req.user.id }).catch(() => {});
-    await db('users').where({ id: teacherId, role: 'teacher' }).del();
+    await db('classes')
+      .where({ teacher_id: teacherId, school_id: req.user.school_id })
+      .update({ teacher_id: req.user.id })
+      .catch(() => {});
+    await db('users').where({ id: teacherId, role: 'teacher', school_id: req.user.school_id }).del();
 
     res.json({
       success: true,
@@ -259,18 +267,20 @@ router.delete('/teachers/:id', authorize('admin', 'manager'), async (req, res, n
  */
 router.post('/students', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
   try {
-    const { name, code, grade, class_name, class_id, teacher_name, parent_phone } = req.body;
+    const { name, code, grade, class_name, class_id, teacher_name, parent_phone, password } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'نام دانش‌آموز الزامی است' });
     }
 
     const school = await resolveSchool(req.user);
-    const schoolId = school ? school.id : null;
+    const schoolId = req.user.school_id || (school ? school.id : null);
 
     const cleanName = name.trim();
     const cleanCode = (code || `STD-${Math.floor(10000 + Math.random() * 90000)}`).trim().toUpperCase();
-    const defaultPassword = cleanCode || '123456';
-    const password_hash = await bcrypt.hash(defaultPassword, 10);
+    const secretToHash = password && String(password).trim()
+      ? String(password).trim()
+      : crypto.randomBytes(24).toString('hex');
+    const password_hash = await bcrypt.hash(secretToHash, 10);
 
     const studentSettings = JSON.stringify({
       class_name: class_name || 'کلاس عمومی',
@@ -293,11 +303,16 @@ router.post('/students', authorize('admin', 'manager', 'teacher'), async (req, r
       settings: studentSettings,
     });
 
-    // If class_id is given or class_name matches an existing class, enroll student
+    // If class_id is given or class_name matches an existing class in the same school, enroll student
     let targetClassId = class_id;
-    if (!targetClassId && class_name) {
+    if (targetClassId) {
+      const targetClass = await db('classes').where({ id: targetClassId }).first();
+      if (!targetClass || targetClass.school_id !== schoolId) {
+        targetClassId = null;
+      }
+    } else if (class_name) {
       const matchedClass = await db('classes')
-        .where('name', class_name.trim())
+        .where({ name: class_name.trim(), school_id: schoolId })
         .first();
       if (matchedClass) targetClassId = matchedClass.id;
     }
@@ -337,13 +352,23 @@ router.post('/students', authorize('admin', 'manager', 'teacher'), async (req, r
 
 /**
  * DELETE /api/v1/school/students/:id
- * Remove student from database
+ * Remove student from database (scoped to caller's school)
  */
 router.delete('/students/:id', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
   try {
     const studentId = req.params.id;
+    const student = await db('users').where({ id: studentId, role: 'student' }).first();
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'دانش‌آموز یافت نشد',
+      });
+    }
+
+    assertSameSchool(req.user, student);
+
     await db('class_members').where({ user_id: studentId }).del().catch(() => {});
-    await db('users').where({ id: studentId, role: 'student' }).del();
+    await db('users').where({ id: studentId, role: 'student', school_id: req.user.school_id }).del();
 
     res.json({
       success: true,
@@ -356,16 +381,24 @@ router.delete('/students/:id', authorize('admin', 'manager', 'teacher'), async (
 
 /**
  * GET /api/v1/school/directives
- * Retrieve school-wide administrative directives from announcements table
+ * Retrieve school-wide administrative directives from announcements table (scoped to caller's school)
  */
 router.get('/directives', async (req, res, next) => {
   try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) {
+      return res.json({ success: true, data: { directives: [] } });
+    }
+
     const directives = await db('announcements')
+      .join('users as author', 'author.id', 'announcements.teacher_id')
+      .where('author.school_id', schoolId)
       .where(function () {
-        this.whereIn('target_audience', ['school', 'teachers', 'students', 'parents', 'all'])
-          .orWhereNull('class_id');
+        this.whereIn('announcements.target_audience', ['school', 'teachers', 'students', 'parents', 'all'])
+          .orWhereNull('announcements.class_id');
       })
-      .orderBy('created_at', 'desc')
+      .select('announcements.*')
+      .orderBy('announcements.created_at', 'desc')
       .limit(50);
 
     const mapped = directives.map((d) => ({
@@ -450,10 +483,22 @@ router.post('/directives', authorize('admin', 'manager', 'teacher'), async (req,
 
 /**
  * DELETE /api/v1/school/directives/:id
- * Remove directive from announcements table
+ * Remove directive from announcements table (scoped to caller's school and ownership)
  */
 router.delete('/directives/:id', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
   try {
+    const directive = await db('announcements').where({ id: req.params.id }).first();
+    if (!directive) {
+      return res.status(404).json({
+        success: false,
+        message: 'بخشنامه یافت نشد',
+      });
+    }
+
+    const author = await db('users').where({ id: directive.teacher_id }).first();
+    assertSameSchool(req.user, author || { school_id: null });
+    assertOwnsResource(req.user, directive, 'teacher_id');
+
     await db('announcements').where({ id: req.params.id }).del();
     res.json({
       success: true,
@@ -472,28 +517,22 @@ router.get('/website', async (req, res, next) => {
     let websiteUrl = '';
     let schoolName = '';
 
-    // 1. Check system_settings table
-    try {
-      const setting = await db('system_settings').where({ key: 'school_website' }).first();
-      if (setting && setting.value) {
-        websiteUrl = setting.value;
-      }
-    } catch (e) {}
+    const school = await resolveSchool(req.user);
+    if (school) {
+      schoolName = school.name || '';
+      websiteUrl = school.website || '';
+    }
 
-    // 2. Check schools table as fallback or context
-    try {
-      let schoolQuery = db('schools');
-      if (req.user && req.user.school_id) {
-        schoolQuery = schoolQuery.where({ id: req.user.school_id });
-      }
-      const school = await schoolQuery.first();
-      if (school) {
-        schoolName = school.name || '';
-        if (!websiteUrl && school.website) {
-          websiteUrl = school.website;
+    if (!websiteUrl && school) {
+      try {
+        const setting = await db('system_settings')
+          .where({ key: `school_website_${school.id}` })
+          .first();
+        if (setting && setting.value) {
+          websiteUrl = setting.value;
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
 
     return res.json({
       success: true,
@@ -515,36 +554,34 @@ router.put('/website', authorize('admin', 'manager'), async (req, res, next) => 
     const rawUrl = req.body?.website_url || req.body?.url || '';
     const normalized = normalizeUrl(rawUrl);
 
-    // 1. Upsert into system_settings
+    const school = await resolveSchool(req.user);
+    if (!school) {
+      return res.status(404).json({
+        success: false,
+        message: 'مدرسه یافت نشد',
+      });
+    }
+
+    assertSameSchool(req.user, school.id);
+
+    await db('schools').where({ id: school.id }).update({ website: normalized });
+
     try {
-      const existing = await db('system_settings').where({ key: 'school_website' }).first();
+      const settingKey = `school_website_${school.id}`;
+      const existing = await db('system_settings').where({ key: settingKey }).first();
       if (existing) {
         await db('system_settings')
-          .where({ key: 'school_website' })
+          .where({ key: settingKey })
           .update({
             value: normalized,
             updated_at: db.fn.now(),
           });
       } else {
         await db('system_settings').insert({
-          key: 'school_website',
+          key: settingKey,
           value: normalized,
           updated_at: db.fn.now(),
         });
-      }
-    } catch (e) {}
-
-    // 2. Also update schools table
-    try {
-      let schoolQuery = db('schools');
-      if (req.user && req.user.school_id) {
-        schoolQuery = schoolQuery.where({ id: req.user.school_id });
-      }
-      const school = await schoolQuery.first();
-      if (school) {
-        await db('schools').where({ id: school.id }).update({ website: normalized });
-      } else {
-        await db('schools').update({ website: normalized });
       }
     } catch (e) {}
 

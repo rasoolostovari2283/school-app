@@ -15,12 +15,16 @@ export function getSocket() {
     }
 
     socket = io(backendUrl, {
-      transports: ['websocket', 'polling'], // Fallback to polling on restrictive mobile networks
+      transports: ['websocket', 'polling'],
       reconnectionAttempts: 15,
       reconnectionDelay: 1500,
       timeout: 20000,
       autoConnect: true,
       withCredentials: true,
+      auth: (cb) => {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+        cb({ token });
+      },
     });
 
     socket.on('connect', () => {

@@ -997,7 +997,7 @@
    PRINT MEDIA RULES (خروجی شکیل و بدون المان‌های اضافی سایت هنگام چاپ)
    ══════════════════════════════════════════════════════════════════ */
 @media print {
-  :global(body) {
+  .container {
     background: #ffffff !important;
     color: #111827 !important;
   }
@@ -1213,11 +1213,7 @@
 
 @media print {
   /* مخفی کردن تمام المان‌های محیطی داشبورد */
-  :global(#sidebar),
-  :global(aside),
-  :global(nav),
-  :global(header),
-  :global(button),
+  .container button,
   .header,
   .creatorCard,
   .activeSessionBanner,

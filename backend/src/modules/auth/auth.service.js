@@ -1,9 +1,11 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../../config/database');
 const config = require('../../config');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
 const { generateUniqueUsername } = require('../../utils/usernameHelper');
+const localCaptcha = require('../../utils/localCaptcha');
 
 /**
  * Roles an unauthenticated (self-service) request may end up with.
@@ -48,16 +50,33 @@ function resolveSelfServiceRole(requestedRole) {
 }
 
 class AuthService {
-  async register({ email, phone, password, display_name, role: requestedRole, locale, username }) {
+  async register({ email, phone, password, display_name, role: requestedRole, locale, username, school_id = null, school_code = null }) {
     // The role of an unauthenticated registration is decided on the server.
     const role = resolveSelfServiceRole(requestedRole);
 
-    const existingUser = await db('users')
-      .where(function () {
-        if (email) this.orWhere({ email });
-        if (phone) this.orWhere({ phone });
-      })
-      .first();
+    if (!password || String(password).trim().length < 8) {
+      const error = new Error('رمز عبور باید حداقل ۸ کاراکتر باشد');
+      error.messageEn = 'Password must be at least 8 characters';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let effectiveSchoolId = school_id ? String(school_id).trim() : null;
+    if (!effectiveSchoolId && school_code && String(school_code).trim()) {
+      const schoolByCode = await db('schools').where({ code: String(school_code).trim() }).first();
+      if (schoolByCode) {
+        effectiveSchoolId = schoolByCode.id;
+      }
+    }
+
+    let duplicateQuery = db('users').where(function () {
+      if (email) this.orWhere({ email });
+      if (phone) this.orWhere({ phone });
+    });
+    if (effectiveSchoolId) {
+      duplicateQuery = duplicateQuery.andWhere({ school_id: effectiveSchoolId });
+    }
+    const existingUser = await duplicateQuery.first();
 
     if (existingUser) {
       const error = new Error('این شماره تلفن یا ایمیل قبلاً در سامانه ثبت شده است');
@@ -70,7 +89,7 @@ class AuthService {
       ? username.toLowerCase().replace(/^@/, '').replace(/[^a-z0-9_]/g, '_')
       : await generateUniqueUsername(db, display_name);
 
-    const passToHash = password && password.trim() ? password.trim() : (phone ? phone.slice(-6) : '123456');
+    const passToHash = String(password).trim();
     const password_hash = await bcrypt.hash(passToHash, 12);
 
     let student_code = null;
@@ -90,10 +109,12 @@ class AuthService {
       display_name,
       username: uniqueUsername,
       role,
+      school_id: effectiveSchoolId,
       student_code,
       personnel_code,
       locale: locale || 'fa',
       is_verified: true,
+      is_active: true,
     });
 
     delete user.password_hash;
@@ -112,13 +133,31 @@ class AuthService {
     }
 
     const school_code = `SCH-${Math.floor(1000 + Math.random() * 9000)}`;
-    const username = `admin_${school_code.toLowerCase().replace('-', '')}`;
+    const username = `admin_${school_code.toLowerCase().replace('-', '')}_${crypto.randomBytes(2).toString('hex')}`;
     const cleanPhone = admin_phone ? admin_phone.trim() : null;
-    const passToHash = admin_password && admin_password.trim() ? admin_password.trim() : 'admin123';
+    const passToHash = admin_password && admin_password.trim()
+      ? admin_password.trim()
+      : crypto.randomBytes(24).toString('hex');
     const password_hash = await bcrypt.hash(passToHash, 10);
 
-    let existingUser = cleanPhone ? await db('users').where({ phone: cleanPhone }).first() : null;
-    let user;
+    // Never escalate an existing user account to 'admin' via an unauthenticated school registration (finding A1).
+    if (cleanPhone) {
+      const existingUser = await db('users').where({ phone: cleanPhone }).first();
+      if (existingUser) {
+        const error = new Error('این شماره تلفن قبلاً در سامانه ثبت شده است');
+        error.messageEn = 'Phone number is already registered';
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
+    const existingSchool = await db('schools').where({ name: school_name.trim() }).first();
+    if (existingSchool) {
+      const error = new Error('مدرسه‌ای با این نام قبلاً ثبت شده است');
+      error.messageEn = 'School with this name already exists';
+      error.statusCode = 409;
+      throw error;
+    }
 
     const schoolSettings = JSON.stringify({
       school_name: school_name.trim(),
@@ -129,44 +168,27 @@ class AuthService {
       is_school_registered: true,
     });
 
-    if (existingUser) {
-      await db('users').where({ id: existingUser.id }).update({
-        role: 'admin',
-        display_name: `مدیریت ${school_name.trim()}`,
-        settings: schoolSettings,
-      });
-      user = await db('users').where({ id: existingUser.id }).first();
-    } else {
-      user = await insertAndReturn(db, 'users', {
-        phone: cleanPhone,
-        password_hash,
-        display_name: `مدیریت ${school_name.trim()}`,
-        username,
-        role: 'admin',
-        locale: 'fa',
-        is_verified: true,
-        settings: schoolSettings,
-      });
-    }
+    const user = await insertAndReturn(db, 'users', {
+      phone: cleanPhone,
+      password_hash,
+      display_name: `مدیریت ${school_name.trim()}`,
+      username,
+      role: 'admin',
+      locale: 'fa',
+      is_verified: true,
+      settings: schoolSettings,
+    });
 
     delete user.password_hash;
     const tokens = this.generateTokens(user.id, user.role);
 
-    // Persist to schools table so it appears in all school dropdowns and login
-    let schoolRecord = await db('schools').where({ name: school_name.trim() }).first();
-    if (!schoolRecord) {
-      try {
-        schoolRecord = await insertAndReturn(db, 'schools', {
-          id: generateId(),
-          name: school_name.trim(),
-          code: school_code,
-          city: city || 'تهران',
-          created_by: user.id,
-        });
-      } catch (err) {
-        schoolRecord = await db('schools').where({ name: school_name.trim() }).first();
-      }
-    }
+    const schoolRecord = await insertAndReturn(db, 'schools', {
+      id: generateId(),
+      name: school_name.trim(),
+      code: school_code,
+      city: city || 'تهران',
+      created_by: user.id,
+    });
 
     if (schoolRecord && schoolRecord.id) {
       await db('users').where({ id: user.id }).update({ school_id: schoolRecord.id });
@@ -208,7 +230,6 @@ class AuthService {
     ];
 
     const schoolMap = new Map();
-    // Put dbSchools first so user registered schools appear at the top!
     (dbSchools || []).forEach((s) => {
       schoolMap.set(s.name, {
         id: s.id,
@@ -256,34 +277,9 @@ class AuthService {
       user = await db('users').where({ display_name: cleanName, role }).first();
     }
 
-    // Resolve school if provided
-    let matchedSchool = null;
-    if (school_name && school_name.trim()) {
-      const cleanSchoolName = school_name.trim();
-      matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-      if (!matchedSchool && school_code) {
-        matchedSchool = await db('schools').where({ code: school_code.trim() }).first();
-      }
-      if (!matchedSchool) {
-        try {
-          const randSuffix = Math.floor(1000 + Math.random() * 9000);
-          matchedSchool = await insertAndReturn(db, 'schools', {
-            id: generateId(),
-            name: cleanSchoolName,
-            code: school_code || `SCH-${randSuffix}`,
-            city: 'تهران',
-          });
-        } catch (e) {
-          matchedSchool = await db('schools').where({ name: cleanSchoolName }).first();
-        }
-      }
-    }
-
     if (user) {
       // An existing account is only ever authenticated with its own password.
-      // A quick entry must not hand out tokens for an account the caller cannot
-      // prove it owns, and it must not touch the account either (report
-      // finding A2).
+      // Verify credentials BEFORE any DB writes or school creation (finding A2).
       if (!password || !password.trim()) {
         const error = new Error('برای ورود به حساب کاربری موجود، رمز عبور الزامی است');
         error.messageEn = 'Password is required to sign in to an existing account';
@@ -308,43 +304,25 @@ class AuthService {
         user.username = generatedUser;
       }
 
-      let settings = {};
-      if (user.settings) {
-        try { settings = typeof user.settings === 'string' ? JSON.parse(user.settings) : user.settings; } catch (e) {}
-      }
-
-      if (matchedSchool) {
-        settings.school_name = matchedSchool.name;
-        settings.school_code = matchedSchool.code;
-        if (role === 'teacher') {
-          settings.schools = Array.from(new Set([matchedSchool.name, ...(settings.schools || [])]));
-        }
-      }
-
-      if (Array.isArray(grades) && grades.length > 0) {
-        settings.taught_grades = Array.from(new Set([...(settings.taught_grades || []), ...grades]));
-        settings.is_teacher_onboarded = true;
-      }
-      if (subject && subject.trim()) {
-        settings.subject = subject.trim();
-      }
-
-      const updatePayload = { settings: JSON.stringify(settings) };
-      if (matchedSchool) updatePayload.school_id = matchedSchool.id;
-      await db('users').where({ id: user.id }).update(updatePayload);
-
-      user.school_id = matchedSchool ? matchedSchool.id : user.school_id;
-      user.school_name = matchedSchool ? matchedSchool.name : (settings.school_name || null);
-      user.settings = JSON.stringify(settings);
-
       delete user.password_hash;
       const tokens = this.generateTokens(user.id, user.role);
       return { user, isNew: false, ...tokens };
     }
 
+    // Resolve existing school if provided (do not allow unauthenticated creation of arbitrary schools)
+    let matchedSchool = null;
+    if (school_name && school_name.trim()) {
+      matchedSchool = await db('schools').where({ name: school_name.trim() }).first();
+    }
+    if (!matchedSchool && school_code && school_code.trim()) {
+      matchedSchool = await db('schools').where({ code: school_code.trim() }).first();
+    }
+
     // New User Registration
     const generatedUsername = await generateUniqueUsername(db, cleanName);
-    const passToHash = password && password.trim() ? password.trim() : (cleanPhone ? cleanPhone.slice(-6) : '123456');
+    const passToHash = password && password.trim()
+      ? password.trim()
+      : crypto.randomBytes(24).toString('hex');
     const password_hash = await bcrypt.hash(passToHash, 10);
 
     let student_code = null;
@@ -386,20 +364,52 @@ class AuthService {
     return { user: newUser, isNew: true, ...tokens };
   }
 
-  async login(identifier, password) {
+  async login(identifier, password, captchaId = null, captchaAnswer = null, options = {}) {
+    let effectiveCaptchaId = captchaId;
+    let effectiveCaptchaAnswer = captchaAnswer;
+    let loginOptions = options || {};
+
+    if (captchaId && typeof captchaId === 'object') {
+      loginOptions = captchaId;
+      effectiveCaptchaId = loginOptions.captchaId ?? null;
+      effectiveCaptchaAnswer = loginOptions.captchaAnswer ?? null;
+    }
+
+    if (effectiveCaptchaId !== null && effectiveCaptchaId !== undefined) {
+      if (!localCaptcha.verify(effectiveCaptchaId, effectiveCaptchaAnswer)) {
+        const error = new Error('کد امنیتی نامعتبر یا منقضی شده است');
+        error.messageEn = 'Invalid or expired captcha';
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
     const cleanId = (identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
 
-    // Only an unambiguous identifier authenticates an account: e-mail, phone
-    // number or user name. A display name is not unique, so it must never be
-    // accepted as a credential.
-    const user = await db('users')
-      .where({ email: cleanId })
-      .orWhere({ phone: cleanId })
-      .orWhereRaw('LOWER(username) = ?', [cleanUsername])
-      .first();
+    let targetSchoolId = loginOptions.school_id ? String(loginOptions.school_id).trim() : null;
+    if (!targetSchoolId && loginOptions.school_code && String(loginOptions.school_code).trim()) {
+      const schoolRecord = await db('schools').where({ code: String(loginOptions.school_code).trim() }).first();
+      if (schoolRecord) {
+        targetSchoolId = schoolRecord.id;
+      }
+    }
 
-    if (!user) {
+    // Only an unambiguous identifier authenticates an account: e-mail, phone
+    // number or user name. When school_id/school_code is supplied, scope lookup
+    // to that school so multi-school teachers/parents log into the intended tenant.
+    let userQuery = db('users').where(function () {
+      this.where({ email: cleanId })
+        .orWhere({ phone: cleanId })
+        .orWhereRaw('LOWER(username) = ?', [cleanUsername]);
+    });
+
+    if (targetSchoolId) {
+      userQuery = userQuery.andWhere({ school_id: targetSchoolId });
+    }
+
+    const candidates = await userQuery;
+    if (!candidates || candidates.length === 0) {
       const error = new Error('کاربری با این شناسه کاربری، آیدی یا شماره تلفن یافت نشد');
       error.messageEn = 'User not found';
       error.statusCode = 401;
@@ -407,8 +417,6 @@ class AuthService {
     }
 
     if (!password || !password.trim()) {
-      // The login validator no longer supplies a default value, so a request
-      // without a credential must never be authenticated (report finding F11).
       const error = new Error('رمز عبور الزامی است');
       error.messageEn = 'Password is required';
       error.statusCode = 401;
@@ -417,19 +425,34 @@ class AuthService {
 
     // bcrypt.compare is the only authority: there is no universal password and
     // no default password that unlocks an account (report finding F11).
-    const isMatch = user.password_hash
-      ? await bcrypt.compare(password, user.password_hash)
-      : false;
-    if (!isMatch) {
+    let matchedUser = null;
+    for (const candidate of candidates) {
+      const isMatch = candidate.password_hash
+        ? await bcrypt.compare(password, candidate.password_hash)
+        : false;
+      if (isMatch) {
+        matchedUser = candidate;
+        break;
+      }
+    }
+
+    if (!matchedUser) {
       const error = new Error('رمز عبور اشتباه است');
       error.messageEn = 'Invalid password';
       error.statusCode = 401;
       throw error;
     }
 
-    delete user.password_hash;
-    const tokens = this.generateTokens(user.id, user.role);
-    return { user, ...tokens };
+    if (matchedUser.is_active === false || matchedUser.is_active === 0) {
+      const error = new Error('حساب کاربری شما غیرفعال شده است');
+      error.messageEn = 'User account is deactivated';
+      error.statusCode = 403;
+      throw error;
+    }
+
+    delete matchedUser.password_hash;
+    const tokens = this.generateTokens(matchedUser.id, matchedUser.role);
+    return { user: matchedUser, ...tokens };
   }
 
   /**
@@ -457,8 +480,6 @@ class AuthService {
       .first();
 
     if (!student) {
-      // The answer is the same for an unknown code and for a partial one, so
-      // the endpoint cannot be used to enumerate student codes.
       const error = new Error(`دانش‌آموزی با کد «${rawCode}» در سامانه مدرسه یافت نشد. لطفاً از صحت کد دانش‌آموزی اطمینان حاصل فرمایید.`);
       error.messageEn = 'Student code not found';
       error.statusCode = 401;
@@ -486,9 +507,7 @@ class AuthService {
 
     if (parent) {
       // The identity of an existing account is never rewritten from an
-      // unauthenticated request: the display name, the phone number and the
-      // student code of the parent stay exactly as they are (report finding
-      // A3).
+      // unauthenticated request (report finding A3).
       parent = await db('users').where({ id: parent.id }).first();
 
       // Ensure link exists
@@ -505,17 +524,19 @@ class AuthService {
         });
       }
     } else {
-      // Create new parent account linked to this student
+      // Create new parent account linked to this student with a random unguessable password hash
       const parentId = generateId();
       const cleanCode = student.student_code.toLowerCase().replace(/[^a-z0-9]/g, '');
       const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
+      const randomSecret = crypto.randomBytes(24).toString('hex');
       const parentUser = {
         id: parentId,
         email: `parent_${cleanCode}_${uniqueSuffix}@parent.ir`,
         phone: phone && phone.trim() ? phone.trim() : null,
-        password_hash: await bcrypt.hash('123456', 10),
+        password_hash: await bcrypt.hash(randomSecret, 10),
         display_name: defaultDisplayName,
         role: 'parent',
+        school_id: student.school_id || null,
         student_code: student.student_code,
         department: student.department || 'اولیاء و مربیان',
         job_title: 'ولی و همیار خانواده',
@@ -553,9 +574,14 @@ class AuthService {
   async refreshToken(refreshToken) {
     try {
       const decoded = jwt.verify(refreshToken, config.jwt.refreshSecret);
-      const user = await db('users').where({ id: decoded.userId }).select('id', 'role').first();
-      if (!user) {
-        const error = new Error('کاربر یافت نشد');
+      if (decoded && decoded.typ && decoded.typ !== 'refresh') {
+        const error = new Error('توکن نامعتبر است');
+        error.statusCode = 401;
+        throw error;
+      }
+      const user = await db('users').where({ id: decoded.userId }).select('id', 'role', 'is_active').first();
+      if (!user || user.is_active === false || user.is_active === 0) {
+        const error = new Error('کاربر یافت نشد یا غیرفعال است');
         error.statusCode = 401;
         throw error;
       }
@@ -567,22 +593,46 @@ class AuthService {
     }
   }
 
-  async updateProfile(userId, data) {
-    const hasBio = await db.schema.hasColumn('users', 'bio');
-    if (!hasBio) {
-      await db.schema.table('users', (table) => {
-        table.text('bio');
-      });
+  async changePassword(userId, currentPassword, newPassword) {
+    if (!currentPassword || !newPassword || String(newPassword).trim().length < 8) {
+      const error = new Error('رمز عبور فعلی و رمز عبور جدید (حداقل ۸ کاراکتر) الزامی است');
+      error.statusCode = 400;
+      throw error;
     }
 
+    const user = await db('users').where({ id: userId }).first();
+    if (!user) {
+      const error = new Error('کاربر یافت نشد');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const isMatch = user.password_hash
+      ? await bcrypt.compare(currentPassword, user.password_hash)
+      : false;
+    if (!isMatch) {
+      const error = new Error('رمز عبور فعلی اشتباه است');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const password_hash = await bcrypt.hash(String(newPassword).trim(), 12);
+    await db('users').where({ id: userId }).update({
+      password_hash,
+      updated_at: new Date(),
+    });
+
+    return { success: true };
+  }
+
+  async updateProfile(userId, data) {
     const updateData = {};
+    // Only non-privileged profile attributes may be updated by the user.
     const allowedFields = [
       'display_name',
       'username',
       'avatar_url',
       'phone',
-      'personnel_code',
-      'student_code',
       'department',
       'job_title',
       'bio',
@@ -596,7 +646,13 @@ class AuthService {
     }
 
     if (data.settings !== undefined) {
-      updateData.settings = typeof data.settings === 'object' ? JSON.stringify(data.settings) : data.settings;
+      const sanitizedSettings = typeof data.settings === 'object' && data.settings !== null
+        ? { ...data.settings }
+        : {};
+      delete sanitizedSettings.school_id;
+      delete sanitizedSettings.school_code;
+      delete sanitizedSettings.role;
+      updateData.settings = JSON.stringify(sanitizedSettings);
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -715,12 +771,14 @@ class AuthService {
       updated_at: new Date(),
     });
 
-    // Auto-join classes of selected teachers
+    // Auto-join classes of selected teachers within the same school only
     if (Array.isArray(teacher_ids) && teacher_ids.length > 0) {
       for (const tId of teacher_ids) {
-        const teacherClass = await db('classes')
-          .where({ teacher_id: tId, is_active: true })
-          .first();
+        const classQuery = db('classes').where({ teacher_id: tId, is_active: true });
+        if (student.school_id) {
+          classQuery.andWhere({ school_id: student.school_id });
+        }
+        const teacherClass = await classQuery.first();
 
         if (teacherClass) {
           const isMember = await db('class_members')
@@ -745,6 +803,7 @@ class AuthService {
 
   async getTeacherSetupOptions(teacherId) {
     const schools = await this.getPublicSchoolsList();
+    const teacher = teacherId ? await db('users').where({ id: teacherId }).first() : null;
 
     const stages = [
       {
@@ -827,9 +886,14 @@ class AuthService {
       'هنر و گرافیک',
     ];
 
-    // Get all students to calculate counts per grade
-    const allStudents = await db('users')
-      .where({ role: 'student' })
+    // Get students in the teacher's school only
+    const studentQuery = db('users').where({ role: 'student' });
+    if (teacher?.school_id) {
+      studentQuery.andWhere({ school_id: teacher.school_id });
+    } else {
+      studentQuery.whereRaw('1 = 0');
+    }
+    const allStudents = await studentQuery
       .select('id', 'display_name', 'department', 'settings', 'student_code', 'avatar_url');
 
     const studentCounts = {};
@@ -850,8 +914,6 @@ class AuthService {
       }
     }
 
-    // Teacher's current profile settings
-    const teacher = teacherId ? await db('users').where({ id: teacherId }).first() : null;
     let currentSettings = {};
     if (teacher?.settings) {
       try { currentSettings = typeof teacher.settings === 'string' ? JSON.parse(teacher.settings) : teacher.settings; } catch (e) {}
@@ -888,7 +950,6 @@ class AuthService {
       try { settings = typeof teacher.settings === 'string' ? JSON.parse(teacher.settings) : teacher.settings; } catch (e) { settings = {}; }
     }
 
-    // Prepare list of schools (handling both single school_name and multiple schools)
     let schoolList = [];
     if (Array.isArray(schools) && schools.length > 0) {
       schoolList = schools
@@ -904,24 +965,6 @@ class AuthService {
 
     const primarySchool = schoolList[0];
 
-    // Automatically persist any newly entered schools into the `schools` table
-    for (const sName of schoolList) {
-      try {
-        const existing = await db('schools').where({ name: sName }).first();
-        if (!existing) {
-          const randSuffix = Math.floor(10000 + Math.random() * 90000);
-          await insertAndReturn(db, 'schools', {
-            id: generateId(),
-            name: sName,
-            code: `SCH-${randSuffix}`,
-            created_by: teacherId,
-          });
-        }
-      } catch (err) {
-        // Continue even if unique code conflict or minor error
-      }
-    }
-
     const selectedGrades = Array.isArray(grades) ? grades : [];
     const selectedSubject = subject || teacher.job_title || 'درس تخصصی';
 
@@ -931,16 +974,20 @@ class AuthService {
     settings.subject = selectedSubject;
     settings.is_teacher_onboarded = true;
 
-    // Update teacher user profile
     await db('users').where({ id: teacherId }).update({
       job_title: selectedSubject,
       settings: JSON.stringify(settings),
       updated_at: new Date(),
     });
 
-    // Auto-create or link classes for each selected grade and link matching students
-    const allStudents = await db('users')
-      .where({ role: 'student' })
+    // Scope students strictly to teacher's school_id
+    const studentQuery = db('users').where({ role: 'student' });
+    if (teacher.school_id) {
+      studentQuery.andWhere({ school_id: teacher.school_id });
+    } else {
+      studentQuery.whereRaw('1 = 0');
+    }
+    const allStudents = await studentQuery
       .select('id', 'display_name', 'department', 'settings', 'student_code', 'avatar_url');
 
     const createdClasses = [];
@@ -970,13 +1017,12 @@ class AuthService {
           grade: grade,
           join_code: joinCode,
           teacher_id: teacherId,
-          school_id: null,
+          school_id: teacher.school_id || null,
           is_active: true,
         });
       }
       createdClasses.push(cls);
 
-      // Find all students matching this grade
       const cleanGrade = grade.replace(/^پایه\s*/, '').trim();
       const matchingStudents = allStudents.filter((s) => {
         if (s.department && (s.department.includes(grade) || s.department.includes(cleanGrade))) return true;
@@ -989,10 +1035,7 @@ class AuthService {
         return false;
       });
 
-      // If no exact match found for newly selected grade, connect some existing students for great demo experience
-      const studentsToEnroll = matchingStudents.length > 0 ? matchingStudents : allStudents.slice(0, 3);
-
-      for (const st of studentsToEnroll) {
+      for (const st of matchingStudents) {
         const isMember = await db('class_members')
           .where({ class_id: cls.id, user_id: st.id })
           .first();
@@ -1008,7 +1051,6 @@ class AuthService {
       }
     }
 
-    // Fetch list of distinct connected students across all teacher's classes
     const connectedStudents = await db('class_members')
       .join('classes', 'classes.id', 'class_members.class_id')
       .join('users', 'users.id', 'class_members.user_id')
@@ -1037,8 +1079,8 @@ class AuthService {
   }
 
   generateTokens(userId, role) {
-    const accessToken = jwt.sign({ userId, role }, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
-    const refreshToken = jwt.sign({ userId, role }, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpiresIn });
+    const accessToken = jwt.sign({ userId, role, typ: 'access' }, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
+    const refreshToken = jwt.sign({ userId, role, typ: 'refresh' }, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpiresIn });
     return { accessToken, refreshToken };
   }
 }

@@ -549,26 +549,6 @@ export default function ReportCardPage() {
           }
         }
 
-        if (rosterStudents.length === 0) {
-          const pool = JSON.parse(
-            localStorage.getItem(`mgmt_students_${schoolCode}`) ||
-            localStorage.getItem('school_students_database') ||
-            '[]'
-          );
-          if (Array.isArray(pool) && pool.length > 0) {
-            // Find students matching this class name or grade
-            const matched = pool.filter((s) => {
-              if (s.class_id && String(s.class_id) === String(classId)) return true;
-              if (s.class_name && s.class_name === currentTargetClass.name) return true;
-              if (s.grade && currentTargetClass.grade && s.grade.includes(currentTargetClass.grade)) return true;
-              return false;
-            });
-
-            if (matched.length > 0) {
-              rosterStudents = matched;
-            }
-          }
-        }
       } catch (e) {}
 
       // If still empty, seed realistic students for this class roster
@@ -1086,24 +1066,7 @@ export default function ReportCardPage() {
       console.warn('API get roster failed, fetching from local student pool:', err.message);
     }
 
-    if (available.length === 0) {
-      try {
-        const pool = JSON.parse(
-          localStorage.getItem(`mgmt_students_${schoolCode}`) ||
-          localStorage.getItem('school_students_database') ||
-          '[]'
-        );
-        const currentStudentIds = new Set((gradebookData?.students || []).map((s) => String(s.id)));
-        available = pool
-          .filter((s) => !currentStudentIds.has(String(s.id)))
-          .map((s) => ({
-            id: s.id,
-            display_name: s.name || s.display_name,
-            student_code: s.code || s.student_code || 'STD-40301',
-            phone: s.phone || '',
-          }));
-      } catch (e) {}
-    }
+    // Backend API (/classes/:id/roster) provides available_students directly
 
     setAvailableStudents(available);
     setLoadingRoster(false);
@@ -1172,21 +1135,6 @@ export default function ReportCardPage() {
           currentRoster.students = currentList;
           currentRoster.total_students = currentList.length;
           localStorage.setItem(rosterKey, JSON.stringify(currentRoster));
-
-          // Also add to school students pool if new
-          const schoolCode = user?.school_code || '402100';
-          const poolKey = `mgmt_students_${schoolCode}`;
-          const pool = JSON.parse(localStorage.getItem(poolKey) || '[]');
-          if (!pool.some((p) => String(p.id) === String(newStudentObj.id))) {
-            pool.push({
-              id: newStudentObj.id,
-              name: newStudentObj.display_name,
-              code: newStudentObj.student_code,
-              phone: newStudentObj.phone,
-              class_id: currentClsId,
-            });
-            localStorage.setItem(poolKey, JSON.stringify(pool));
-          }
         } catch (e) {}
       }
 

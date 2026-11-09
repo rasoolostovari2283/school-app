@@ -5,11 +5,10 @@ const config: CapacitorConfig = {
   appName: 'EduConnect',
   webDir: 'out',
   server: {
-    androidScheme: 'http',
-    cleartext: true,
-    allowNavigation: ['*']
-  }
+    androidScheme: 'https',
+    cleartext: false,
+    allowNavigation: ['localhost', '127.0.0.1'],
+  },
 };
-
 
 export default config;

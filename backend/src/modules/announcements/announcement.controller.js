@@ -27,7 +27,7 @@ class AnnouncementController {
 
   async getTargetingOptions(req, res, next) {
     try {
-      const options = await announcementService.getTargetingOptions();
+      const options = await announcementService.getTargetingOptions(req.user);
       res.json({
         success: true,
         data: options,
@@ -39,7 +39,7 @@ class AnnouncementController {
 
   async create(req, res, next) {
     try {
-      const announcement = await announcementService.create(req.user.id, req.body);
+      const announcement = await announcementService.create(req.user, req.body);
       res.status(201).json({
         success: true,
         message: 'اطلاعیه با موفقیت صادر و ارسال شد',
@@ -65,7 +65,7 @@ class AnnouncementController {
 
   async getStats(req, res, next) {
     try {
-      const stats = await announcementService.getStats(req.params.id);
+      const stats = await announcementService.getStats(req.params.id, req.user);
       res.json({
         success: true,
         data: stats,

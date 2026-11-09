@@ -99,7 +99,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[F8] a socket connection without a token must be rejected', async () => {
+test('[F8] a socket connection without a token must be rejected', async () => {
   const { socket, connected, error } = await openSocket();
 
   try {
@@ -114,7 +114,7 @@ expectFailure('[F8] a socket connection without a token must be rejected', async
   }
 });
 
-expectFailure('[F8] an unauthenticated socket must not join a class room', async () => {
+test('[F8] an unauthenticated socket must not join a class room', async () => {
   const { socket } = await openSocket();
 
   try {
@@ -137,7 +137,7 @@ expectFailure('[F8] an unauthenticated socket must not join a class room', async
   }
 });
 
-expectFailure('[F8] a school-A teacher socket must not join a school-B class room', async () => {
+test('[F8] a school-A teacher socket must not join a school-B class room', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const { socket, connected } = await openSocket({ auth: { token: teacher.accessToken } });
 
@@ -161,7 +161,7 @@ expectFailure('[F8] a school-A teacher socket must not join a school-B class roo
   }
 });
 
-expectFailure('[F8] a client-supplied role must not grant teacher privileges', async () => {
+test('[F8] a client-supplied role must not grant teacher privileges', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
   const { socket, connected } = await openSocket({ auth: { token: student.accessToken } });
 

@@ -1,28 +1,34 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../config/database');
-const { authenticate } = require('../../middleware/auth');
+const { authenticate, isSchoolAdmin } = require('../../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
 
 /**
- * GET /api/v1/feedback — list user's feedback tickets
+ * GET /api/v1/feedback — list user's feedback tickets scoped to school
  */
 router.get('/', async (req, res, next) => {
   try {
-    let query = db('feedback').orderBy('created_at', 'desc');
-    // Non-admin users only see their own
-    if (req.user.role !== 'admin') {
-      query = query.where('submitted_by', req.user.id);
+    let query = db('feedback')
+      .leftJoin('users as submitter', 'submitter.id', 'feedback.submitted_by')
+      .select('feedback.*')
+      .orderBy('feedback.created_at', 'desc');
+
+    if (isSchoolAdmin(req.user)) {
+      query = query.where('submitter.school_id', req.user.school_id);
+    } else {
+      query = query.where('feedback.submitted_by', req.user.id);
     }
+
     const tickets = await query;
     res.json({ success: true, data: { tickets } });
   } catch (err) { next(err); }
 });
 
 /**
- * POST /api/v1/feedback — submit anonymous feedback
+ * POST /api/v1/feedback — submit feedback
  */
 router.post('/', async (req, res, next) => {
   try {
@@ -32,7 +38,7 @@ router.post('/', async (req, res, next) => {
       tracking_code: trackingCode,
       category: req.body.category || 'general',
       message: req.body.message,
-      submitted_by: req.body.is_anonymous ? null : req.user.id,
+      submitted_by: req.user.id,
       is_anonymous: req.body.is_anonymous !== false,
     };
 
@@ -51,7 +57,15 @@ router.post('/', async (req, res, next) => {
  */
 router.get('/track/:code', async (req, res, next) => {
   try {
-    const ticket = await db('feedback').where('tracking_code', req.params.code).first();
+    const ticket = await db('feedback')
+      .leftJoin('users as submitter', 'submitter.id', 'feedback.submitted_by')
+      .where('feedback.tracking_code', req.params.code)
+      .andWhere(function () {
+        this.where('feedback.submitted_by', req.user.id)
+          .orWhere('submitter.school_id', req.user.school_id);
+      })
+      .select('feedback.*')
+      .first();
     if (!ticket) {
       return res.status(404).json({ success: false, message: 'بازخوردی با این کد پیگیری یافت نشد' });
     }

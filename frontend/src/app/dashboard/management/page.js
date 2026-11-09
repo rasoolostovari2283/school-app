@@ -134,29 +134,8 @@ export default function ManagementDashboardPage() {
     const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
     const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
 
-    // ── Load Teachers from LocalStorage as fallback initial ──
-    const teacherStorageKey = `mgmt_teachers_${currentSchoolCode}`;
-    const savedTeachers = localStorage.getItem(teacherStorageKey);
-    let loadedTeachers = [];
-    if (savedTeachers) {
-      try {
-        loadedTeachers = JSON.parse(savedTeachers);
-      } catch (e) {}
-    }
-    loadedTeachers = Array.isArray(loadedTeachers) ? loadedTeachers.filter((t) => !isDummyTeacher(t)) : [];
-    setTeachers(loadedTeachers);
-
-    // ── Load Students from LocalStorage as fallback initial ──
-    const studentStorageKey = `mgmt_students_${currentSchoolCode}`;
-    const savedStudents = localStorage.getItem(studentStorageKey);
-    let loadedStudents = [];
-    if (savedStudents) {
-      try {
-        loadedStudents = JSON.parse(savedStudents);
-      } catch (e) {}
-    }
-    loadedStudents = Array.isArray(loadedStudents) ? loadedStudents.filter((s) => !isDummyStudent(s)) : [];
-    setStudents(loadedStudents);
+    setTeachers([]);
+    setStudents([]);
 
     // ── Load Classes from LocalStorage as fallback initial ──
     const classStorageKey = `mgmt_classes_${currentSchoolCode}`;
@@ -203,18 +182,11 @@ export default function ManagementDashboardPage() {
       // 2. Members (Teachers & Students) from DB
       if (membersRes.status === 'fulfilled' && membersRes.value?.data?.success && membersRes.value?.data?.data) {
         const { teachers: dbTeachers, students: dbStudents } = membersRes.value.data.data;
-        if (Array.isArray(dbTeachers) && dbTeachers.length > 0) {
+        if (Array.isArray(dbTeachers)) {
           setTeachers(dbTeachers);
-          try {
-            localStorage.setItem(teacherStorageKey, JSON.stringify(dbTeachers));
-            localStorage.setItem('school_teachers_database', JSON.stringify(dbTeachers));
-          } catch (e) {}
         }
-        if (Array.isArray(dbStudents) && dbStudents.length > 0) {
+        if (Array.isArray(dbStudents)) {
           setStudents(dbStudents);
-          try {
-            localStorage.setItem(studentStorageKey, JSON.stringify(dbStudents));
-          } catch (e) {}
         }
       }
 
@@ -323,10 +295,6 @@ export default function ManagementDashboardPage() {
 
       const updated = [savedTeacher, ...teachers.filter((t) => t.id !== savedTeacher.id)];
       setTeachers(updated);
-      try {
-        localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
-        localStorage.setItem('school_teachers_database', JSON.stringify(updated));
-      } catch (err) {}
 
       toast.success(`معلم گرامی «${savedTeacher.name}» با کد اختصاصی ${savedTeacher.code} با موفقیت در دیتابیس ثبت شد 🎉`);
       setShowTeacherModal(false);
@@ -341,9 +309,6 @@ export default function ManagementDashboardPage() {
       await api.delete(`/school/teachers/${id}`);
       const updated = teachers.filter((t) => t.id !== id);
       setTeachers(updated);
-      try {
-        localStorage.setItem(`mgmt_teachers_${schoolData.code}`, JSON.stringify(updated));
-      } catch (err) {}
       toast.success(`معلم «${name}» از دیتابیس حذف شد.`);
     } catch (err) {
       toast.error('خطا در حذف معلم از دیتابیس');
@@ -392,9 +357,6 @@ export default function ManagementDashboardPage() {
 
       const updated = [savedStudent, ...students.filter((s) => s.id !== savedStudent.id)];
       setStudents(updated);
-      try {
-        localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
-      } catch (err) {}
 
       toast.success(`دانش‌آموز «${savedStudent.name}» با موفقیت در دیتابیس ثبت‌نام شد 🎓`);
       setShowStudentModal(false);
@@ -409,9 +371,6 @@ export default function ManagementDashboardPage() {
       await api.delete(`/school/students/${id}`);
       const updated = students.filter((s) => s.id !== id);
       setStudents(updated);
-      try {
-        localStorage.setItem(`mgmt_students_${schoolData.code}`, JSON.stringify(updated));
-      } catch (err) {}
       toast.success(`دانش‌آموز «${name}» از دیتابیس حذف شد.`);
     } catch (err) {
       toast.error('خطا در حذف دانش‌آموز از دیتابیس');

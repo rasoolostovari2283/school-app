@@ -13,12 +13,14 @@ router.post('/parent-login', authController.parentLogin);
 router.post('/refresh', authController.refresh);
 router.get('/me', authenticate, authController.getMe);
 router.put('/profile', authenticate, authController.updateProfile);
+router.post('/change-password', authenticate, authController.changePassword);
+router.post('/logout', authController.logout);
 router.get('/student-setup-options', optionalAuth, authController.getStudentSetupOptions);
 router.post('/student-setup', authenticate, authController.saveStudentSetup);
 router.get('/teacher-setup-options', optionalAuth, authController.getTeacherSetupOptions);
 router.post('/teacher-setup', authenticate, authController.saveTeacherSetup);
 
-// Domestic Offline-Safe Captcha
+// Domestic Offline-Safe Captcha (never returns plaintext solution to the client)
 router.get('/captcha', (req, res) => {
   const captcha = localCaptcha.generate();
   res.json({

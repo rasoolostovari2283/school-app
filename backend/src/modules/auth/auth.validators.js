@@ -15,6 +15,8 @@ const registerSchema = Joi.object({
   username: Joi.string().allow(null, ''),
   role: Joi.string().valid(...SELF_SERVICE_ROLES).default('student'),
   locale: Joi.string().valid('fa', 'en').default('fa'),
+  school_id: Joi.string().allow(null, ''),
+  school_code: Joi.string().allow(null, ''),
 });
 
 const loginSchema = Joi.object({
@@ -24,6 +26,10 @@ const loginSchema = Joi.object({
   // credential (report finding F11). Only the presence of a password is
   // required here: accounts created before the 8 character rule keep working.
   password: Joi.string().allow(null, ''),
+  school_id: Joi.string().allow(null, ''),
+  school_code: Joi.string().allow(null, ''),
+  captcha_id: Joi.string().allow(null, ''),
+  captcha_answer: Joi.alternatives().try(Joi.string(), Joi.number()).allow(null, ''),
 });
 
 const quickEntrySchema = Joi.object({

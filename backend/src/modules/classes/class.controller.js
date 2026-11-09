@@ -6,7 +6,7 @@ class ClassController {
    */
   async createClass(req, res, next) {
     try {
-      const cls = await classService.createClass(req.user.id, req.body);
+      const cls = await classService.createClass(req.user, req.body);
       res.status(201).json({
         success: true,
         message: 'کلاس با موفقیت ایجاد شد',
@@ -23,7 +23,7 @@ class ClassController {
    */
   async updateClass(req, res, next) {
     try {
-      const cls = await classService.updateClass(req.params.id, req.user.id, req.body);
+      const cls = await classService.updateClass(req.params.id, req.user, req.body);
       res.json({
         success: true,
         message: 'کلاس با موفقیت به‌روزرسانی شد',
@@ -101,7 +101,7 @@ class ClassController {
         });
       }
 
-      const cls = await classService.joinClass(req.user.id, req.user.role, join_code);
+      const cls = await classService.joinClass(req.user, req.user.role, join_code);
       res.json({
         success: true,
         message: 'با موفقیت به کلاس پیوستید',
@@ -136,6 +136,7 @@ class ClassController {
       const { target_role, max_uses, expires_in_hours } = req.body;
       const invite = await classService.createInviteLink(
         req.params.id,
+        req.user,
         target_role || 'student',
         max_uses,
         expires_in_hours
@@ -156,7 +157,7 @@ class ClassController {
    */
   async updateQuietHours(req, res, next) {
     try {
-      const cls = await classService.updateQuietHours(req.params.id, req.body);
+      const cls = await classService.updateQuietHours(req.params.id, req.user, req.body);
       res.json({
         success: true,
         message: 'ساعات بی‌صدا بروزرسانی شد',
@@ -173,7 +174,7 @@ class ClassController {
    */
   async deleteClass(req, res, next) {
     try {
-      const cls = await classService.deleteClass(req.params.id, req.user.id, req.user.role);
+      const cls = await classService.deleteClass(req.params.id, req.user);
       res.json({
         success: true,
         message: `کلاس «${cls.name}» با موفقیت حذف شد`,
@@ -223,7 +224,7 @@ class ClassController {
   async updateLiveSettings(req, res, next) {
     try {
       const externalLiveService = require('./externalLive.service');
-      const updatedClass = await externalLiveService.updateLiveSettings(req.params.id, req.body);
+      const updatedClass = await externalLiveService.updateLiveSettings(req.params.id, req.user, req.body);
       res.json({
         success: true,
         message: 'تنظیمات بستر کلاس آنلاین با موفقیت ذخیره شد',
@@ -257,7 +258,7 @@ class ClassController {
   async syncExternalRecording(req, res, next) {
     try {
       const externalLiveService = require('./externalLive.service');
-      const video = await externalLiveService.syncExternalRecording(req.params.id, req.user.id, req.body);
+      const video = await externalLiveService.syncExternalRecording(req.params.id, req.user, req.body);
       res.status(201).json({
         success: true,
         message: 'جلسه ضبط‌شده با موفقیت به آرشیو ویدیوهای کلاس اضافه شد 🎬',
@@ -274,7 +275,7 @@ class ClassController {
    */
   async getClassRoster(req, res, next) {
     try {
-      const roster = await classService.getClassRoster(req.params.id);
+      const roster = await classService.getClassRoster(req.params.id, req.user);
       res.json({
         success: true,
         data: roster,
@@ -286,7 +287,7 @@ class ClassController {
 
   async addStudentToClass(req, res, next) {
     try {
-      const student = await classService.addStudentToClass(req.params.id, req.body);
+      const student = await classService.addStudentToClass(req.params.id, req.user, req.body);
       res.status(201).json({
         success: true,
         message: 'دانش‌آموز با موفقیت به لیست کلاس اضافه شد',
@@ -299,7 +300,7 @@ class ClassController {
 
   async batchAddStudents(req, res, next) {
     try {
-      const result = await classService.batchAddStudents(req.params.id, req.body);
+      const result = await classService.batchAddStudents(req.params.id, req.user, req.body);
       res.status(201).json({
         success: true,
         message: `${result.added_count} دانش‌آموز با موفقیت به کلاس اضافه شدند`,
@@ -312,7 +313,7 @@ class ClassController {
 
   async removeStudentFromClass(req, res, next) {
     try {
-      const result = await classService.removeStudentFromClass(req.params.id, req.params.studentId);
+      const result = await classService.removeStudentFromClass(req.params.id, req.params.studentId, req.user);
       res.json({
         success: true,
         message: 'دانش‌آموز با موفقیت از لیست کلاس حذف شد',
@@ -325,7 +326,7 @@ class ClassController {
 
   async updateStudentInRoster(req, res, next) {
     try {
-      const student = await classService.updateStudentInRoster(req.params.id, req.params.studentId, req.body);
+      const student = await classService.updateStudentInRoster(req.params.id, req.params.studentId, req.user, req.body);
       res.json({
         success: true,
         message: 'مشخصات دانش‌آموز با موفقیت ویرایش شد',

@@ -1,38 +1,59 @@
 import axios from 'axios';
 
-export const DEFAULT_LOCAL_API = 'http://192.168.1.103:3000/api/v1';
-export const DEFAULT_TUNNEL_API = 'https://ubpqb-89-43-89-222.run.pinggy-free.link/api/v1';
-export const REGISTRY_GIST_RAW = 'https://gist.githubusercontent.com/rasoolostovari2283/dc4b18cafa978e951913e8b4b832d817/raw/tunnel.json';
-export const REGISTRY_GIST_API = 'https://api.github.com/gists/dc4b18cafa978e951913e8b4b832d817';
+export const DEFAULT_LOCAL_API = 'http://localhost:3000/api/v1';
+export const DEFAULT_TUNNEL_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+
+// Explicit allow-list of permitted API origins (#29/A17)
+export const ALLOWED_API_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5000',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:5000',
+  ...(process.env.NEXT_PUBLIC_API_URL ? [new URL(process.env.NEXT_PUBLIC_API_URL, 'http://localhost:3000').origin] : []),
+];
+
+export function isAllowedApiOrigin(candidateUrl) {
+  if (!candidateUrl || typeof candidateUrl !== 'string') return false;
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const parsed = new URL(candidateUrl, base);
+    if (typeof window !== 'undefined' && parsed.origin === window.location.origin) {
+      return true;
+    }
+    return ALLOWED_API_ORIGINS.includes(parsed.origin);
+  } catch {
+    return false;
+  }
+}
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
     const customUrl = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
-    if (customUrl) {
-      let clean = customUrl.trim().replace(/\/+$/, '');
-      if (clean.includes(':5000')) clean = clean.replace(':5000', '');
+    if (customUrl && isAllowedApiOrigin(customUrl)) {
+      const clean = customUrl.trim().replace(/\/+$/, '');
       return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
     }
 
     const host = window.location.hostname;
-    // When accessed from a browser on the local network (e.g. http://192.168.1.108)
     if (host && host !== 'localhost' && host !== '127.0.0.1') {
       const portPart = window.location.port ? `:${window.location.port}` : '';
       return `${window.location.protocol}//${host}${portPart}/api/v1`;
     }
   }
 
-  return process.env.NEXT_PUBLIC_API_URL || DEFAULT_TUNNEL_API;
+  return process.env.NEXT_PUBLIC_API_URL || DEFAULT_LOCAL_API;
 }
 
 export function setApiBaseUrl(url) {
-  if (typeof window === 'undefined') return;
-  if (!url) {
+  if (typeof window === 'undefined') return DEFAULT_LOCAL_API;
+  if (!url || !isAllowedApiOrigin(url)) {
     localStorage.removeItem('server_api_url');
     localStorage.removeItem('educonnect_server_url');
-    return DEFAULT_TUNNEL_API;
+    return getApiBaseUrl();
   }
-  let clean = url.trim().replace(/\/+$/, '');
+  const clean = url.trim().replace(/\/+$/, '');
   const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
   localStorage.setItem('server_api_url', finalUrl);
   localStorage.setItem('educonnect_server_url', finalUrl);
@@ -43,143 +64,69 @@ export function resetToDefaultWifi() {
   if (typeof window === 'undefined') return DEFAULT_LOCAL_API;
   localStorage.removeItem('server_api_url');
   localStorage.removeItem('educonnect_server_url');
-  localStorage.setItem('server_api_url', DEFAULT_LOCAL_API);
-  return DEFAULT_LOCAL_API;
+  return getApiBaseUrl();
 }
 
 export async function probeServer(url, timeoutMs = 2500) {
-  if (!url || typeof url !== 'string') return { success: false };
+  if (!url || typeof url !== 'string' || !isAllowedApiOrigin(url)) {
+    return { success: false };
+  }
   try {
     const clean = url.trim().replace(/\/+$/, '');
-    const testUrl = clean.endsWith('/api/v1') ? `${clean}/system/app-version` : `${clean}/api/v1/system/app-version`;
-    const res = await axios.get(testUrl, {
-      timeout: timeoutMs,
-    });
-    if (res.status === 200 || (res.data && res.data.success)) {
+    const healthUrl = clean.endsWith('/api/v1')
+      ? clean.replace('/api/v1', '/api/health')
+      : `${clean}/api/health`;
+    const res = await axios.get(healthUrl, { timeout: timeoutMs });
+    if (res.status === 200 && res.data?.success) {
       const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
       return { success: true, data: res.data, url: finalUrl };
     }
   } catch (e) {
-    try {
-      const clean = url.trim().replace(/\/+$/, '');
-      const healthUrl = clean.endsWith('/api/v1') ? clean.replace('/api/v1', '/api/health') : `${clean}/api/health`;
-      const res2 = await axios.get(healthUrl, { timeout: Math.min(timeoutMs, 2000) });
-      if (res2.status === 200 || (res2.data && res2.data.success)) {
-        const finalUrl = clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
-        return { success: true, data: res2.data, url: finalUrl };
-      }
-    } catch (e2) {}
     return { success: false, error: e.message };
   }
   return { success: false };
 }
 
-export async function fetchLiveTunnelFromRegistry() {
-  const sources = [
-    `${REGISTRY_GIST_RAW}?t=${Date.now()}`,
-    REGISTRY_GIST_API,
-  ];
-
-  for (const src of sources) {
-    try {
-      const res = await axios.get(src, { timeout: 3500 });
-      let liveUrl = null;
-      if (res.data) {
-        if (res.data.api_url) {
-          liveUrl = res.data.api_url;
-        } else if (res.data.url) {
-          liveUrl = `${res.data.url.trim().replace(/\/+$/, '')}/api/v1`;
-        } else if (res.data.files && res.data.files['tunnel.json'] && res.data.files['tunnel.json'].content) {
-          const parsed = JSON.parse(res.data.files['tunnel.json'].content);
-          liveUrl = parsed.api_url || `${parsed.url.trim().replace(/\/+$/, '')}/api/v1`;
-        }
-      }
-      if (liveUrl && liveUrl.startsWith('http')) {
-        return liveUrl;
-      }
-    } catch (err) {}
-  }
-  return null;
-}
-
 export async function autoDetectServer() {
   if (typeof window === 'undefined') return { success: false };
-  const current = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
-
-  // Dynamic host candidate if accessing from a browser on the local network
-  const hostCandidates = [];
-  if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    hostCandidates.push(`http://${window.location.hostname}:5000/api/v1`);
-    hostCandidates.push(`http://${window.location.hostname}/api/v1`);
-  }
-
   const candidates = [
-    current,
-    ...hostCandidates,
+    getApiBaseUrl(),
     DEFAULT_LOCAL_API,
-    'http://192.168.1.103:3000/api/v1',
-    'http://192.168.1.102:3000/api/v1',
-    'http://192.168.1.108:3000/api/v1',
-    'http://192.168.1.104:3000/api/v1',
-    'http://192.168.1.103/api/v1',
-    'http://192.168.1.102/api/v1',
-    'http://192.168.1.108/api/v1',
-    'http://localhost:3000/api/v1',
-    DEFAULT_TUNNEL_API,
-  ].filter(Boolean);
+  ].filter((url) => isAllowedApiOrigin(url));
 
-  // Remove duplicates
   const uniqueCandidates = [...new Set(candidates)];
-
-  // Fast parallel probe: test all candidates AND cloud registry concurrently
-  const candidatePromises = uniqueCandidates.map((url) =>
-    probeServer(url, 2500).then((result) => {
-      if (result && result.success) return result;
-      throw new Error('Unreachable');
-    })
-  );
-
-  // Concurrently fetch and probe latest live tunnel from cloud registry
-  const registryPromise = fetchLiveTunnelFromRegistry().then(async (liveTunnel) => {
-    if (liveTunnel && !uniqueCandidates.includes(liveTunnel)) {
-      const res = await probeServer(liveTunnel, 3000);
-      if (res && res.success) return res;
+  for (const url of uniqueCandidates) {
+    const res = await probeServer(url, 2500);
+    if (res && res.success) {
+      setApiBaseUrl(res.url);
+      return { success: true, url: res.url, data: res.data };
     }
-    throw new Error('Registry unreachable');
-  });
-
-  try {
-    const fastest = await Promise.any([...candidatePromises, registryPromise]);
-    if (fastest && fastest.success && fastest.url) {
-      setApiBaseUrl(fastest.url);
-      return { success: true, url: fastest.url, data: fastest.data };
-    }
-  } catch (err) {
-    // All candidates failed or timed out
   }
-
   return { success: false };
 }
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 12000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor — attach token and dynamic baseURL
+// Request interceptor — validate origin against allow-list before attaching Authorization header (#29/A17)
 api.interceptors.request.use(
   (config) => {
-    config.baseURL = getApiBaseUrl();
-    if (typeof window !== 'undefined') {
+    const targetBase = getApiBaseUrl();
+    config.baseURL = targetBase;
+
+    if (typeof window !== 'undefined' && isAllowedApiOrigin(targetBase)) {
       const token = localStorage.getItem('accessToken');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
-    // If uploading FormData, delete Content-Type so browser/Axios sets boundary multipart correctly
+
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
       if (config.headers) {
         if (typeof config.headers.delete === 'function') {
@@ -195,40 +142,13 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — handle token refresh and network failover
+// Response interceptor — handle token refresh on permitted origins only
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // 1. Automatic Network Failover & Intelligent Self-Healing
-    // When a request fails due to connection drop, tunnel reset, or Wi-Fi/mobile data switch:
-    if (!error.response && !originalRequest._retryAutoDetect && typeof window !== 'undefined') {
-      originalRequest._retryAutoDetect = true;
-
-      try {
-        // Fast parallel probe across all possible servers (LAN, Tunnels, Registry)
-        const detected = await autoDetectServer();
-        if (detected && detected.success && detected.url) {
-          // Permanently save the working server to eliminate future drops
-          localStorage.setItem('server_api_url', detected.url);
-          localStorage.setItem('educonnect_server_url', detected.url);
-          api.defaults.baseURL = detected.url;
-          originalRequest.baseURL = detected.url;
-
-          // Notify ServerConnectionBar and other UI components
-          window.dispatchEvent(
-            new CustomEvent('educonnect_server_switched', { detail: { url: detected.url, data: detected.data } })
-          );
-
-          // Retry the failed request with the newly discovered active server
-          return api(originalRequest);
-        }
-      } catch (detectErr) {}
-    }
-
-    // 2. Token refresh handler
-    if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
+    if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest?._retry) {
       originalRequest._retry = true;
 
       try {
@@ -236,7 +156,11 @@ api.interceptors.response.use(
         if (!refreshToken) throw new Error('No refresh token');
 
         const currentBaseUrl = getApiBaseUrl();
-        const { data } = await axios.post(`${currentBaseUrl}/auth/refresh`, { refreshToken });
+        if (!isAllowedApiOrigin(currentBaseUrl)) {
+          throw new Error('Disallowed API origin');
+        }
+
+        const { data } = await axios.post(`${currentBaseUrl}/auth/refresh`, { refreshToken }, { withCredentials: true });
         localStorage.setItem('accessToken', data.data.accessToken);
         localStorage.setItem('refreshToken', data.data.refreshToken);
 

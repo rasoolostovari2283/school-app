@@ -2,4 +2,16 @@ node_modules
 npm-debug.log
 .git
 .gitignore
-.env.local
+.env
+.env.*
+*.env
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+uploads/*
+!uploads/.gitkeep
+tests
+.tmp

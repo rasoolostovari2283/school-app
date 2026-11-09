@@ -30,7 +30,7 @@ beforeEach(async () => {
   await resetDatabase();
 });
 
-expectFailure('[A6] a student must not read the deployment-wide analytics overview', async () => {
+test('[A6] a student must not read the deployment-wide analytics overview', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
   const res = await get(baseUrl, '/api/v1/analytics/overview', { token: student.accessToken });
 
@@ -41,7 +41,7 @@ expectFailure('[A6] a student must not read the deployment-wide analytics overvi
   );
 });
 
-expectFailure('[A6] the analytics overview must not contain school-B data', async () => {
+test('[A6] the analytics overview must not contain school-B data', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, '/api/v1/analytics/overview', { token: teacher.accessToken });
 
@@ -52,7 +52,7 @@ expectFailure('[A6] the analytics overview must not contain school-B data', asyn
   });
 });
 
-expectFailure('[A11] a school-A teacher must not publish a school-B quiz', async () => {
+test('[A11] a school-A teacher must not publish a school-B quiz', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await put(baseUrl, `/api/v1/classes/${CLASSES.b}/quizzes/${QUIZZES.b}/publish`, {
@@ -66,7 +66,7 @@ expectFailure('[A11] a school-A teacher must not publish a school-B quiz', async
   );
 });
 
-expectFailure('[A11] a school-A teacher must not read the answer key of a school-B quiz', async () => {
+test('[A11] a school-A teacher must not read the answer key of a school-B quiz', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
   const res = await get(baseUrl, `/api/v1/classes/${CLASSES.b}/quizzes/${QUIZZES.b}`, {
     token: teacher.accessToken,
@@ -80,7 +80,7 @@ expectFailure('[A11] a school-A teacher must not read the answer key of a school
   );
 });
 
-expectFailure('[A12] a student must not read the transcript of another student', async () => {
+test('[A12] a student must not read the transcript of another student', async () => {
   const student = await loginAs(baseUrl, 'a', 'student');
   const res = await get(baseUrl, `/api/v1/courses/transcript?student_id=${USERS.b.student}`, {
     token: student.accessToken,
@@ -93,7 +93,7 @@ expectFailure('[A12] a student must not read the transcript of another student',
   );
 });
 
-expectFailure('[A12] a parent must not read the transcript of an unrelated student', async () => {
+test('[A12] a parent must not read the transcript of an unrelated student', async () => {
   const parent = await loginAs(baseUrl, 'a', 'parent');
   const res = await get(baseUrl, `/api/v1/courses/transcript?student_id=${USERS.b.student}`, {
     token: parent.accessToken,
@@ -106,7 +106,7 @@ expectFailure('[A12] a parent must not read the transcript of an unrelated stude
   );
 });
 
-expectFailure('[A8] a teacher must not reply to a ticket that belongs to another school', async () => {
+test('[A8] a teacher must not reply to a ticket that belongs to another school', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await post(baseUrl, `/api/v1/tickets/${TICKETS.b}/reply`, {
@@ -121,7 +121,7 @@ expectFailure('[A8] a teacher must not reply to a ticket that belongs to another
   );
 });
 
-expectFailure('[A9] a teacher must not read the study diary of a student of another school', async () => {
+test('[A9] a teacher must not read the study diary of a student of another school', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await get(baseUrl, `/api/v1/study-planner/logs?student_id=${USERS.b.student}`, {
@@ -135,7 +135,7 @@ expectFailure('[A9] a teacher must not read the study diary of a student of anot
   });
 });
 
-expectFailure('[A9] a teacher must not write advisor feedback into a foreign study diary', async () => {
+test('[A9] a teacher must not write advisor feedback into a foreign study diary', async () => {
   const teacher = await loginAs(baseUrl, 'a', 'teacher');
 
   const res = await post(baseUrl, `/api/v1/study-planner/logs/${STUDY_LOGS.b}/feedback`, {

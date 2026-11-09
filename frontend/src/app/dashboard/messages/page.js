@@ -253,28 +253,9 @@ export default function MessagesPage() {
       console.error('Error fetching backend directory:', err);
     }
 
-    // 2. Load School Teachers from School Database
-    let schoolTeachers = [];
-    try {
-      const savedTch =
-        localStorage.getItem(`mgmt_teachers_${currentCode}`) ||
-        localStorage.getItem('school_teachers_database');
-      if (savedTch) schoolTeachers = JSON.parse(savedTch);
-    } catch (e) {}
-
-    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
-    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
-
-    schoolTeachers = Array.isArray(schoolTeachers) ? schoolTeachers.filter((t) => !isDummyTeacher(t)) : [];
-
-    // 3. Load School Students from School Database
-    let schoolStudents = [];
-    try {
-      const savedStd = localStorage.getItem(`mgmt_students_${currentCode}`);
-      if (savedStd) schoolStudents = JSON.parse(savedStd);
-    } catch (e) {}
-
-    schoolStudents = Array.isArray(schoolStudents) ? schoolStudents.filter((s) => !isDummyStudent(s)) : [];
+    // 2. Backend directory (/messages/directory) is the single source of truth
+    const schoolTeachers = [];
+    const schoolStudents = [];
 
     // 4. Merge Teachers Map (School Account + Backend Staff)
     const teachersMap = new Map();

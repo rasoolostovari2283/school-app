@@ -6,7 +6,8 @@ class StudyPlannerController {
       const logs = await studyPlannerService.getLogs(
         req.user.id,
         req.user.role,
-        req.query.student_id
+        req.query.student_id,
+        req.user
       );
       res.json({ success: true, data: { logs } });
     } catch (err) { next(err); }
@@ -28,7 +29,8 @@ class StudyPlannerController {
       const log = await studyPlannerService.addAdvisorFeedback(
         req.user.id,
         req.params.id,
-        req.body
+        req.body,
+        req.user
       );
       res.json({
         success: true,
@@ -43,7 +45,8 @@ class StudyPlannerController {
       const stats = await studyPlannerService.getStats(
         req.user.id,
         req.user.role,
-        req.query.student_id
+        req.query.student_id,
+        req.user
       );
       res.json({ success: true, data: { stats } });
     } catch (err) { next(err); }
@@ -69,7 +72,7 @@ class StudyPlannerController {
 
   async updateTeacherPlan(req, res, next) {
     try {
-      const plan = await studyPlannerService.updateTeacherPlan(req.user.id, req.params.id, req.body);
+      const plan = await studyPlannerService.updateTeacherPlan(req.user.id, req.params.id, req.body, req.user);
       res.json({
         success: true,
         message: 'برنامه کلاسی به‌روزرسانی شد ✅',
@@ -80,7 +83,7 @@ class StudyPlannerController {
 
   async deleteTeacherPlan(req, res, next) {
     try {
-      await studyPlannerService.deleteTeacherPlan(req.user.id, req.params.id);
+      await studyPlannerService.deleteTeacherPlan(req.user.id, req.params.id, req.user);
       res.json({
         success: true,
         message: 'برنامه کلاسی از تقویم تدریس حذف شد',
@@ -108,7 +111,7 @@ class StudyPlannerController {
 
   async deleteTeacherDocument(req, res, next) {
     try {
-      await studyPlannerService.deleteTeacherDocument(req.user.id, req.params.id);
+      await studyPlannerService.deleteTeacherDocument(req.user.id, req.params.id, req.user);
       res.json({
         success: true,
         message: 'سند مورد نظر با موفقیت حذف شد',
@@ -118,8 +121,10 @@ class StudyPlannerController {
 
   async getNotes(req, res, next) {
     try {
-      const studentId = (req.user.role === 'teacher' && req.query.student_id) ? req.query.student_id : req.user.id;
-      const notes = await studyPlannerService.getStudentNotes(studentId);
+      const studentId = (['teacher', 'admin', 'manager'].includes(req.user.role) && req.query.student_id)
+        ? req.query.student_id
+        : req.user.id;
+      const notes = await studyPlannerService.getStudentNotes(studentId, req.user);
       res.json({ success: true, data: { notes } });
     } catch (err) { next(err); }
   }

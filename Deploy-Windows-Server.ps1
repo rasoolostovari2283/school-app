@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # 🎓 EduConnect Enterprise Windows Server Auto-Installer & Launcher
 # ==============================================================================
 # This script configures and launches EduConnect Backend on Windows Server,
@@ -57,15 +57,26 @@ if (-not (Test-Path "$installDir\.git")) {
 Set-Location "$installDir\backend"
 Write-Host "[4/5] در حال نصب پکیج‌های بک‌اند و اعمال مایگریشن دیتابیس..." -ForegroundColor Yellow
 
+# Helper: Generate 256-bit cryptographically secure random hex string via CSPRNG (#4/A15)
+function New-CsprngHexSecret {
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($bytes)
+    $rng.Dispose()
+    return ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+}
+
 # Create default .env if not present
 if (-not (Test-Path "$installDir\backend\.env")) {
+    $jwtSecret = New-CsprngHexSecret
+    $jwtRefreshSecret = New-CsprngHexSecret
     $envContent = @"
 PORT=3000
 NODE_ENV=production
-JWT_SECRET=educonnect_prod_jwt_secret_$(Get-Random)
-JWT_EXPIRES_IN=30d
-JWT_REFRESH_SECRET=educonnect_prod_refresh_secret_$(Get-Random)
-JWT_REFRESH_EXPIRES_IN=90d
+JWT_SECRET=$jwtSecret
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_SECRET=$jwtRefreshSecret
+JWT_REFRESH_EXPIRES_IN=7d
 UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=52428800
 FRONTEND_URL=http://localhost:3000
@@ -73,7 +84,7 @@ FRONTEND_URL=http://localhost:3000
     Set-Content -Path "$installDir\backend\.env" -Value $envContent
 }
 
-npm install --omit=dev
+npm ci --omit=dev
 npx knex migrate:latest --knexfile ./src/config/knexfile.js
 
 # 6. Install PM2 and Start Backend Daemon

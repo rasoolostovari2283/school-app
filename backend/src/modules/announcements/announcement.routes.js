@@ -6,9 +6,10 @@ const { cacheMiddleware, cache } = require('../../utils/cache');
 
 router.use(authenticate);
 
-// Invalidate announcement cache on mutations
+// Invalidate announcement cache on mutations (scoped to caller's school)
 const invalidateAnnouncementCache = (req, res, next) => {
-  cache.delByPattern('*announcement*');
+  const schoolPrefix = req.user?.school_id ? `${req.user.school_id}:` : '*';
+  cache.delByPattern(`${schoolPrefix}*announcement*`);
   next();
 };
 

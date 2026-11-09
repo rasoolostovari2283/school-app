@@ -221,22 +221,8 @@ export default function StudentSetupModal({ isOpen, onClose, onSuccess, initialD
       ];
     }
 
-    // 2. Collect teachers from all local storage sources
+    // 2. Use server-provided teachers list (single source of truth)
     let localTeachers = [];
-    try {
-      const fromDb = JSON.parse(localStorage.getItem('school_teachers_database') || '[]');
-      if (Array.isArray(fromDb)) localTeachers.push(...fromDb);
-    } catch (e) {}
-
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('mgmt_teachers_')) {
-          const list = JSON.parse(localStorage.getItem(key) || '[]');
-          if (Array.isArray(list)) localTeachers.push(...list);
-        }
-      }
-    } catch (e) {}
 
     // Build unified map of teachers
     const allTeachersMap = new Map();
@@ -361,15 +347,6 @@ export default function StudentSetupModal({ isOpen, onClose, onSuccess, initialD
     }));
 
     setSelectedTeacherIds((prev) => new Set([...prev, newId]));
-
-    // Persist to local storage
-    try {
-      const code = user?.school_code || 'SCH-4821';
-      const existing = JSON.parse(localStorage.getItem(`mgmt_teachers_${code}`) || '[]');
-      existing.unshift(newT);
-      localStorage.setItem(`mgmt_teachers_${code}`, JSON.stringify(existing));
-      localStorage.setItem('school_teachers_database', JSON.stringify(existing));
-    } catch (e) {}
 
     setNewTeacherName('');
     setNewTeacherSubject('');
