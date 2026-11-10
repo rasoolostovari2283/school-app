@@ -192,9 +192,23 @@ exports.up = async function (knex) {
       table.timestamp('acknowledged_at').nullable();
     });
   }
+
+  // 10. Ensure quizzes.description and quizzes.attachments columns exist
+  const hasQuizzes = await knex.schema.hasTable('quizzes');
+  if (hasQuizzes) {
+    const hasQuizDesc = await knex.schema.hasColumn('quizzes', 'description');
+    const hasQuizAttach = await knex.schema.hasColumn('quizzes', 'attachments');
+    if (!hasQuizDesc || !hasQuizAttach) {
+      await knex.schema.alterTable('quizzes', (t) => {
+        if (!hasQuizDesc) t.text('description').nullable();
+        if (!hasQuizAttach) t.text('attachments').defaultTo('[]');
+      });
+    }
+  }
 };
 
 exports.down = async function (knex) {
   await knex.raw('DROP INDEX IF EXISTS idx_users_school_email');
   await knex.raw('DROP INDEX IF EXISTS idx_users_school_phone');
 };
+

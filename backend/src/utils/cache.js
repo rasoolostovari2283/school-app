@@ -53,6 +53,11 @@ class MemoryCache {
     return deletedCount;
   }
 
+  delBySchool(schoolId, subPattern = '*') {
+    const scope = schoolId || 'public';
+    return this.delByPattern(`${scope}:${subPattern}`);
+  }
+
   flush() {
     this.store.clear();
   }
@@ -65,7 +70,10 @@ class MemoryCache {
 const memoryCache = new MemoryCache(60, 1000);
 
 /**
- * Express Middleware for automated caching of GET requests
+ * Express Middleware for automated caching of GET requests.
+ * Always prefixes keys with caller's `school_id` (`<school_id>:...`) to guarantee
+ * strict multi-tenant cache isolation.
+ *
  * @param {number} ttlSeconds - Duration in seconds to retain cache
  * @param {function} [keyGenerator] - Custom key generator function (optional)
  */
@@ -76,9 +84,13 @@ function cacheMiddleware(ttlSeconds = 45, keyGenerator = null) {
       return next();
     }
 
-    const cacheKey = keyGenerator
-      ? keyGenerator(req)
-      : `${req.user?.school_id || 'public'}:${req.user?.id || 'anon'}:${req.originalUrl || req.url}`;
+    const schoolScope = req.user?.school_id || 'public';
+    const rawKey = keyGenerator
+      ? String(keyGenerator(req))
+      : `${req.user?.id || 'anon'}:${req.originalUrl || req.url}`;
+    const cacheKey = rawKey.startsWith(`${schoolScope}:`)
+      ? rawKey
+      : `${schoolScope}:${rawKey}`;
 
     const cachedData = memoryCache.get(cacheKey);
     if (cachedData) {

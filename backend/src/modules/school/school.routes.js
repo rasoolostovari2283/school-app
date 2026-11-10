@@ -115,8 +115,9 @@ router.get('/members', async (req, res, next) => {
       });
     }
 
+    const STAFF_ROLES = ['teacher', 'counselor', 'financial_officer', 'accountant'];
     const [rawTeachers, rawStudents] = await Promise.all([
-      db('users').where({ role: 'teacher', school_id: schoolId }).orderBy('created_at', 'desc'),
+      db('users').whereIn('role', STAFF_ROLES).andWhere({ school_id: schoolId }).orderBy('created_at', 'desc'),
       db('users').where({ role: 'student', school_id: schoolId }).orderBy('created_at', 'desc'),
     ]);
 
@@ -129,6 +130,7 @@ router.get('/members', async (req, res, next) => {
       return {
         id: t.id,
         name: t.display_name,
+        role: t.role,
         code: t.personnel_code || `TCH-${t.id.slice(-4)}`,
         subject: t.job_title || settings.subject || 'عمومی',
         phone: t.phone || 'ثبت نشده',
@@ -173,16 +175,27 @@ router.get('/members', async (req, res, next) => {
  */
 router.post('/teachers', authorize('admin', 'manager'), async (req, res, next) => {
   try {
-    const { name, code, subject, phone, grades, password } = req.body;
+    const { name, code, subject, phone, grades, password, role: requestedRole } = req.body;
     if (!name || !name.trim()) {
-      return res.status(400).json({ success: false, message: 'نام و نام خانوادگی دبیر الزامی است' });
+      return res.status(400).json({ success: false, message: 'نام و نام خانوادگی همکار الزامی است' });
     }
+
+    const ALLOWED_STAFF_ROLES = ['teacher', 'counselor', 'financial_officer', 'accountant'];
+    const normalizedRequestedRole = String(requestedRole || 'teacher').trim().toLowerCase();
+    const staffRole = ALLOWED_STAFF_ROLES.includes(normalizedRequestedRole)
+      ? (normalizedRequestedRole === 'accountant' ? 'financial_officer' : normalizedRequestedRole)
+      : 'teacher';
 
     const school = await resolveSchool(req.user);
     const schoolId = req.user.school_id || (school ? school.id : null);
 
+    const codePrefix = staffRole === 'counselor' ? 'CNS' : (staffRole === 'financial_officer' ? 'FIN' : 'TCH');
+    const defaultJobTitle = staffRole === 'counselor'
+      ? 'مشاور تحصیلی و هدایت تحصیلی'
+      : (staffRole === 'financial_officer' ? 'مسئول امور مالی و شهریه' : 'ریاضی و هندسه');
+
     const cleanName = name.trim();
-    const cleanCode = (code || `TCH-${Math.floor(1000 + Math.random() * 9000)}`).trim().toUpperCase();
+    const cleanCode = (code || `${codePrefix}-${Math.floor(1000 + Math.random() * 9000)}`).trim().toUpperCase();
     const cleanPhone = phone && phone.trim() ? phone.trim() : null;
     const secretToHash = password && String(password).trim()
       ? String(password).trim()
@@ -191,30 +204,33 @@ router.post('/teachers', authorize('admin', 'manager'), async (req, res, next) =
 
     const teacherSettings = JSON.stringify({
       taught_grades: Array.isArray(grades) && grades.length > 0 ? grades : ['پایه دهم'],
-      subject: subject || 'ریاضی و هندسه',
+      subject: subject || defaultJobTitle,
       school_code: school?.code || 'SCH-1001',
+      staff_role: staffRole,
     });
 
     const newTeacher = await insertAndReturn(db, 'users', {
       display_name: cleanName,
       personnel_code: cleanCode,
       phone: cleanPhone,
-      job_title: subject || 'ریاضی و هندسه',
-      role: 'teacher',
+      job_title: subject || defaultJobTitle,
+      role: staffRole,
       password_hash,
       school_id: schoolId,
       locale: 'fa',
       is_verified: true,
+      is_active: true,
       settings: teacherSettings,
     });
 
     res.status(201).json({
       success: true,
-      message: `معلم گرامی «${cleanName}» با موفقیت در دیتابیس ثبت شد`,
+      message: `همکار گرامی «${cleanName}» با موفقیت در دیتابیس ثبت شد`,
       data: {
         teacher: {
           id: newTeacher.id,
           name: newTeacher.display_name,
+          role: newTeacher.role,
           code: newTeacher.personnel_code,
           subject: newTeacher.job_title,
           phone: newTeacher.phone || 'ثبت نشده',
@@ -230,16 +246,17 @@ router.post('/teachers', authorize('admin', 'manager'), async (req, res, next) =
 
 /**
  * DELETE /api/v1/school/teachers/:id
- * Remove teacher from database (scoped to caller's school)
+ * Remove teacher/staff member from database (scoped to caller's school)
  */
 router.delete('/teachers/:id', authorize('admin', 'manager'), async (req, res, next) => {
   try {
     const teacherId = req.params.id;
-    const teacher = await db('users').where({ id: teacherId, role: 'teacher' }).first();
+    const STAFF_ROLES = ['teacher', 'counselor', 'financial_officer', 'accountant'];
+    const teacher = await db('users').where({ id: teacherId }).whereIn('role', STAFF_ROLES).first();
     if (!teacher) {
       return res.status(404).json({
         success: false,
-        message: 'معلم یافت نشد',
+        message: 'همکار یافت نشد',
       });
     }
 
@@ -250,11 +267,11 @@ router.delete('/teachers/:id', authorize('admin', 'manager'), async (req, res, n
       .where({ teacher_id: teacherId, school_id: req.user.school_id })
       .update({ teacher_id: req.user.id })
       .catch(() => {});
-    await db('users').where({ id: teacherId, role: 'teacher', school_id: req.user.school_id }).del();
+    await db('users').where({ id: teacherId, school_id: req.user.school_id }).whereIn('role', STAFF_ROLES).del();
 
     res.json({
       success: true,
-      message: 'معلم از دیتابیس حذف گردید',
+      message: 'همکار از دیتابیس حذف گردید',
     });
   } catch (err) {
     next(err);
@@ -597,4 +614,116 @@ router.put('/website', authorize('admin', 'manager'), async (req, res, next) => 
   }
 });
 
+const sidaService = require('./sida.service');
+const smsGateway = require('../../services/smsGateway');
+
+/**
+ * POST /api/v1/school/sida/preview
+ * Intelligent dry-run preview & column mapping for Sida / Hamkelasi / Legacy Excel imports
+ */
+router.post('/sida/preview', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
+  try {
+    const preview = sidaService.previewImport(req.body || {});
+    res.json({
+      success: true,
+      message: `${preview.total_rows} ردیف با موفقیت تحلیل و نگاشت شد (${preview.valid_count} معتبر، ${preview.warning_count} دارای هشدار)`,
+      data: preview,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/school/sida/import
+ * Atomic one-click import of Sida / Legacy roster into classes, users, class_members & parent_student_links
+ */
+router.post('/sida/import', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
+  try {
+    const result = await sidaService.importRoster(req.user, req.body || {});
+    res.status(201).json({
+      success: true,
+      message: `عملیات مهاجرت داده از «${result.source_system.toUpperCase()}» تکمیل شد: ${result.imported_students_count} دانش‌آموز جدید، ${result.created_classes_count} کلاس و ${result.linked_parents_count} پیوند ولی-فرزند ثبت گردید.`,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/school/sida/export-grades
+ * Exports class continuous & final grades in official Sida CSV/JSON format
+ */
+router.get('/sida/export-grades', authorize('admin', 'manager', 'teacher'), async (req, res, next) => {
+  try {
+    const classId = req.query.class_id;
+    if (!classId) {
+      return res.status(400).json({ success: false, message: 'شناسه کلاس (class_id) برای خروجی سیدا الزامی است' });
+    }
+    const result = await sidaService.exportClassGradesForSida(req.user, classId);
+    if (req.query.format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="sida-grades-${classId}.csv"`);
+      return res.send(result.csv_content);
+    }
+    res.json({
+      success: true,
+      message: 'فایل استاندارد نمرات سیدا آماده دریافت است',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/school/sms/logs
+ * Returns recent pattern/service SMS dispatches for the caller's school
+ */
+router.get('/sms/logs', authorize('admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'), async (req, res, next) => {
+  try {
+    const logs = smsGateway.getRecentDispatches(req.user.school_id, 50);
+    res.json({
+      success: true,
+      data: {
+        provider: smsGateway.provider,
+        sender_line: smsGateway.senderLine,
+        logs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/school/sms/send-pattern
+ * Sends a pattern-based service SMS (خط خدماتی پترن) to a parent or student
+ */
+router.post('/sms/send-pattern', authorize('admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'), async (req, res, next) => {
+  try {
+    const { receptor, template, tokens, message_preview, category } = req.body;
+    if (!receptor) {
+      return res.status(400).json({ success: false, message: 'شماره موبایل گیرنده الزامی است' });
+    }
+    const entry = await smsGateway.sendPatternSms({
+      schoolId: req.user.school_id,
+      receptor,
+      template: template || 'educonnect-school-notice',
+      tokens: tokens || { token1: req.user.display_name },
+      messagePreview: message_preview || 'اطلاعیه رسمی از طرف مدرسه در سامانه هوشمند ادوکانکت',
+      category: category || 'manual_notice',
+    });
+    res.status(201).json({
+      success: true,
+      message: 'پیامک خدماتی از طریق خط پترن ارسال شد',
+      data: { sms: entry },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
+

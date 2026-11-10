@@ -15,24 +15,19 @@ export function getSocket() {
     }
 
     socket = io(backendUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       reconnectionAttempts: 15,
       reconnectionDelay: 1500,
       timeout: 20000,
       autoConnect: true,
       withCredentials: true,
       auth: (cb) => {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+        const token =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('accessToken') || localStorage.getItem('access_token')
+            : null;
         cb({ token });
       },
-    });
-
-    socket.on('connect', () => {
-      console.log('🟢 [Domestic Socket] Connected successfully:', socket.id);
-    });
-
-    socket.on('connect_error', (err) => {
-      console.warn('⚠️ [Domestic Socket] Connect error, falling back to polling transport:', err.message);
     });
   }
 

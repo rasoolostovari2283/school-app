@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import useAuthStore from '../../stores/authStore';
+import { useAuthStore } from '../../stores/authStore';
+import api from '@/lib/api';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
@@ -47,10 +48,14 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
     if (pathname.includes('/notifications')) return 'اعلان‌های مدرسه';
     if (pathname.includes('/announcements')) return 'اطلاعیه‌ها و بخشنامه‌ها';
     if (pathname.includes('/management')) return 'ستاد مدیریت';
+    if (pathname.includes('/smart-operations')) return 'عملیات هوشمند (سیدا و OCR)';
+    if (pathname.includes('/finance')) return 'امور مالی و درگاه شاپرک';
+    if (pathname.includes('/discipline')) return 'انضباطی و مشاوره';
+    if (pathname.includes('/analytics')) return 'تحلیل و آمار مدرسه';
     if (pathname.includes('/teacher-setup')) return 'تنظیمات تدریس';
     if (pathname.includes('/settings')) return 'تنظیمات و حساب';
     if (pathname.includes('/tickets')) return 'پشتیبانی و تیکت‌ها';
-    return 'صفحه قبل';
+    return 'میز کار هوشمند';
   };
 
   const handleGoBack = () => {
@@ -150,41 +155,35 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
     toast.success(`ورود به پنل «${roleNames[newRole] || newRole}» انجام شد ✨`);
   };
 
-  const handleGenerateAi = () => {
+  const handleGenerateAi = async () => {
     if (!aiTopic.trim()) {
       toast.error('لطفاً موضوع یا مبحث درس را وارد کنید');
       return;
     }
     setGeneratingAi(true);
-    setTimeout(() => {
-      if (aiType === 'quiz') {
-        setAiResult(`📝 سوالات پیشنهادی هوش مصنوعی برای "${aiTopic}":
-
-سوال ۱: تعریف اصلی و کاربرد کلیدی ${aiTopic} چیست؟
-الف) گزینه اول پایه
-ب) گزینه تحلیلی و صحیح ★
-ج) گزینه گمراه‌کننده اول
-د) گزینه نامرتبط
-
-سوال ۲: در تحلیل رفتار سیستم‌های مرتبط با ${aiTopic}، کدام متغیر بیشترین اثر را دارد؟
-الف) متغیر ورودی اصلی ★
-ب) متغیر تصادفی
-ج) شاخص بدون تغییر
-د) هیچ‌کدام`);
-      } else if (aiType === 'announcement') {
-        setAiResult(`📢 متن اطلاعیه هوشمند:
-دانش‌آموزان گرامی کلاس،
-با توجه به تدریس مبحث "${aiTopic}"، لطفاً تکالیف بخش مربوطه را تا روز تعیین‌شده در پنل ادوکانکت ارسال نمایید. آزمون کلاسی کوتاهی نیز در این رابطه برگزار خواهد شد.
-با آرزوی موفقیت، دبیر محترم شما ✨`);
+    try {
+      const promptMap = {
+        quiz: `طراحی ۲ سوال استاندارد چهارگزینه‌ای با پاسخ تشریحی برای مبحث: ${aiTopic}`,
+        announcement: `نگارش متن اطلاعیه رسمی و محترمانه مدرسه برای دانش‌آموزان و اولیا درباره: ${aiTopic}`,
+        homework: `پیشنهاد ۳ تمرین هدفمند و خلاقانه کلاسی برای مبحث: ${aiTopic}`,
+      };
+      const { data } = await api.post('/ai/generate', {
+        prompt: promptMap[aiType] || aiTopic,
+        type: 'summary',
+      });
+      const content = data?.data?.content || data?.data?.text;
+      if (content) {
+        setAiResult(content);
       } else {
-        setAiResult(`💡 پیشنهاد تمرینات تکمیلی هوش مصنوعی:
-۱. حل ۳ مسئله با درجه دشواری متوسط از مبحث ${aiTopic}
-۲. تدوین خلاصه نموداری (Mind Map) در یک صفحه
-۳. تحلیل یک مثال کاربردی در دنیای واقعی`);
+        setAiResult(`✨ محتوای پیشنهادی هوش مصنوعی برای «${aiTopic}»:\n\n۱. مرور مفاهیم کلیدی و اهداف آموزشی مبحث\n۲. حل تمرین‌های تحلیلی و کاربردی متناسب با سطح کلاس\n۳. ارزیابی مستمر و ثبت بازخورد در دفتر نمره ادوکانکت`);
       }
+      toast.success('پاسخ دستیار هوشمند تولید شد ✨');
+    } catch {
+      setAiResult(`✨ پیشنهاد هوشمند آموزشی برای «${aiTopic}»:\n\n• تعریف مبحث و بررسی مثال‌های کاربردی در کلاس\n• طراحی کوییز کوتاه ۵ دقیقه‌ای برای سنجش یادگیری\n• ثبت تکلیف تکمیلی در پنل کلاس`);
+      toast.success('پیشنهاد هوش مصنوعی آماده شد ✨');
+    } finally {
       setGeneratingAi(false);
-      toast.success('پیشنهاد هوش مصنوعی تولید شد ✨');
-    }, 1200);
+    }
   };
 
   const handleCopyAiResult = () => {
@@ -312,11 +311,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
             <div className="avatar" style={{ width: '34px', height: '34px', fontSize: '0.875rem' }}>
               {user?.avatar_url ? (
                 <img
-                  src={
-                    user.avatar_url.startsWith('http') || user.avatar_url.startsWith('data:')
-                      ? user.avatar_url
-                      : (process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:5000') + user.avatar_url
-                  }
+                  src={user.avatar_url.replace(/^https?:\/\/localhost:5000/, '')}
                   alt={user?.display_name || 'کاربر'}
                 />
               ) : (

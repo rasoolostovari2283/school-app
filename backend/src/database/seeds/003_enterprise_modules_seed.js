@@ -1,6 +1,8 @@
 exports.seed = async function (knex) {
+  const DEFAULT_SCHOOL_ID = 'sch-1';
+
   // ── 1. Seed Gradebook Categories & Scores ──
-  const classObj = await knex('classes').first();
+  const classObj = await knex('classes').where({ school_id: DEFAULT_SCHOOL_ID }).first() || await knex('classes').first();
   if (classObj) {
     const catsCount = await knex('gradebook_categories').where('class_id', classObj.id).count('id as count').first();
     if (parseInt(catsCount.count, 10) === 0) {
@@ -35,31 +37,34 @@ exports.seed = async function (knex) {
         },
       ]);
 
-      const students = await knex('users').where({ role: 'student' }).select('id');
+      const students = await knex('users').where({ role: 'student', school_id: DEFAULT_SCHOOL_ID }).select('id');
       for (const st of students) {
-        await knex('gradebook_scores').insert([
-          {
-            id: `score-${st.id}-1`,
-            category_id: cat1Id,
-            student_id: st.id,
-            score: 19.5,
-            teacher_comment: 'مشارکت فعال در حل تمرین‌های سخت تخته کلاسی',
-          },
-          {
-            id: `score-${st.id}-2`,
-            category_id: cat2Id,
-            student_id: st.id,
-            score: 18.75,
-            teacher_comment: 'درصد تستی ۸۲٪ در بخش سوالات تحلیلی',
-          },
-          {
-            id: `score-${st.id}-3`,
-            category_id: cat3Id,
-            student_id: st.id,
-            score: 19.0,
-            teacher_comment: 'پاسخ‌های کامل و دقیق در بخش تشریحی',
-          },
-        ]);
+        const existingScore = await knex('gradebook_scores').where({ category_id: cat1Id, student_id: st.id }).first();
+        if (!existingScore) {
+          await knex('gradebook_scores').insert([
+            {
+              id: `score-${st.id}-1`,
+              category_id: cat1Id,
+              student_id: st.id,
+              score: 19.5,
+              teacher_comment: 'مشارکت فعال در حل تمرین‌های سخت تخته کلاسی',
+            },
+            {
+              id: `score-${st.id}-2`,
+              category_id: cat2Id,
+              student_id: st.id,
+              score: 18.75,
+              teacher_comment: 'درصد تستی ۸۲٪ در بخش سوالات تحلیلی',
+            },
+            {
+              id: `score-${st.id}-3`,
+              category_id: cat3Id,
+              student_id: st.id,
+              score: 19.0,
+              teacher_comment: 'پاسخ‌های کامل و دقیق در بخش تشریحی',
+            },
+          ]);
+        }
       }
     }
 
@@ -129,8 +134,8 @@ exports.seed = async function (knex) {
   // ── 3. Seed Discipline & Counseling Records ──
   const discCount = await knex('discipline_records').count('id as count').first();
   if (parseInt(discCount.count, 10) === 0) {
-    const student = await knex('users').where({ role: 'student' }).first();
-    const teacher = await knex('users').where({ role: 'teacher' }).first();
+    const student = await knex('users').where({ role: 'student', school_id: DEFAULT_SCHOOL_ID }).first();
+    const teacher = await knex('users').where({ role: 'teacher', school_id: DEFAULT_SCHOOL_ID }).first();
 
     if (student && teacher) {
       await knex('discipline_records').insert([
@@ -176,7 +181,7 @@ exports.seed = async function (knex) {
         {
           id: 'couns-1',
           student_id: student.id,
-          counselor_id: teacher.id,
+          counselor_id: 'staff-sadeghi',
           session_title: 'جلسه پایش راندمان مطالعه و برنامه‌ریزی کنکور و المپیاد',
           session_date: '۱۴۰۳/۰۷/۱۸',
           student_concerns: 'مدیریت زمان بین تکالیف مدرسه و حل تمرین‌های تشریحی المپیاد',
@@ -193,8 +198,8 @@ exports.seed = async function (knex) {
   // ── 4. Seed School Tickets ──
   const tckCount = await knex('school_tickets').count('id as count').first();
   if (parseInt(tckCount.count, 10) === 0) {
-    const parent = await knex('users').where({ role: 'parent' }).first();
-    const teacher = await knex('users').where({ role: 'teacher' }).first();
+    const parent = await knex('users').where({ role: 'parent', school_id: DEFAULT_SCHOOL_ID }).first();
+    const teacher = await knex('users').where({ role: 'teacher', school_id: DEFAULT_SCHOOL_ID }).first();
 
     if (parent && teacher) {
       const ticketId = 'tck-demo-1';
@@ -222,6 +227,58 @@ exports.seed = async function (knex) {
           ticket_id: ticketId,
           sender_id: teacher.id,
           message: 'سلام و احترام خدمت ولی محترم؛ وقت جلسه حضوری برای روز دوشنبه ساعت ۱۰:۳۰ در اتاق مشاوره هماهنگ گردید.',
+        },
+      ]);
+    }
+  }
+
+  // ── 5. Seed Tuition Ledgers & Installments for Students ──
+  const students = await knex('users').where({ role: 'student', school_id: DEFAULT_SCHOOL_ID }).select('id', 'display_name');
+  for (const st of students) {
+    const existingLedger = await knex('tuition_ledgers').where({ student_id: st.id }).first();
+    if (!existingLedger) {
+      const ledgerId = `led-${st.id}`;
+      await knex('tuition_ledgers').insert({
+        id: ledgerId,
+        student_id: st.id,
+        academic_year: '1403-1404',
+        total_amount: 450000000,
+        paid_amount: 150000000,
+        discount_amount: 30000000,
+        balance: 270000000,
+        status: 'partial',
+      });
+
+      await knex('tuition_installments').insert([
+        {
+          id: `inst-${st.id}-1`,
+          ledger_id: ledgerId,
+          installment_number: 1,
+          title: 'پیش‌پرداخت ثبت‌نام و خدمات آموزشی نوبت اول',
+          amount: 150000000,
+          due_date: '۱۴۰۳/۰۷/۱۵',
+          paid_at: '۱۴۰۳/۰۷/۱۲',
+          bank_name: 'شاپرک آنلاین (۶۰۳۷-****-****-۴۸۱۲)',
+          tracking_number: 'SHP-88412095',
+          status: 'verified',
+        },
+        {
+          id: `inst-${st.id}-2`,
+          ledger_id: ledgerId,
+          installment_number: 2,
+          title: 'قسط دوم شهریه و کلاس‌های فوق‌برنامه المپیاد',
+          amount: 135000000,
+          due_date: '۱۴۰۳/۱۰/۱۵',
+          status: 'pending',
+        },
+        {
+          id: `inst-${st.id}-3`,
+          ledger_id: ledgerId,
+          installment_number: 3,
+          title: 'قسط سوم و تسویه نهایی سال تحصیلی',
+          amount: 135000000,
+          due_date: '۱۴۰۳/۱۲/۱۵',
+          status: 'pending',
         },
       ]);
     }

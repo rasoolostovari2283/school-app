@@ -197,9 +197,32 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    if (decoded.tv !== undefined && Number(decoded.tv) !== Number(user.token_version || 0)) {
+      return res.status(401).json({
+        success: false,
+        message: 'نشست کاربری ابطال شده است. لطفاً مجدداً وارد شوید',
+        messageEn: 'Session has been revoked',
+      });
+    }
+
+    if (decoded.jti) {
+      const revoked = await db('revoked_tokens')
+        .where({ jti: decoded.jti })
+        .first()
+        .catch(() => null);
+      if (revoked) {
+        return res.status(401).json({
+          success: false,
+          message: 'توکن احراز هویت ابطال شده است',
+          messageEn: 'Token has been revoked',
+        });
+      }
+    }
+
     // Remove sensitive fields
     delete user.password_hash;
     req.user = user;
+    req.tokenPayload = decoded;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -238,6 +261,10 @@ const authorize = (...roles) => {
     // Expand management and admin aliases
     if (normalizedRoles.includes('admin') || normalizedRoles.includes('manager')) {
       normalizedRoles.push('admin', 'manager', 'school_admin', 'principal', 'headmaster');
+    }
+    // Expand financial officer aliases
+    if (normalizedRoles.includes('financial_officer') || normalizedRoles.includes('accountant')) {
+      normalizedRoles.push('financial_officer', 'accountant');
     }
 
     if (!normalizedRoles.includes(userRole)) {
@@ -289,8 +316,17 @@ const optionalAuth = async (req, res, next) => {
       if (!decoded || decoded.typ !== 'refresh') {
         const user = await db('users').where({ id: decoded.userId }).first();
         if (user && user.is_active !== false && user.is_active !== 0) {
-          delete user.password_hash;
-          req.user = user;
+          const tvMatch = decoded.tv === undefined || Number(decoded.tv) === Number(user.token_version || 0);
+          let jtiRevoked = false;
+          if (tvMatch && decoded.jti) {
+            const row = await db('revoked_tokens').where({ jti: decoded.jti }).first().catch(() => null);
+            jtiRevoked = Boolean(row);
+          }
+          if (tvMatch && !jtiRevoked) {
+            delete user.password_hash;
+            req.user = user;
+            req.tokenPayload = decoded;
+          }
         }
       }
     }
@@ -306,6 +342,7 @@ module.exports = {
   requireClassMember,
   requireClassAccess: requireClassMember,
   optionalAuth,
+  extractTokenFromRequest,
   isSchoolAdmin,
   assertSameSchool,
   assertOwnsClass,

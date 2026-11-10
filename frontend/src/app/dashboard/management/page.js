@@ -107,21 +107,6 @@ export default function ManagementDashboardPage() {
     let schoolLevel = user?.school_level || 'دوره دوم متوسطه';
     let schoolCity = user?.city || 'تهران';
 
-    // If registered via login recently, check localStorage.registered_schools
-    try {
-      const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentSchoolCode) || savedSchools[0];
-        if (matched) {
-          currentSchoolCode = matched.school_code;
-          currentSchoolName = matched.school_name;
-          schoolLevel = matched.school_level || schoolLevel;
-          schoolCity = matched.city || schoolCity;
-          principalName = matched.admin_name || principalName;
-        }
-      }
-    } catch (e) {}
-
     setSchoolData({
       name: currentSchoolName,
       code: currentSchoolCode,
@@ -130,32 +115,10 @@ export default function ManagementDashboardPage() {
       principal: principalName,
     });
 
-    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
-    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
-    const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
-
     setTeachers([]);
     setStudents([]);
-
-    // ── Load Classes from LocalStorage as fallback initial ──
-    const classStorageKey = `mgmt_classes_${currentSchoolCode}`;
-    const savedClasses = localStorage.getItem(classStorageKey);
-    let loadedClasses = [];
-    if (savedClasses) {
-      try {
-        loadedClasses = JSON.parse(savedClasses);
-      } catch (e) {}
-    }
-    loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
-    setClassesList(loadedClasses);
-
-    // ── Load Directives from LocalStorage as fallback initial ──
-    const savedDirectives = localStorage.getItem('sent_management_directives');
-    if (savedDirectives) {
-      try {
-        setSentDirectives(JSON.parse(savedDirectives));
-      } catch (e) {}
-    }
+    setClassesList([]);
+    setSentDirectives([]);
 
     // ── Database Sync: Fetch Persistent Data from SQLite Backend ──
     Promise.allSettled([
@@ -193,23 +156,16 @@ export default function ManagementDashboardPage() {
       // 3. Classes from DB
       if (classesRes.status === 'fulfilled' && classesRes.value?.data?.success && classesRes.value?.data?.data?.classes) {
         const dbClasses = classesRes.value.data.data.classes;
-        if (Array.isArray(dbClasses) && dbClasses.length > 0) {
+        if (Array.isArray(dbClasses)) {
           setClassesList(dbClasses);
-          try {
-            localStorage.setItem(classStorageKey, JSON.stringify(dbClasses));
-            localStorage.setItem('school_classes_database', JSON.stringify(dbClasses));
-          } catch (e) {}
         }
       }
 
       // 4. Directives from DB
       if (directivesRes.status === 'fulfilled' && directivesRes.value?.data?.success && directivesRes.value?.data?.data?.directives) {
         const dbDirectives = directivesRes.value.data.data.directives;
-        if (Array.isArray(dbDirectives) && dbDirectives.length > 0) {
+        if (Array.isArray(dbDirectives)) {
           setSentDirectives(dbDirectives);
-          try {
-            localStorage.setItem('sent_management_directives', JSON.stringify(dbDirectives));
-          } catch (e) {}
         }
       }
 
@@ -418,9 +374,6 @@ export default function ManagementDashboardPage() {
 
       const updated = [...classesList.filter((c) => c.id !== savedClass.id), savedClass];
       setClassesList(updated);
-      try {
-        localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
-      } catch (err) {}
 
       toast.success(`کلاس «${savedClass.name}» با موفقیت در دیتابیس ثبت شد 🏫`);
       setShowClassModal(false);
@@ -435,9 +388,6 @@ export default function ManagementDashboardPage() {
       await api.delete(`/classes/${id}`);
       const updated = classesList.filter((c) => c.id !== id);
       setClassesList(updated);
-      try {
-        localStorage.setItem(`mgmt_classes_${schoolData.code}`, JSON.stringify(updated));
-      } catch (err) {}
       toast.success(`کلاس «${name}» از دیتابیس حذف شد.`);
     } catch (err) {
       toast.error('خطا در حذف کلاس از دیتابیس');
@@ -496,9 +446,6 @@ export default function ManagementDashboardPage() {
 
       const updated = [savedDirective, ...sentDirectives];
       setSentDirectives(updated);
-      try {
-        localStorage.setItem('sent_management_directives', JSON.stringify(updated));
-      } catch (err) {}
 
       toast.success('پیام و بخشنامه مدیریت با موفقیت در دیتابیس ثبت و ابلاغ شد 🚀');
 
@@ -526,9 +473,6 @@ export default function ManagementDashboardPage() {
       await api.delete(`/school/directives/${id}`);
       const updated = sentDirectives.filter((d) => d.id !== id);
       setSentDirectives(updated);
-      try {
-        localStorage.setItem('sent_management_directives', JSON.stringify(updated));
-      } catch (err) {}
       toast.success('بخشنامه با موفقیت از دیتابیس حذف شد');
     } catch (err) {
       toast.error('خطا در حذف بخشنامه');

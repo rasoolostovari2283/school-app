@@ -441,10 +441,34 @@ export default function LoginPage() {
       desc: 'تدریس حسابان، ثبت حضور و غیاب، طراحی تکالیف، آزمون‌ها و ثبت کارنامه',
     },
     {
+      role: 'counselor',
+      icon: '🧠',
+      title: 'مشاور ارشد تحصیلی و کنکور',
+      personName: 'دکتر فاطمه صادقی (@sadeghi_counselor)',
+      badge: 'مرکز مشاوره و هدایت تحصیلی',
+      avatarBg: 'rgba(139, 92, 246, 0.12)',
+      badgeColor: '#8b5cf6',
+      badgeBorder: 'rgba(139, 92, 246, 0.3)',
+      badgeBg: 'rgba(139, 92, 246, 0.08)',
+      desc: 'پرونده مشاوره‌ای، دفتر برنامه‌ریزی تحصیلی، پایش سلامت روان و انضباطی',
+    },
+    {
+      role: 'financial_officer',
+      icon: '💳',
+      title: 'مسئول امور مالی و شهریه',
+      personName: 'مهندس سعید رضایی (@rezaei_finance)',
+      badge: 'حسابداری و شاپرک',
+      avatarBg: 'rgba(14, 165, 233, 0.12)',
+      badgeColor: '#0ea5e9',
+      badgeBorder: 'rgba(14, 165, 233, 0.3)',
+      badgeBg: 'rgba(14, 165, 233, 0.08)',
+      desc: 'مدیریت شهریه، اقساط، درگاه شاپرک، تایید فیش‌های بانکی و اعتبارسنجی شبا',
+    },
+    {
       role: 'student',
       icon: '👨‍🎓',
       title: 'دانش‌آموز دبیرستان',
-      personName: 'امیرحسین حسینی (@amirhossein_hosseini)',
+      personName: 'امیرحسین حسینی (@hosseini_std)',
       badge: 'دهم ریاضی - کلاس ۱۰۱',
       avatarBg: 'rgba(59, 130, 246, 0.12)',
       badgeColor: '#3b82f6',
@@ -462,21 +486,21 @@ export default function LoginPage() {
       badgeColor: '#f59e0b',
       badgeBorder: 'rgba(245, 158, 11, 0.3)',
       badgeBg: 'rgba(245, 158, 11, 0.08)',
-      desc: 'پیگیری وضعیت تحصیلی و انضباطی فرزند، کارنامه، ارتباط مستقیم با مدرسه',
+      desc: 'پیگیری وضعیت تحصیلی و انضباطی فرزند، کارنامه، پرداخت شهریه و ارتباط با مدرسه',
     },
   ];
 
-  const handleSelectDemoRole = (role, title) => {
+  const handleSelectDemoRole = async (role, title) => {
     try {
       setIsLoading(true);
-      const res = demoLogin(role);
+      const res = await demoLogin(role);
       toast.success(`خوش آمدید! ورود به عنوان «${title}» انجام شد 🚀`);
       setShowDemoModal(false);
       const dest = res?.redirect || (role === 'admin' ? '/dashboard/management/' : '/dashboard/');
       router.push(dest);
     } catch (err) {
       console.error('Demo login error:', err);
-      toast.error('خطا در ورود به حساب آزمایشی');
+      toast.error(err?.response?.data?.message || 'خطا در ورود به حساب آزمایشی');
     } finally {
       setIsLoading(false);
     }

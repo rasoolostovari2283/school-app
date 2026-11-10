@@ -195,6 +195,7 @@ class ClassService {
       const results = await query
         .select('classes.*', 'users.display_name as student_name', 'users.id as student_id')
         .orderBy('classes.created_at', 'desc');
+      await this.attachStudentCounts(results);
       return results.map(sanitizeClassSecrets);
     }
 
@@ -210,6 +211,7 @@ class ClassService {
     const rows = await studentQuery
       .select('classes.*', 'teacher.display_name as teacher_name')
       .orderBy('class_members.joined_at', 'desc');
+    await this.attachStudentCounts(rows);
     return rows.map(sanitizeClassSecrets);
   }
 
@@ -587,45 +589,79 @@ class ClassService {
       throw error;
     }
 
-    const addedStudents = [];
+    const validItems = parsedList.filter((item) => item && item.display_name && item.display_name.trim());
+    if (validItems.length === 0) {
+      return { added_count: 0, students: [] };
+    }
 
-    for (const item of parsedList) {
-      if (!item.display_name || !item.display_name.trim()) continue;
+    // Batch-fetch existing students by student_code in this school (1 query instead of N)
+    const codesToLookup = Array.from(
+      new Set(
+        validItems
+          .map((item) => (item.student_code ? item.student_code.trim() : ''))
+          .filter(Boolean)
+      )
+    );
 
-      let studentUser = null;
-      if (item.student_code && item.student_code.trim()) {
-        studentUser = await db('users')
-          .where({ student_code: item.student_code.trim(), school_id: cls.school_id })
-          .first();
+    const existingUsersByCode = new Map();
+    if (codesToLookup.length > 0) {
+      const foundUsers = await db('users')
+        .where({ school_id: cls.school_id })
+        .whereIn('student_code', codesToLookup);
+      for (const u of foundUsers) {
+        if (u.student_code) {
+          existingUsersByCode.set(u.student_code.trim(), u);
+        }
       }
+    }
+
+    // Batch-fetch existing class_members for this class (1 query instead of N)
+    const existingMemberIds = new Set(
+      await db('class_members').where({ class_id: classId }).pluck('user_id')
+    );
+
+    // Pre-compute a single bcrypt hash for newly created student accounts in this batch
+    const sharedBatchPasswordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+
+    const addedStudents = [];
+    const newMembershipsToInsert = [];
+
+    for (const item of validItems) {
+      const cleanCode = item.student_code ? item.student_code.trim() : '';
+      let studentUser = cleanCode ? existingUsersByCode.get(cleanCode) : null;
 
       if (!studentUser) {
-        const randomHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+        const assignedCode = cleanCode || Math.floor(100000 + Math.random() * 900000).toString();
         studentUser = await insertAndReturn(db, 'users', {
           display_name: item.display_name.trim(),
-          student_code: item.student_code
-            ? item.student_code.trim()
-            : Math.floor(100000 + Math.random() * 900000).toString(),
+          student_code: assignedCode,
           department: item.department ? item.department.trim() : cls.grade || null,
           role: 'student',
           school_id: cls.school_id,
-          password_hash: randomHash,
+          password_hash: sharedBatchPasswordHash,
         });
+        if (cleanCode) {
+          existingUsersByCode.set(cleanCode, studentUser);
+        }
       }
 
-      const already = await db('class_members')
-        .where({ class_id: classId, user_id: studentUser.id })
-        .first();
-
-      if (!already) {
-        await insertAndReturn(db, 'class_members', {
+      if (!existingMemberIds.has(studentUser.id)) {
+        existingMemberIds.add(studentUser.id);
+        newMembershipsToInsert.push({
+          id: generateId(),
           class_id: classId,
           user_id: studentUser.id,
           role: 'student',
+          joined_at: new Date().toISOString(),
         });
-        delete studentUser.password_hash;
-        addedStudents.push(studentUser);
+        const sanitizedUser = { ...studentUser };
+        delete sanitizedUser.password_hash;
+        addedStudents.push(sanitizedUser);
       }
+    }
+
+    if (newMembershipsToInsert.length > 0) {
+      await db('class_members').insert(newMembershipsToInsert);
     }
 
     return {

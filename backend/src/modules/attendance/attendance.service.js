@@ -1,5 +1,5 @@
 const db = require('../../config/database');
-const { insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
+const { generateId, insertAndReturn, updateAndReturn } = require('../../utils/dbHelpers');
 const {
   assertOwnsClass,
   assertSameSchool,
@@ -174,26 +174,59 @@ class AttendanceService {
 
     const checkedInIds = new Set(checkedIn.map((r) => r.student_id));
 
-    for (const member of classMembers) {
-      if (!checkedInIds.has(member.user_id)) {
-        await insertAndReturn(db, 'attendance_records', {
-          session_id: sessionId,
-          student_id: member.user_id,
-          status: 'absent',
-          recorded_at: null,
-        }).catch(() => {});
+    const absentStudentIds = classMembers
+      .map((m) => m.user_id)
+      .filter((userId) => !checkedInIds.has(userId));
 
-        const parentLinks = await db('parent_student_links').where({ student_id: member.user_id });
-        for (const link of parentLinks) {
-          await insertAndReturn(db, 'notifications', {
-            user_id: link.parent_id,
-            type: 'attendance',
-            title: 'غیبت در حضور و غیاب کلاسی',
-            body: 'فرزند شما در مهلت ربع ساعت حضور و غیاب حاضر نشد و غایب ثبت گردید',
-            data: JSON.stringify({ session_id: sessionId, class_id: session.class_id }),
-          }).catch(() => {});
-        }
+    if (absentStudentIds.length > 0) {
+      const absentRecords = absentStudentIds.map((studentId) => ({
+        id: generateId(),
+        session_id: sessionId,
+        student_id: studentId,
+        status: 'absent',
+        recorded_at: null,
+      }));
+      await db('attendance_records').insert(absentRecords).catch(() => {});
+
+      const parentLinks = await db('parent_student_links')
+        .whereIn('student_id', absentStudentIds)
+        .select('parent_id', 'student_id');
+
+      if (parentLinks.length > 0) {
+        const nowIso = new Date().toISOString();
+        const notificationRows = parentLinks.map((link) => ({
+          id: generateId(),
+          user_id: link.parent_id,
+          type: 'attendance',
+          title: 'غیبت در حضور و غیاب کلاسی',
+          body: 'فرزند شما در مهلت ربع ساعت حضور و غیاب حاضر نشد و غایب ثبت گردید',
+          data: JSON.stringify({ session_id: sessionId, class_id: session.class_id }),
+          is_read: false,
+          created_at: nowIso,
+        }));
+        await db('notifications').insert(notificationRows).catch(() => {});
       }
+
+      try {
+        const smsGateway = require('../../services/smsGateway');
+        const [clsInfo, absentStudents] = await Promise.all([
+          db('classes').where({ id: session.class_id }).select('id', 'name', 'school_id').first(),
+          db('users').whereIn('id', absentStudentIds).select('id', 'display_name', 'phone', 'settings', 'school_id'),
+        ]);
+        for (const st of absentStudents) {
+          let stSettings = {};
+          try { stSettings = typeof st.settings === 'string' ? JSON.parse(st.settings) : (st.settings || {}); } catch (_e) {}
+          const parentPhone = stSettings.parent_phone || st.phone;
+          if (parentPhone) {
+            await smsGateway.sendAbsenceAlert({
+              schoolId: clsInfo?.school_id || st.school_id,
+              parentPhone,
+              studentName: st.display_name,
+              className: clsInfo?.name || 'کلاس درسی',
+            });
+          }
+        }
+      } catch (_smsErr) {}
     }
 
     return session;

@@ -281,18 +281,8 @@ export default function QuizzesPage() {
           }
         }
       }
-      try {
-        localStorage.setItem('cached_quizzes', JSON.stringify(list));
-      } catch (e) {}
     } catch (err) {
-      console.warn('Could not fetch quizzes from server, checking local cache:', err.message);
-      try {
-        const cached = JSON.parse(localStorage.getItem('cached_quizzes') || '[]');
-        if (cached.length > 0) {
-          setQuizzes(cached);
-          return;
-        }
-      } catch (e) {}
+      console.warn('Could not fetch quizzes from server:', err.message);
       if (err.response?.status && err.response.status !== 401) {
         toast.error('خطا در بارگذاری کوییزها');
       }

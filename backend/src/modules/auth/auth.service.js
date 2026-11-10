@@ -24,6 +24,9 @@ const PRIVILEGED_ROLES = [
   'school_admin',
   'superadmin',
   'owner',
+  'counselor',
+  'financial_officer',
+  'accountant',
 ];
 
 /** The role an unauthenticated request receives when it asks for nothing usable. */
@@ -118,7 +121,7 @@ class AuthService {
     });
 
     delete user.password_hash;
-    const tokens = this.generateTokens(user.id, user.role);
+    const tokens = this.generateTokens(user.id, user.role, user.token_version);
     return { user, ...tokens };
   }
 
@@ -180,7 +183,7 @@ class AuthService {
     });
 
     delete user.password_hash;
-    const tokens = this.generateTokens(user.id, user.role);
+    const tokens = this.generateTokens(user.id, user.role, user.token_version);
 
     const schoolRecord = await insertAndReturn(db, 'schools', {
       id: generateId(),
@@ -305,7 +308,7 @@ class AuthService {
       }
 
       delete user.password_hash;
-      const tokens = this.generateTokens(user.id, user.role);
+      const tokens = this.generateTokens(user.id, user.role, user.token_version);
       return { user, isNew: false, ...tokens };
     }
 
@@ -360,7 +363,7 @@ class AuthService {
 
     newUser.school_name = matchedSchool ? matchedSchool.name : null;
     delete newUser.password_hash;
-    const tokens = this.generateTokens(newUser.id, newUser.role);
+    const tokens = this.generateTokens(newUser.id, newUser.role, newUser.token_version);
     return { user: newUser, isNew: true, ...tokens };
   }
 
@@ -451,7 +454,7 @@ class AuthService {
     }
 
     delete matchedUser.password_hash;
-    const tokens = this.generateTokens(matchedUser.id, matchedUser.role);
+    const tokens = this.generateTokens(matchedUser.id, matchedUser.role, matchedUser.token_version);
     return { user: matchedUser, ...tokens };
   }
 
@@ -557,7 +560,7 @@ class AuthService {
     }
 
     delete parent.password_hash;
-    const tokens = this.generateTokens(parent.id, parent.role);
+    const tokens = this.generateTokens(parent.id, parent.role, parent.token_version);
 
     return {
       user: parent,
@@ -579,18 +582,89 @@ class AuthService {
         error.statusCode = 401;
         throw error;
       }
-      const user = await db('users').where({ id: decoded.userId }).select('id', 'role', 'is_active').first();
+      const user = await db('users')
+        .where({ id: decoded.userId })
+        .select('id', 'role', 'is_active', 'token_version')
+        .first();
       if (!user || user.is_active === false || user.is_active === 0) {
         const error = new Error('کاربر یافت نشد یا غیرفعال است');
         error.statusCode = 401;
         throw error;
       }
-      return this.generateTokens(user.id, user.role);
+
+      const currentVersion = Number(user.token_version || 0);
+      if (decoded.tv !== undefined && Number(decoded.tv) !== currentVersion) {
+        const error = new Error('نشست کاربری ابطال شده است');
+        error.messageEn = 'Session has been revoked';
+        error.statusCode = 401;
+        throw error;
+      }
+
+      if (decoded.jti) {
+        const alreadyRevoked = await db('revoked_tokens')
+          .where({ jti: decoded.jti })
+          .first()
+          .catch(() => null);
+        if (alreadyRevoked) {
+          // Replay of a rotated or revoked refresh token: invalidate all sessions for safety
+          await db('users').where({ id: user.id }).increment('token_version', 1).catch(() => {});
+          const error = new Error('توکن بازنشانی قبلاً استفاده یا ابطال شده است');
+          error.messageEn = 'Refresh token has already been used or revoked';
+          error.statusCode = 401;
+          throw error;
+        }
+
+        // Single-use refresh token rotation: mark current refresh token JTI as consumed
+        await this.revokeTokenByJti(
+          decoded.jti,
+          user.id,
+          'refresh',
+          'rotated',
+          decoded.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+        );
+      }
+
+      return this.generateTokens(user.id, user.role, currentVersion);
     } catch (err) {
-      const error = new Error('توکن نامعتبر است');
+      const error = new Error(err.message || 'توکن نامعتبر است');
+      error.messageEn = err.messageEn || 'Invalid token';
       error.statusCode = 401;
       throw error;
     }
+  }
+
+  async revokeTokenByJti(jti, userId = null, tokenType = 'access', reason = 'logout', expiresAt = null) {
+    if (!jti) return false;
+    try {
+      await db('revoked_tokens')
+        .insert({
+          jti: String(jti),
+          user_id: userId || null,
+          token_type: tokenType,
+          reason,
+          expires_at: expiresAt,
+          revoked_at: new Date().toISOString(),
+        })
+        .onConflict('jti')
+        .ignore();
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  async revokeAllUserSessions(userId, reason = 'manual_revoke', currentJti = null) {
+    if (!userId) return false;
+    if (currentJti) {
+      await this.revokeTokenByJti(currentJti, userId, 'access', reason);
+    }
+    const user = await db('users').where({ id: userId }).select('token_version').first();
+    const nextVersion = Number(user?.token_version || 0) + 1;
+    await db('users').where({ id: userId }).update({
+      token_version: nextVersion,
+      updated_at: new Date(),
+    });
+    return { success: true, token_version: nextVersion };
   }
 
   async changePassword(userId, currentPassword, newPassword) {
@@ -617,8 +691,10 @@ class AuthService {
     }
 
     const password_hash = await bcrypt.hash(String(newPassword).trim(), 12);
+    const nextTokenVersion = Number(user.token_version || 0) + 1;
     await db('users').where({ id: userId }).update({
       password_hash,
+      token_version: nextTokenVersion,
       updated_at: new Date(),
     });
 
@@ -1078,9 +1154,20 @@ class AuthService {
     };
   }
 
-  generateTokens(userId, role) {
-    const accessToken = jwt.sign({ userId, role, typ: 'access' }, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
-    const refreshToken = jwt.sign({ userId, role, typ: 'refresh' }, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpiresIn });
+  generateTokens(userId, role, tokenVersion = 0) {
+    const tv = Number(tokenVersion || 0);
+    const accessJti = generateId();
+    const refreshJti = generateId();
+    const accessToken = jwt.sign(
+      { userId, role, typ: 'access', tv, jti: accessJti },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn },
+    );
+    const refreshToken = jwt.sign(
+      { userId, role, typ: 'refresh', tv, jti: refreshJti },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn },
+    );
     return { accessToken, refreshToken };
   }
 }

@@ -8,15 +8,30 @@
     "backend"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=frontend",
+    "dev": "node dev-server.js",
     "build": "npm run build --workspace=frontend",
-    "start": "npm run start --workspace=frontend",
+    "start": "NODE_ENV=production node dev-server.js",
     "lint": "npm run lint --workspace=frontend"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@google/genai": "^3.0.0",
     "axios": "^1.7.9",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "compression": "^1.8.2",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.4",
+    "helmet": "^8.3.0",
+    "joi": "^18.3.2",
+    "jsonwebtoken": "^9.0.3",
     "jspdf": "^2.5.2",
     "jszip": "^3.10.1",
+    "knex": "^3.3.0",
+    "morgan": "^1.12.1",
+    "multer": "^2.5.0",
     "next": "^15.1.0",
     "pdfjs-dist": "^3.11.174",
     "react": "^19.0.0",
@@ -24,6 +39,8 @@
     "react-hot-toast": "^2.4.1",
     "react-icons": "^5.4.0",
     "socket.io-client": "^4.8.1",
+    "sqlite3": "^6.0.1",
+    "uuid": "^14.0.3",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

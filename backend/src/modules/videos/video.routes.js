@@ -22,12 +22,26 @@ const { cacheMiddleware, cache } = require('../../utils/cache');
 router.use(authenticate);
 
 const MAX_CONCURRENT_CONVERSIONS = 1;
+const CONVERSION_TIMEOUT_MS = 30000;
 let activeConversions = 0;
 
 /**
  * POST /api/v1/videos/convert-pptx — converts a PowerPoint presentation into a vector PDF
  */
-router.post('/convert-pptx', authorize('teacher', 'admin', 'manager'), upload.single('file'), async (req, res, next) => {
+router.post(
+  '/convert-pptx',
+  authorize('teacher', 'admin', 'manager'),
+  (req, res, next) => {
+    if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
+      return res.status(429).json({
+        success: false,
+        message: 'سرور در حال پردازش فایل دیگری است. لطفاً چند لحظه بعد مجدداً تلاش کنید.',
+      });
+    }
+    return next();
+  },
+  upload.single('file'),
+  async (req, res, next) => {
   let slotAcquired = false;
   const releaseSlot = () => {
     if (slotAcquired) {
@@ -35,6 +49,8 @@ router.post('/convert-pptx', authorize('teacher', 'admin', 'manager'), upload.si
       activeConversions = Math.max(0, activeConversions - 1);
     }
   };
+
+  res.on('close', releaseSlot);
 
   try {
     const file = req.file;
@@ -98,7 +114,7 @@ router.post('/convert-pptx', authorize('teacher', 'admin', 'manager'), upload.si
 
     fs.writeFileSync(scriptPath, vbsContent, 'ascii');
 
-    execFile('cscript', ['//nologo', scriptPath], (err) => {
+    execFile('cscript', ['//nologo', scriptPath], { timeout: CONVERSION_TIMEOUT_MS }, (err) => {
       try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_e) {}
       try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (_e) {}
       try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
@@ -138,7 +154,7 @@ try {
 }
 `;
         fs.writeFileSync(psPath, psContent, 'utf8');
-        execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psPath], (psErr) => {
+        execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psPath], { timeout: CONVERSION_TIMEOUT_MS }, (psErr) => {
           releaseSlot();
           try { if (fs.existsSync(psPath)) fs.unlinkSync(psPath); } catch (_e) {}
           if (fs.existsSync(tempOutput) && fs.statSync(tempOutput).size > 1000) {
@@ -266,7 +282,7 @@ router.get('/:id/stream', async (req, res, next) => {
 /**
  * GET /api/v1/videos/folders — list folders in requester's school
  */
-router.get('/folders', cacheMiddleware(30, (req) => `video_folders_${req.user?.school_id || 'none'}`), async (req, res, next) => {
+router.get('/folders', cacheMiddleware(30, () => 'video_folders'), async (req, res, next) => {
   try {
     let customFolders = [];
     try {
@@ -339,7 +355,7 @@ router.post('/folders', authorize('teacher', 'admin', 'manager'), async (req, re
     };
 
     await db('video_folders').insert(newFolder);
-    cache.delByPattern('*video_folders*');
+    cache.delBySchool(req.user?.school_id, '*video_folders*');
     res.status(201).json({ success: true, data: { folder: newFolder }, message: 'پوشه جدید ایجاد شد' });
   } catch (err) {
     next(err);
@@ -357,7 +373,7 @@ router.delete('/folders/:name', authorize('teacher', 'admin', 'manager'), async 
     }
     await db('video_folders').where({ name: folderName, teacher_id: req.user.id }).del();
     await db('videos').where({ folder_name: folderName, teacher_id: req.user.id }).update({ folder_name: 'عمومی' });
-    cache.delByPattern('*video_folders*');
+    cache.delBySchool(req.user?.school_id, '*video_folders*');
     res.json({ success: true, message: 'پوشه حذف شد و رسانه‌ها به پوشه عمومی منتقل شدند' });
   } catch (err) {
     next(err);
@@ -749,5 +765,9 @@ router.delete('/:id/pdf', async (req, res, next) => {
     next(err);
   }
 });
+
+router._setConversionBusyForTest = (busy) => {
+  activeConversions = busy ? MAX_CONCURRENT_CONVERSIONS : 0;
+};
 
 module.exports = router;

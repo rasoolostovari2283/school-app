@@ -292,53 +292,8 @@ export default function ReportCardPage() {
         console.warn('API get classes failed for gradebook, checking roster classes:', err.message);
       }
 
-      // 2. Fetch from Local Storage (Class Rosters & School Classes Database)
-      let localClasses = [];
-      try {
-        const savedRosters = localStorage.getItem('class_rosters_classes');
-        if (savedRosters) {
-          const parsed = JSON.parse(savedRosters);
-          if (Array.isArray(parsed)) localClasses.push(...parsed);
-        }
-        const schoolSaved = localStorage.getItem('school_classes_database');
-        if (schoolSaved) {
-          const parsed = JSON.parse(schoolSaved);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((c) => {
-              if (!localClasses.some((lc) => String(lc.id) === String(c.id))) localClasses.push(c);
-            });
-          }
-        }
-        const mgmtSaved = localStorage.getItem(`mgmt_classes_${schoolCode}`);
-        if (mgmtSaved) {
-          const parsed = JSON.parse(mgmtSaved);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((c) => {
-              if (!localClasses.some((lc) => String(lc.id) === String(c.id))) localClasses.push(c);
-            });
-          }
-        }
-        // Also check any class_roster_* keys in localStorage
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('class_roster_')) {
-            try {
-              const rosterData = JSON.parse(localStorage.getItem(key));
-              if (rosterData?.class?.id && !localClasses.some((lc) => String(lc.id) === String(rosterData.class.id))) {
-                localClasses.push(rosterData.class);
-              }
-            } catch (e) {}
-          }
-        }
-      } catch (e) {}
-
-      // Combine API & Local Classes
+      // 2. Rely strictly on Backend API classes list
       const combined = [...apiList];
-      localClasses.forEach((lc) => {
-        if (!combined.some((c) => String(c.id) === String(lc.id))) {
-          combined.push(lc);
-        }
-      });
 
       // Filter or prioritize classes matching teacher's assigned grades and subject
       let relevantClasses = [...combined];
@@ -375,16 +330,6 @@ export default function ReportCardPage() {
         });
 
         relevantClasses = autoClasses;
-
-        // Persist so class-rosters also knows about them
-        try {
-          const currentRosters = JSON.parse(localStorage.getItem('class_rosters_classes') || '[]');
-          autoClasses.forEach((ac) => {
-            if (!currentRosters.some((cr) => String(cr.id) === String(ac.id))) currentRosters.push(ac);
-          });
-          localStorage.setItem('class_rosters_classes', JSON.stringify(currentRosters));
-          localStorage.setItem('school_classes_database', JSON.stringify(currentRosters));
-        } catch (e) {}
       }
 
       setClasses(relevantClasses);
@@ -903,14 +848,8 @@ export default function ReportCardPage() {
       console.warn('API create class fallback to local:', err.message);
     }
 
-    // Persist to local storage
     try {
-      const currentRosters = JSON.parse(localStorage.getItem('class_rosters_classes') || '[]');
-      currentRosters.unshift(newClassObj);
-      localStorage.setItem('class_rosters_classes', JSON.stringify(currentRosters));
-      localStorage.setItem('school_classes_database', JSON.stringify(currentRosters));
-
-      // Also seed standard categories for this new class
+      // Seed standard categories for this new class
       const starterCats = [
         { id: `cat-cont-${newClassObj.id}`, title: 'ارزشیابی مستمر کلاسی', weight: 1.0, max_score: 20 },
         { id: `cat-mid-${newClassObj.id}`, title: 'آزمون میان‌ترم', weight: 1.0, max_score: 20 },

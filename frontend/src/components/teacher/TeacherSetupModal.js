@@ -159,28 +159,6 @@ export default function TeacherSetupModal({
   }, [isOpen, isStandalone]);
 
   const applyLoadedData = (data) => {
-    // Merge locally registered schools if any
-    try {
-      const registered = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (Array.isArray(registered) && registered.length > 0) {
-        const existingNames = new Set((data.schools || []).map((s) => (s.name || '').trim()));
-        for (const s of registered) {
-          const cleanName = (s.name || s.school_name || '').trim();
-          if (cleanName && !existingNames.has(cleanName)) {
-            data.schools.unshift({
-              id: s.school_code || s.id || cleanName,
-              name: cleanName,
-              code: s.school_code || s.code || '',
-              city: s.city || 'ایران',
-              studentsCount: 0,
-              is_registered: true,
-            });
-            existingNames.add(cleanName);
-          }
-        }
-      }
-    } catch (e) {}
-
     // Safeguard schools
     if (!data.schools || !Array.isArray(data.schools) || data.schools.length === 0) {
       data.schools = [...DEFAULT_TEACHER_SETUP_OPTIONS.schools];

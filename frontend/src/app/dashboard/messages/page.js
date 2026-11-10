@@ -226,20 +226,8 @@ export default function MessagesPage() {
   };
 
   const fetchDirectory = async () => {
-    let currentCode = user?.school_code || 'SCH-4821';
-    let currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-
-    try {
-      const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentCode) || savedSchools[0];
-        if (matched) {
-          currentCode = matched.school_code;
-          currentName = matched.school_name;
-        }
-      }
-    } catch (e) {}
-
+    const currentCode = user?.school_code || 'SCH-4821';
+    const currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
     setSchoolInfo({ code: currentCode, name: currentName });
 
     // 1. Fetch Backend Directory
@@ -1823,7 +1811,7 @@ export default function MessagesPage() {
                                         >
                                           <video
                                             controls
-                                            src={file.url.startsWith('http') ? file.url : `http://localhost:5000${file.url}`}
+                                            src={file.url}
                                             style={{ width: '100%', maxHeight: '220px', display: 'block', background: '#000' }}
                                             preload="metadata"
                                           />
@@ -1854,7 +1842,7 @@ export default function MessagesPage() {
                                           </div>
                                           <audio
                                             controls
-                                            src={`http://localhost:5000${file.url}`}
+                                            src={file.url}
                                             className={styles.voiceAudioElement}
                                             preload="metadata"
                                           />
@@ -1864,7 +1852,7 @@ export default function MessagesPage() {
                                     return (
                                       <a
                                         key={idx}
-                                        href={`http://localhost:5000${file.url}`}
+                                        href={file.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className={styles.attachmentCard}
@@ -2226,7 +2214,7 @@ export default function MessagesPage() {
                                         >
                                           <video
                                             controls
-                                            src={file.url.startsWith('http') ? file.url : `http://localhost:5000${file.url}`}
+                                            src={file.url}
                                             style={{ width: '100%', maxHeight: '220px', display: 'block', background: '#000' }}
                                             preload="metadata"
                                           />
@@ -2257,7 +2245,7 @@ export default function MessagesPage() {
                                           </div>
                                           <audio
                                             controls
-                                            src={`http://localhost:5000${file.url}`}
+                                            src={file.url}
                                             className={styles.voiceAudioElement}
                                             preload="metadata"
                                           />
@@ -2267,7 +2255,7 @@ export default function MessagesPage() {
                                     return (
                                       <a
                                         key={idx}
-                                        href={`http://localhost:5000${file.url}`}
+                                        href={file.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className={styles.attachmentCard}

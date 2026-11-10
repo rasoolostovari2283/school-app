@@ -86,26 +86,7 @@ export default function ClassRostersPage() {
         console.warn('API get classes failed, checking local storage:', apiErr);
       }
 
-      // Merge local classes from localStorage
-      let localClasses = [];
-      try {
-        const saved = localStorage.getItem('class_rosters_classes');
-        if (saved) localClasses = JSON.parse(saved);
-        const schoolSaved = localStorage.getItem('school_classes_database');
-        if (schoolSaved) {
-          const parsed = JSON.parse(schoolSaved);
-          parsed.forEach((c) => {
-            if (!localClasses.some((lc) => lc.id === c.id)) localClasses.push(c);
-          });
-        }
-      } catch (e) {}
-
       const combined = [...list];
-      localClasses.forEach((lc) => {
-        if (!combined.some((c) => c.id === lc.id)) {
-          combined.push(lc);
-        }
-      });
 
       if (combined.length === 0) {
         const defaultClasses = [
@@ -481,19 +462,7 @@ export default function ClassRostersPage() {
     }
 
     try {
-      // 1. Save to class_rosters_classes
-      const saved = JSON.parse(localStorage.getItem('class_rosters_classes') || '[]');
-      saved.unshift(newCls);
-      localStorage.setItem('class_rosters_classes', JSON.stringify(saved));
-
-      // 2. Sync to school_classes_database
-      const schoolSaved = JSON.parse(localStorage.getItem('school_classes_database') || '[]');
-      if (!schoolSaved.some((c) => c.id === newCls.id)) {
-        schoolSaved.unshift(newCls);
-        localStorage.setItem('school_classes_database', JSON.stringify(schoolSaved));
-      }
-
-      // 3. Initialize empty roster
+      // Initialize empty roster
       const initialRoster = {
         class: newCls,
         students: [],

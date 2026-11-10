@@ -85,21 +85,9 @@ export default function TeachersDatabasePage() {
 
   // ── 1. Load Data on Mount ──
   useEffect(() => {
-    let currentCode = user?.school_code || 'SCH-4821';
-    let currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-    let principalName = user?.display_name || user?.name || 'دکتر تقوی';
-
-    try {
-      const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentCode) || savedSchools[0];
-        if (matched) {
-          currentCode = matched.school_code;
-          currentName = matched.school_name;
-          principalName = matched.admin_name || principalName;
-        }
-      }
-    } catch (e) {}
+    const currentCode = user?.school_code || 'SCH-4821';
+    const currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
+    const principalName = user?.display_name || user?.name || 'دکتر تقوی';
 
     setSchoolData({
       name: currentName,

@@ -116,11 +116,25 @@ function initSocket(server, config) {
 
       const user = await db('users')
         .where({ id: decoded.userId })
-        .select('id', 'email', 'display_name', 'role', 'school_id', 'avatar_url', 'student_code', 'is_active')
+        .select('id', 'email', 'display_name', 'role', 'school_id', 'avatar_url', 'student_code', 'is_active', 'token_version')
         .first();
 
       if (!user || user.is_active === false || user.is_active === 0) {
         return next(new Error('کاربر یافت نشد یا غیرفعال است'));
+      }
+
+      if (decoded.tv !== undefined && Number(decoded.tv) !== Number(user.token_version || 0)) {
+        return next(new Error('نشست کاربری ابطال شده است'));
+      }
+
+      if (decoded.jti) {
+        const revoked = await db('revoked_tokens')
+          .where({ jti: decoded.jti })
+          .first()
+          .catch(() => null);
+        if (revoked) {
+          return next(new Error('توکن احراز هویت ابطال شده است'));
+        }
       }
 
       socket.data.user = user;

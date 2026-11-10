@@ -1,0 +1,8 @@
+{
+  "name": "EduConnect — پلتفرم یکپارچه مدیریت مدارس هوشمند",
+  "description": "سامانه جامع مدیریت چندمستأجره مدارس با یکپارچگی سیدا، مهاجرت خودکار داده، تبدیل اسناد کاغذی به دیجیتال (هوش مصنوعی دوگانه)، درگاه پرداخت شاپرک و پیامک خدماتی.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

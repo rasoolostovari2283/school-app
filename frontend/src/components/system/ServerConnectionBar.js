@@ -1,673 +1,103 @@
 'use client';
+
 import { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import {
+  HiOutlineCheckCircle,
+  HiOutlineArrowPath,
+  HiOutlineShieldCheck,
+  HiOutlineSparkles,
+} from 'react-icons/hi2';
 import {
   getApiBaseUrl,
-  setApiBaseUrl,
-  resetToDefaultWifi,
   probeServer,
-  autoDetectServer,
-  DEFAULT_LOCAL_API,
-  DEFAULT_TUNNEL_API,
-} from '../../lib/api';
+  resetToDefaultWifi,
+} from '@/lib/api';
+import toast from 'react-hot-toast';
 
-export default function ServerConnectionBar() {
-  const [currentUrl, setCurrentUrl] = useState('');
-  const [status, setStatus] = useState('checking'); // 'connected' | 'error' | 'checking'
-  const [statusText, setStatusText] = useState('در حال بررسی اتصال سرور...');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [customInput, setCustomInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+export default function ServerConnectionBar({ onConnected }) {
+  const [status, setStatus] = useState('checking'); // 'checking' | 'online' | 'offline'
+  const [pingMs, setPingMs] = useState(null);
 
-  // Check connection on mount and register automatic healing listeners
-  useEffect(() => {
-    checkConnection();
-
-    // 1. Listen to automatic background server switch events dispatched by Axios interceptor
-    const handleServerSwitched = (e) => {
-      const newUrl = e.detail?.url;
-      if (newUrl) {
-        setCurrentUrl(newUrl);
-        setStatus('connected');
-        const label = newUrl.includes('pinggy')
-          ? 'تونل آنلاین پینگی (اینترنت همراه)'
-          : newUrl.includes('trycloudflare') || newUrl.includes('cloudflare')
-          ? 'تونل اختصاصی کلودفلر'
-          : newUrl.includes('192.168.1')
-          ? 'وای‌فای مدرسه (شبکه محلی)'
-          : 'سرور اختصاصی';
-        setStatusText(`متصل خودکار: ${label}`);
+  const checkCurrentServer = async (targetUrl, silent = true) => {
+    const urlToTest = targetUrl || getApiBaseUrl();
+    setStatus('checking');
+    const t0 = Date.now();
+    const res = await probeServer(urlToTest, 3500);
+    if (res && res.success) {
+      setPingMs(Date.now() - t0);
+      setStatus('online');
+      onConnected?.(res.url);
+      if (!silent) {
+        toast.success('اتصال امن به هسته مرکزی ادوکانکت برقرار است');
       }
-    };
+      return true;
+    } else {
+      setStatus('offline');
+      return false;
+    }
+  };
 
-    // 2. React to mobile data / Wi-Fi reconnection and window focus
-    const handleReconnected = () => {
-      checkConnectionSilently();
-    };
-
-    window.addEventListener('educonnect_server_switched', handleServerSwitched);
-    window.addEventListener('online', handleReconnected);
-    window.addEventListener('focus', handleReconnected);
-
-    // 3. Silent background watchdog heartbeat (every 25 seconds)
-    const watchdogTimer = setInterval(() => {
-      checkConnectionSilently();
-    }, 25000);
-
-    return () => {
-      window.removeEventListener('educonnect_server_switched', handleServerSwitched);
-      window.removeEventListener('online', handleReconnected);
-      window.removeEventListener('focus', handleReconnected);
-      clearInterval(watchdogTimer);
-    };
+  useEffect(() => {
+    resetToDefaultWifi();
+    checkCurrentServer(getApiBaseUrl(), true);
   }, []);
 
-  const checkConnectionSilently = async () => {
-    const urlToCheck = getApiBaseUrl();
-    const probe = await probeServer(urlToCheck, 2000);
-    if (probe.success) {
-      if (status !== 'connected' || currentUrl !== urlToCheck) {
-        setCurrentUrl(urlToCheck);
-        setStatus('connected');
-        const label = urlToCheck.includes('pinggy')
-          ? 'تونل آنلاین پینگی (اینترنت همراه)'
-          : urlToCheck.includes('trycloudflare') || urlToCheck.includes('cloudflare')
-          ? 'تونل اختصاصی کلودفلر'
-          : urlToCheck.includes('192.168.1')
-          ? 'وای‌فای مدرسه (شبکه محلی)'
-          : 'سرور اختصاصی';
-        setStatusText(`متصل: ${label}`);
-      }
-    } else {
-      // Current server is dead or unreachable! Silently auto-detect working server
-      const detected = await autoDetectServer();
-      if (detected.success && detected.url) {
-        setApiBaseUrl(detected.url);
-        setCurrentUrl(detected.url);
-        setStatus('connected');
-        const label = detected.url.includes('pinggy')
-          ? 'تونل آنلاین پینگی (اینترنت همراه)'
-          : detected.url.includes('trycloudflare') || detected.url.includes('cloudflare')
-          ? 'تونل اختصاصی کلودفلر'
-          : 'وای‌فای مدرسه (شبکه محلی)';
-        setStatusText(`متصل خودکار: ${label}`);
-      } else {
-        setStatus('error');
-        setStatusText('در حال تلاش خودکار برای بازیابی اتصال...');
-      }
-    }
-  };
-
-  const checkConnection = async (targetUrl) => {
-    setStatus('checking');
-    setStatusText('در حال تست ارتباط...');
-    const urlToCheck = targetUrl || getApiBaseUrl();
-    setCurrentUrl(urlToCheck);
-
-    const probe = await probeServer(urlToCheck, 2500);
-    if (probe.success) {
-      setStatus('connected');
-      const label = urlToCheck.includes('pinggy')
-        ? 'تونل آنلاین پینگی (اینترنت همراه)'
-        : urlToCheck.includes('trycloudflare') || urlToCheck.includes('cloudflare')
-        ? 'تونل اختصاصی کلودفلر'
-        : urlToCheck.includes('192.168.1')
-        ? 'وای‌فای مدرسه (شبکه محلی)'
-        : 'سرور اختصاصی';
-      setStatusText(`متصل: ${label}`);
-    } else {
-      // Auto fallback check
-      const detected = await autoDetectServer();
-      if (detected.success && detected.url) {
-        setApiBaseUrl(detected.url);
-        setStatus('connected');
-        setCurrentUrl(detected.url);
-        const label = detected.url.includes('pinggy')
-          ? 'تونل آنلاین پینگی (اینترنت همراه)'
-          : detected.url.includes('trycloudflare') || detected.url.includes('cloudflare')
-          ? 'تونل اختصاصی کلودفلر'
-          : 'وای‌فای مدرسه (شبکه محلی)';
-        setStatusText(`متصل خودکار: ${label}`);
-      } else {
-        setStatus('error');
-        setStatusText('عدم اتصال به سرور (سیستم در حال تلاش مجدد...)');
-      }
-    }
-  };
-
-  const handleSelectPreset = async (url, label) => {
-    setIsLoading(true);
-    const toastId = toast.loading(`در حال اتصال به ${label}...`);
-    setApiBaseUrl(url);
-    setCurrentUrl(url);
-
-    const probe = await probeServer(url);
-    if (probe.success) {
-      setStatus('connected');
-      setStatusText(`متصل: ${label}`);
-      toast.success(`اتصال برقرار شد (${label}) 🚀`, { id: toastId });
-      setIsModalOpen(false);
-    } else {
-      setStatus('error');
-      setStatusText(`عدم پاسخ سریع از ${label} (ذخیره شد)`);
-      toast.error(`پاسخ سریع دریافت نشد، اما آدرس به عنوان پیش‌فرض ذخیره گردید.`, { id: toastId, duration: 4000 });
-      setIsModalOpen(false);
-    }
-    setIsLoading(false);
-  };
-
-  const handleAutoDetect = async () => {
-    setIsLoading(true);
-    const toastId = toast.loading('در حال شناسایی و جستجوی خودکار سرور فعال...');
-    const detected = await autoDetectServer();
-    if (detected.success) {
-      setCurrentUrl(detected.url);
-      setStatus('connected');
-      const label = detected.url.includes('pinggy')
-        ? 'تونل اینترنت پینگی'
-        : 'وای‌فای محلی';
-      setStatusText(`متصل: ${label}`);
-      toast.success(`سرور با موفقیت شناسایی شد: ${label} ✅`, { id: toastId });
-      setIsModalOpen(false);
-    } else {
-      setStatus('error');
-      setStatusText('هیچ سرور فعالی یافت نشد');
-      toast.error('هیچ سرور فعالی در شبکه یا اینترنت پاسخ نداد.', { id: toastId });
-    }
-    setIsLoading(false);
-  };
-
-  const handleForceSave = (rawUrl) => {
-    let input = (rawUrl || customInput).trim();
-    if (!input) {
-      toast.error('لطفاً آدرس سرور یا لینک جدید را وارد نمایید');
-      return;
-    }
-    if (!input.startsWith('http://') && !input.startsWith('https://')) {
-      input = 'https://' + input;
-    }
-    const finalUrl = setApiBaseUrl(input);
-    setCurrentUrl(finalUrl);
-    setStatus('connected');
-    setStatusText('تنظیم دستی سرور');
-    toast.success('آدرس بدون معطلی و تست، مستقیماً ذخیره شد! 💾');
-    setIsModalOpen(false);
-    setCustomInput('');
-  };
-
-  const handleResetWifi = () => {
-    const defaultUrl = resetToDefaultWifi();
-    setCurrentUrl(defaultUrl);
-    setStatus('checking');
-    setStatusText('بازنشانی به وای‌فای پیش‌فرض');
-    toast.success('آدرس با موفقیت به وای‌فای مدرسه (192.168.1.104) بازنشانی شد! 📶');
-    checkConnection(defaultUrl);
-    setIsModalOpen(false);
-  };
-
-  const handleSaveCustom = async () => {
-    if (!customInput.trim()) {
-      toast.error('لطفاً آدرس سرور یا لینک تونل را وارد نمایید');
-      return;
-    }
-    let input = customInput.trim();
-    if (!input.startsWith('http://') && !input.startsWith('https://')) {
-      input = 'https://' + input;
-    }
-    setIsLoading(true);
-    const toastId = toast.loading('در حال تست آدرس جدید...');
-    const probe = await probeServer(input);
-    if (probe.success) {
-      const finalUrl = setApiBaseUrl(input);
-      setCurrentUrl(finalUrl);
-      setStatus('connected');
-      setStatusText('متصل به آدرس سفارشی');
-      toast.success('آدرس با موفقیت تایید و ذخیره شد! 🎉', { id: toastId });
-      setIsModalOpen(false);
-      setCustomInput('');
-    } else {
-      const finalUrl = setApiBaseUrl(input);
-      setCurrentUrl(finalUrl);
-      setStatus('connected');
-      setStatusText('آدرس ذخیره شد (منتظر درخواست)');
-      toast.success('آدرس با موفقیت ذخیره شد و در درخواست‌ها اعمال می‌شود. 💾', { id: toastId, duration: 4500 });
-      setIsModalOpen(false);
-      setCustomInput('');
-    }
-    setIsLoading(false);
-  };
-
   return (
-    <>
-      {/* Top Banner on Login Screen */}
+    <div className="mb-4" dir="rtl">
       <div
-        onClick={() => setIsModalOpen(true)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: status === 'connected'
-            ? 'rgba(16, 185, 129, 0.12)'
+        className={`flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl border text-xs transition-all shadow-sm backdrop-blur-md ${
+          status === 'online'
+            ? 'bg-emerald-50/90 border-emerald-200/80 text-emerald-900'
             : status === 'checking'
-            ? 'rgba(59, 130, 246, 0.12)'
-            : 'rgba(239, 68, 68, 0.14)',
-          border: `1px solid ${
-            status === 'connected'
-              ? 'rgba(16, 185, 129, 0.35)'
-              : status === 'checking'
-              ? 'rgba(59, 130, 246, 0.35)'
-              : 'rgba(239, 68, 68, 0.4)'
-          }`,
-          borderRadius: '14px',
-          padding: '10px 14px',
-          margin: '0 0 16px 0',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          backdropFilter: 'blur(8px)',
-        }}
-        title="برای تغییر یا بررسی سرور کلیک کنید"
+            ? 'bg-indigo-50/90 border-indigo-200/80 text-indigo-900'
+            : 'bg-amber-50/90 border-amber-200/80 text-amber-900'
+        }`}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }}>
-          <span
-            style={{
-              width: '10px',
-              height: '10px',
-              borderRadius: '50%',
-              background: status === 'connected' ? '#10b981' : status === 'checking' ? '#3b82f6' : '#ef4444',
-              boxShadow: status === 'connected'
-                ? '0 0 8px #10b981'
-                : status === 'checking'
-                ? '0 0 8px #3b82f6'
-                : '0 0 8px #ef4444',
-              display: 'inline-block',
-              animation: status === 'checking' ? 'pulse 1.5s infinite' : 'none',
-            }}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
-            <span style={{ fontWeight: '600', color: status === 'connected' ? '#10b981' : status === 'checking' ? '#3b82f6' : '#ef4444' }}>
-              {statusText}
+        <div className="flex items-center gap-2 min-w-0">
+          {status === 'online' ? (
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
-            <span style={{ fontSize: '0.72rem', opacity: 0.75, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
-              {currentUrl || 'نامشخص'}
-            </span>
-          </div>
+          ) : status === 'checking' ? (
+            <HiOutlineArrowPath className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+          ) : (
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0"></span>
+          )}
+
+          <span className="font-bold truncate flex items-center gap-1.5">
+            {status === 'online' && (
+              <>
+                <HiOutlineShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>متصل به هسته یکپارچه ادوکانکت</span>
+                {pingMs !== null && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-mono">
+                    {pingMs}ms
+                  </span>
+                )}
+              </>
+            )}
+            {status === 'checking' && 'در حال همگام‌سازی امن با سرور مرکزی...'}
+            {status === 'offline' && 'در حال برقراری ارتباط با سرویس مرکزی...'}
+          </span>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsModalOpen(true);
-          }}
-          style={{
-            background: 'var(--primary-color, #4f46e5)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            padding: '5px 11px',
-            fontSize: '0.78rem',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-        >
-          <span>تغییر سرور</span>
-          <span>⚙️</span>
-        </button>
-      </div>
-
-      {/* Modal Dialog for Server Setup */}
-      {isModalOpen && (
-        <div
-          onClick={() => setIsModalOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.72)',
-            zIndex: 99999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px',
-            backdropFilter: 'blur(5px)',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-card, #1e293b)',
-              color: 'var(--text-primary, #f8fafc)',
-              borderRadius: '20px',
-              maxWidth: '480px',
-              width: '100%',
-              padding: '24px',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              direction: 'rtl',
-              textAlign: 'right',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 text-[10px] font-bold text-slate-600 border border-slate-200/60">
+            <HiOutlineSparkles className="w-3 h-3 text-indigo-500" />
+            سیدا + شاپرک + هوش مصنوعی
+          </span>
+          <button
+            type="button"
+            onClick={() => checkCurrentServer(getApiBaseUrl(), false)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl font-bold bg-white/90 hover:bg-white text-slate-700 border border-slate-200/80 transition shadow-2xs"
+            title="بررسی مجدد اتصال"
           >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.4rem' }}>🌐</span>
-                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 'bold' }}>
-                  تنظیمات اتصال به سرور و تونل اینترنت
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                style={{
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{
-              background: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.25)',
-              borderRadius: '12px',
-              padding: '12px 14px',
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              fontSize: '0.82rem',
-              color: '#34d399',
-              lineHeight: '1.5',
-            }}>
-              <span style={{ fontSize: '1.3rem' }}>🛡️</span>
-              <div>
-                <strong>سیستم اتصال دائم و بازیابی خودکار فعال است:</strong>
-                <div style={{ opacity: 0.9, marginTop: '2px', color: 'rgba(255,255,255,0.85)' }}>
-                  با جابجایی بین اینترنت سیم‌کارت و وای‌فای، برنامه خودش سرور فعال را پیدا و متصل می‌کند. نیازی به ورود دستی مکرر نیست.
-                </div>
-              </div>
-            </div>
-
-            <p style={{ fontSize: '0.86rem', opacity: 0.85, lineHeight: '1.6', marginBottom: '16px' }}>
-              اگر مایلید اتصال را دستی تنظیم فرمایید، یکی از گزینه‌های زیر را انتخاب نمایید:
-            </p>
-
-            {/* Quick Presets */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-              {/* Tunnel Option (Mobile Data) */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleSelectPreset(DEFAULT_TUNNEL_API, 'تونل آنلاین پینگی (اینترنت همراه)')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  border: currentUrl.includes('pinggy') ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-                  background: currentUrl.includes('pinggy') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  textAlign: 'right',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '1.6rem' }}>🚀</span>
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                      اینترنت همراه و سیم‌کارت (تونل آنلاین)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
-                      {DEFAULT_TUNNEL_API}
-                    </div>
-                  </div>
-                </div>
-                {currentUrl.includes('pinggy') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
-              </button>
-
-              {/* Local Wi-Fi Primary IP 108 */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleSelectPreset('http://192.168.1.108/api/v1', 'وای‌فای سرور فعال (192.168.1.108)')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  border: currentUrl.includes('192.168.1.108') ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-                  background: currentUrl.includes('192.168.1.108') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  textAlign: 'right',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '1.6rem' }}>📶</span>
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                      وای‌فای سرور فعال (192.168.1.108)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
-                      http://192.168.1.108/api/v1
-                    </div>
-                  </div>
-                </div>
-                {currentUrl.includes('192.168.1.108') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
-              </button>
-
-              {/* Local Wi-Fi Secondary IP 104 */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleSelectPreset('http://192.168.1.104/api/v1', 'وای‌فای سرور کمکی (192.168.1.104)')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  border: currentUrl.includes('192.168.1.104') ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-                  background: currentUrl.includes('192.168.1.104') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  textAlign: 'right',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '1.6rem' }}>📶</span>
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                      وای‌فای سرور اصلی (192.168.1.104)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
-                      http://192.168.1.104/api/v1
-                    </div>
-                  </div>
-                </div>
-                {currentUrl.includes('192.168.1.104') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
-              </button>
-
-              {/* Local Wi-Fi Fallback IP 102 */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleSelectPreset('http://192.168.1.102/api/v1', 'وای‌فای سرور (192.168.1.102)')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  border: currentUrl.includes('192.168.1.102') ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-                  background: currentUrl.includes('192.168.1.102') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  textAlign: 'right',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '1.6rem' }}>📶</span>
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                      وای‌فای سرور فعلی (192.168.1.102)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', opacity: 0.7, direction: 'ltr', textAlign: 'right', marginTop: '2px' }}>
-                      http://192.168.1.102/api/v1
-                    </div>
-                  </div>
-                </div>
-                {currentUrl.includes('192.168.1.102') && <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ فعال</span>}
-              </button>
-
-              {/* Auto Detect */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={handleAutoDetect}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '12px',
-                  borderRadius: '12px',
-                  border: '1px solid #4f46e5',
-                  background: 'rgba(79, 70, 229, 0.15)',
-                  color: '#818cf8',
-                  fontWeight: '600',
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                <span>🔄</span>
-                <span>تست و شناسایی خودکار هوشمند (Auto Detect)</span>
-              </button>
-
-              {/* Reset to Default Wi-Fi */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={handleResetWifi}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '10px',
-                  borderRadius: '12px',
-                  border: '1px dashed #f59e0b',
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  color: '#fbbf24',
-                  fontWeight: '600',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                }}
-              >
-                <span>📶</span>
-                <span>پاکسازی حافظه و بازنشانی به وای‌فای مدرسه (192.168.1.104)</span>
-              </button>
-            </div>
-
-            {/* Custom URL Input Section */}
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '8px' }}>
-                ✏️ وارد کردن آدرس سرور / لینک جدید تونل پینگی:
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="https://...run.pinggy-free.link"
-                  value={customInput}
-                  onChange={(e) => setCustomInput(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    background: 'rgba(0,0,0,0.25)',
-                    color: '#fff',
-                    fontSize: '0.85rem',
-                    outline: 'none',
-                    direction: 'ltr',
-                  }}
-                />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={handleSaveCustom}
-                    style={{
-                      flex: 1,
-                      padding: '10px 12px',
-                      borderRadius: '10px',
-                      border: 'none',
-                      background: '#10b981',
-                      color: '#fff',
-                      fontWeight: 'bold',
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    🔍 تست و اتصال
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => handleForceSave()}
-                    style={{
-                      flex: 1,
-                      padding: '10px 12px',
-                      borderRadius: '10px',
-                      border: '1px solid #6366f1',
-                      background: 'rgba(99, 102, 241, 0.2)',
-                      color: '#a5b4fc',
-                      fontWeight: 'bold',
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    💾 ذخیره مستقیم (بدون معطلی)
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.6)',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                }}
-              >
-                بستن پنجره
-              </button>
-            </div>
-          </div>
+            <HiOutlineArrowPath className={`w-3.5 h-3.5 ${status === 'checking' ? 'animate-spin' : ''}`} />
+            <span>بروزرسانی</span>
+          </button>
         </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }

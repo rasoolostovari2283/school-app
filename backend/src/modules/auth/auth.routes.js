@@ -15,6 +15,7 @@ router.get('/me', authenticate, authController.getMe);
 router.put('/profile', authenticate, authController.updateProfile);
 router.post('/change-password', authenticate, authController.changePassword);
 router.post('/logout', authController.logout);
+router.post('/revoke-sessions', authenticate, authController.revokeSessions);
 router.get('/student-setup-options', optionalAuth, authController.getStudentSetupOptions);
 router.post('/student-setup', authenticate, authController.saveStudentSetup);
 router.get('/teacher-setup-options', optionalAuth, authController.getTeacherSetupOptions);

@@ -102,6 +102,8 @@ if (config.nodeEnv !== 'test') {
 }
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const { persianNormalizer } = require('./middleware/persianNormalizer');
+app.use(persianNormalizer);
 
 // Authenticated static files for uploads (#15/F9)
 app.use('/uploads', authenticate, express.static(uploadDir, {

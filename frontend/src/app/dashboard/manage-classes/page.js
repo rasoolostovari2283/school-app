@@ -96,27 +96,11 @@ export default function ManageClassesPage() {
     let currentName = user?.school_name || userSettings?.school_name || (userSettings?.schools?.[0]) || 'مدرسه من';
     let principalName = user?.display_name || user?.name || 'مدیر / دبیر گرامی';
 
-    try {
-      const savedSchools = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (savedSchools.length > 0) {
-        const matched = savedSchools.find((s) => s.school_code === currentCode) || savedSchools[0];
-        if (matched) {
-          currentCode = matched.school_code;
-          currentName = matched.school_name;
-          principalName = matched.admin_name || principalName;
-        }
-      }
-    } catch (e) {}
-
     setSchoolData({
       name: currentName,
       code: currentCode,
       principal: principalName,
     });
-
-    const isDummyTeacher = (t) => ['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(t.id);
-    const isDummyStudent = (s) => ['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(s.id);
-    const isDummyClass = (c) => ['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(c.id);
 
     // 1. Initialize Teachers state (populated from Backend API)
     let loadedTeachers = [];
@@ -133,20 +117,9 @@ export default function ManageClassesPage() {
     }
     setTeachers(loadedTeachers);
 
-    // 2. Initialize Students state (populated from Backend API)
+    // 2. Initialize Students and Classes state (populated from Backend API)
     setStudents([]);
-
-    // 3. Load Classes from LocalStorage as fallback
-    let loadedClasses = [];
-    try {
-      const savedCls =
-        localStorage.getItem(`mgmt_classes_${currentCode}`) ||
-        localStorage.getItem('school_classes_database');
-      if (savedCls) loadedClasses = JSON.parse(savedCls);
-    } catch (e) {}
-
-    loadedClasses = Array.isArray(loadedClasses) ? loadedClasses.filter((c) => !isDummyClass(c)) : [];
-    setClasses(loadedClasses);
+    setClasses([]);
 
     // ── Fetch Fresh Data Directly From SQLite Database ──
     Promise.allSettled([
@@ -157,12 +130,8 @@ export default function ManageClassesPage() {
       // Classes from DB
       if (classesRes.status === 'fulfilled' && classesRes.value?.data?.success && classesRes.value?.data?.data?.classes) {
         const dbClasses = classesRes.value.data.data.classes;
-        if (Array.isArray(dbClasses) && dbClasses.length > 0) {
+        if (Array.isArray(dbClasses)) {
           setClasses(dbClasses);
-          try {
-            localStorage.setItem(`mgmt_classes_${currentCode}`, JSON.stringify(dbClasses));
-            localStorage.setItem('school_classes_database', JSON.stringify(dbClasses));
-          } catch (e) {}
         }
       }
 
@@ -194,13 +163,8 @@ export default function ManageClassesPage() {
     });
   }, [user]);
 
-  // Save Classes and Sync
-  const saveClassesToStorage = (newList, code = schoolData.code) => {
-    try {
-      localStorage.setItem(`mgmt_classes_${code}`, JSON.stringify(newList));
-      localStorage.setItem('school_classes_database', JSON.stringify(newList));
-    } catch (e) {}
-  };
+  // No-op: Backend API is the single source of truth for classes
+  const saveClassesToStorage = () => {};
 
   // No-op: Backend API is the single source of truth for students
   const saveStudentsToStorage = () => {};

@@ -9,7 +9,7 @@ router.get('/', studyPlannerController.getLogs);
 router.post('/', studyPlannerController.createLog);
 router.get('/logs', studyPlannerController.getLogs);
 router.post('/logs', studyPlannerController.createLog);
-router.post('/logs/:id/feedback', authorize('teacher'), studyPlannerController.addAdvisorFeedback);
+router.post('/logs/:id/feedback', authorize('teacher', 'counselor', 'admin', 'manager'), studyPlannerController.addAdvisorFeedback);
 router.get('/stats', studyPlannerController.getStats);
 
 // Teacher Lesson & Class Planning routes

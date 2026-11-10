@@ -19,7 +19,7 @@ const { loginAs } = require('../support/auth');
 const localCaptcha = require('../../src/utils/localCaptcha');
 const { cache } = require('../../src/utils/cache');
 const db = require('../../src/config/database');
-const { SCHOOLS, USERS, CLASSES, FIXTURE_PASSWORD, emailFor } = require('../fixtures/twoSchools');
+const { SCHOOLS, USERS, CLASSES, INSTALLMENTS, FIXTURE_PASSWORD, emailFor } = require('../fixtures/twoSchools');
 
 let baseUrl;
 
@@ -312,7 +312,7 @@ test('[Arch-P0-PerfAndCache] localCaptcha enforces FIFO capacity cap and cache i
   cache.set(`${SCHOOLS.a.id}:user-1:/api/v1/announcements`, { data: 'a' }, 60);
   cache.set(`${SCHOOLS.b.id}:user-2:/api/v1/announcements`, { data: 'b' }, 60);
 
-  cache.delByPattern(`${SCHOOLS.a.id}:*announcement*`);
+  cache.delBySchool(SCHOOLS.a.id, '*announcement*');
   assert.equal(cache.get(`${SCHOOLS.a.id}:user-1:/api/v1/announcements`), null, 'School A cache must be invalidated');
   assert.deepEqual(
     cache.get(`${SCHOOLS.b.id}:user-2:/api/v1/announcements`),
@@ -320,4 +320,379 @@ test('[Arch-P0-PerfAndCache] localCaptcha enforces FIFO capacity cap and cache i
     'School B cache must remain intact when School A invalidates announcements',
   );
 });
+
+test('[Arch-P0-ConvertPptxLock] POST /api/v1/videos/convert-pptx enforces single-concurrency lock (429 when busy)', async () => {
+  const videoRoutes = require('../../src/modules/videos/video.routes');
+  const teacherA = await loginAs(baseUrl, 'a', 'teacher');
+
+  videoRoutes._setConversionBusyForTest(true);
+  try {
+    const res = await post(baseUrl, '/api/v1/videos/convert-pptx', {
+      token: teacherA.accessToken,
+      body: {},
+    });
+    assert.equal(res.status, 429, 'concurrent PPTX conversion request must be rejected with 429 when slot is occupied');
+  } finally {
+    videoRoutes._setConversionBusyForTest(false);
+  }
+});
+
+test('[Arch-P1-StaffRoleSeparation] counselor and financial_officer have strictly separated domain permissions', async () => {
+  const adminA = await loginAs(baseUrl, 'a', 'admin');
+  const studentA = await loginAs(baseUrl, 'a', 'student');
+
+  // 1. School admin creates a Counselor and a Financial Officer
+  const counselorCreateRes = await post(baseUrl, '/api/v1/school/teachers', {
+    token: adminA.accessToken,
+    body: {
+      name: 'مشاور تحصیلی مدرسه الف',
+      phone: '09125550101',
+      password: 'Counselor#Pass1',
+      role: 'counselor',
+      subject: 'مشاوره و هدایت تحصیلی',
+    },
+  });
+  assert.equal(counselorCreateRes.status, 201);
+  assert.equal(counselorCreateRes.body.data.teacher.role, 'counselor');
+
+  const financeCreateRes = await post(baseUrl, '/api/v1/school/teachers', {
+    token: adminA.accessToken,
+    body: {
+      name: 'مسئول امور مالی مدرسه الف',
+      phone: '09125550202',
+      password: 'Finance#Pass1',
+      role: 'financial_officer',
+      subject: 'امور مالی و شهریه',
+    },
+  });
+  assert.equal(financeCreateRes.status, 201);
+  assert.equal(financeCreateRes.body.data.teacher.role, 'financial_officer');
+
+  const counselorLogin = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: '09125550101', password: 'Counselor#Pass1', school_id: SCHOOLS.a.id },
+  });
+  assert.equal(counselorLogin.status, 200);
+  const counselorToken = counselorLogin.body.data.accessToken;
+
+  const financeLogin = await post(baseUrl, '/api/v1/auth/login', {
+    body: { identifier: '09125550202', password: 'Finance#Pass1', school_id: SCHOOLS.a.id },
+  });
+  assert.equal(financeLogin.status, 200);
+  const financeToken = financeLogin.body.data.accessToken;
+
+  // 2. Student creates a study log
+  const createLogRes = await post(baseUrl, '/api/v1/study-planner/logs', {
+    token: studentA.accessToken,
+    body: {
+      subject: 'حسابان',
+      study_minutes_descriptive: 45,
+      study_minutes_test: 60,
+      tests_count: 30,
+      tests_correct: 25,
+      tests_wrong: 3,
+    },
+  });
+  assert.equal(createLogRes.status, 201);
+  const logId = createLogRes.body.data.log.id;
+
+  // 3. Counselor CAN view student study logs and submit advisor feedback, but CANNOT access finance ledger or verify installments
+  const counselorLogsRes = await get(
+    baseUrl,
+    `/api/v1/study-planner/logs?student_id=${USERS.a.student}`,
+    { token: counselorToken },
+  );
+  assert.equal(counselorLogsRes.status, 200, 'counselor must be able to read school student study logs');
+
+  const counselorFeedbackRes = await post(baseUrl, `/api/v1/study-planner/logs/${logId}/feedback`, {
+    token: counselorToken,
+    body: { advisor_feedback: 'عملکرد عالی در تست‌زنی حسابان، همین روند را ادامه دهید.' },
+  });
+  assert.equal(counselorFeedbackRes.status, 200, 'counselor must be able to submit advisor feedback');
+
+  const counselorFinanceLedger = await get(
+    baseUrl,
+    `/api/v1/finance/ledger?student_id=${USERS.a.student}`,
+    { token: counselorToken },
+  );
+  assert.equal(counselorFinanceLedger.status, 403, 'counselor must be blocked from viewing financial ledgers');
+
+  const counselorVerifyInstallment = await post(
+    baseUrl,
+    `/api/v1/finance/verify-installment/${INSTALLMENTS.a}`,
+    { token: counselorToken, body: {} },
+  );
+  assert.equal(counselorVerifyInstallment.status, 403, 'counselor must be blocked from verifying tuition installments');
+
+  // 4. Financial Officer CAN view student ledger and verify tuition installments, but CANNOT access study logs or submit advisor feedback
+  const financeStudyLogs = await get(
+    baseUrl,
+    `/api/v1/study-planner/logs?student_id=${USERS.a.student}`,
+    { token: financeToken },
+  );
+  assert.equal(financeStudyLogs.status, 403, 'financial_officer must be blocked from viewing academic study logs');
+
+  const financeFeedbackRes = await post(baseUrl, `/api/v1/study-planner/logs/${logId}/feedback`, {
+    token: financeToken,
+    body: { advisor_feedback: 'تلاش غیرمجاز مسئول مالی برای ثبت نظر مشاوره‌ای' },
+  });
+  assert.equal(financeFeedbackRes.status, 403, 'financial_officer must be blocked from submitting study advisor feedback');
+
+  const financeLedgerRes = await get(
+    baseUrl,
+    `/api/v1/finance/ledger?student_id=${USERS.a.student}`,
+    { token: financeToken },
+  );
+  assert.equal(financeLedgerRes.status, 200, 'financial_officer must be able to inspect school student ledger');
+
+  const financeVerifyRes = await post(
+    baseUrl,
+    `/api/v1/finance/verify-installment/${INSTALLMENTS.a}`,
+    { token: financeToken, body: {} },
+  );
+  assert.equal(financeVerifyRes.status, 200, 'financial_officer must be able to verify tuition installments');
+});
+
+test('[Arch-P1-SessionRevocation] refresh token rotation blocks replay and logout/revoke-sessions immediately invalidates tokens', async () => {
+  // 1. Single-use refresh token rotation
+  const initialSession = await loginAs(baseUrl, 'a', 'student');
+
+  const firstRefresh = await post(baseUrl, '/api/v1/auth/refresh', {
+    body: { refreshToken: initialSession.refreshToken },
+  });
+  assert.equal(firstRefresh.status, 200, 'first use of a valid refresh token must succeed');
+  const rotatedAccess = firstRefresh.body.data.accessToken;
+
+  // Replaying the already-used refresh token must fail (401) and trigger replay protection
+  const replayRefresh = await post(baseUrl, '/api/v1/auth/refresh', {
+    body: { refreshToken: initialSession.refreshToken },
+  });
+  assert.equal(replayRefresh.status, 401, 'replaying a consumed refresh token must be rejected with 401');
+
+  // Because replay incremented token_version, even the newly minted access token from the compromised family is invalidated
+  const afterReplayMe = await get(baseUrl, '/api/v1/auth/me', { token: rotatedAccess });
+  assert.equal(afterReplayMe.status, 401, 'refresh token replay must invalidate active tokens via token_version increment');
+
+  // 2. Logout revokes current access and refresh tokens immediately
+  const secondSession = await loginAs(baseUrl, 'a', 'student');
+  const logoutRes = await post(baseUrl, '/api/v1/auth/logout', {
+    token: secondSession.accessToken,
+    body: { refreshToken: secondSession.refreshToken },
+  });
+  assert.equal(logoutRes.status, 200);
+
+  const meAfterLogout = await get(baseUrl, '/api/v1/auth/me', { token: secondSession.accessToken });
+  assert.equal(meAfterLogout.status, 401, 'access token must be rejected immediately after logout');
+
+  const refreshAfterLogout = await post(baseUrl, '/api/v1/auth/refresh', {
+    body: { refreshToken: secondSession.refreshToken },
+  });
+  assert.equal(refreshAfterLogout.status, 401, 'refresh token must be rejected immediately after logout');
+
+  // 3. POST /api/v1/auth/revoke-sessions invalidates all sessions across devices
+  const device1 = await loginAs(baseUrl, 'a', 'teacher');
+  const device2 = await loginAs(baseUrl, 'a', 'teacher');
+
+  const revokeAllRes = await post(baseUrl, '/api/v1/auth/revoke-sessions', {
+    token: device1.accessToken,
+    body: {},
+  });
+  assert.equal(revokeAllRes.status, 200);
+
+  const device1Check = await get(baseUrl, '/api/v1/auth/me', { token: device1.accessToken });
+  const device2Check = await get(baseUrl, '/api/v1/auth/me', { token: device2.accessToken });
+  assert.equal(device1Check.status, 401, 'device 1 token must be revoked after revoke-sessions');
+  assert.equal(device2Check.status, 401, 'device 2 token must be revoked after revoke-sessions');
+});
+
+test('[Iran-EdTech-Sida] Sida preview, atomic import (classes + students + parent links), and Sida CSV/JSON gradebook export work end-to-end', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+
+  const sidaRawCsv = [
+    'کد ملی,نام و نام خانوادگی,نام پدر,پایه,کلاس,رشته,تلفن ولی',
+    '۰۰۲۴۵۶۷۸۹۳,امیرحسین رضایی,محمد,پایه دهم,دهم ریاضی الف,ریاضی فیزیک,۰۹۱۲۳۴۵۶۷۸۹',
+    '۰۰۱۲۳۴۵۶۷۹,سارا محمدی,علی,پایه دهم,دهم ریاضی الف,ریاضی فیزیک,۰۹۱۲۹۸۷۶۵۴۳',
+  ].join('\n');
+
+  // 1. Preview & fuzzy column mapping + Persian digit normalization
+  const previewRes = await post(baseUrl, '/api/v1/school/sida/preview', {
+    token: adminToken,
+    body: { raw_text: sidaRawCsv, source_system: 'sida' },
+  });
+  assert.equal(previewRes.status, 200);
+  assert.equal(previewRes.body.data.total_rows, 2);
+  assert.equal(previewRes.body.data.rows[0].national_code, '0024567893');
+  assert.equal(previewRes.body.data.rows[0].parent_phone, '09123456789');
+
+  // 2. Atomic Import
+  const importRes = await post(baseUrl, '/api/v1/school/sida/import', {
+    token: adminToken,
+    body: {
+      raw_text: sidaRawCsv,
+      source_system: 'sida',
+      auto_create_classes: true,
+      auto_link_parents: true,
+    },
+  });
+  assert.equal(importRes.status, 201);
+  assert.ok(importRes.body.data.total_processed === 2);
+  assert.ok(importRes.body.data.created_classes_count >= 1);
+  assert.ok(importRes.body.data.linked_parents_count >= 2);
+
+  const importedClassId = importRes.body.data.students[0].class_id;
+  assert.ok(importedClassId, 'atomic Sida import must auto-create and link class_id');
+
+  // 3. Export Sida-compliant gradebook JSON & CSV
+  const exportRes = await get(baseUrl, `/api/v1/school/sida/export-grades?class_id=${importedClassId}`, {
+    token: adminToken,
+  });
+  assert.equal(exportRes.status, 200);
+  assert.equal(exportRes.body.data.sida_schema_version, 'SIDA-1403-V2');
+  assert.equal(exportRes.body.data.total_students, 2);
+  assert.ok(exportRes.body.data.csv_content.includes('کد دانش‌آموزی سیدا'));
+  assert.ok(exportRes.body.data.csv_content.includes('امیرحسین رضایی'));
+});
+
+test('[Iran-EdTech-PaperToDigital] Paper-to-Digital extracts gradesheet & exam with honest feasibility report and commits human-verified rows', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+
+  // First import the two students into a class via Sida import so they are enrolled
+  const importRes = await post(baseUrl, '/api/v1/school/sida/import', {
+    token: adminToken,
+    body: {
+      raw_text: [
+        'کد ملی,نام و نام خانوادگی,نام پدر,پایه,کلاس,رشته,تلفن ولی',
+        '۰۰۲۴۵۶۷۸۹۳,امیرحسین رضایی,محمد,پایه دهم,دهم ریاضی الف,ریاضی فیزیک,۰۹۱۲۳۴۵۶۷۸۹',
+        '۰۰۱۲۳۴۵۶۷۹,سارا محمدی,علی,پایه دهم,دهم ریاضی الف,ریاضی فیزیک,۰۹۱۲۹۸۷۶۵۴۳',
+      ].join('\n'),
+      source_system: 'sida',
+    },
+  });
+  assert.equal(importRes.status, 201);
+  const targetClassId = importRes.body.data.students[0].class_id;
+
+  // 1. Extract handwritten/printed grade sheet with Persian numerals
+  const extractRes = await post(baseUrl, '/api/v1/ai/paper-to-digital', {
+    token: adminToken,
+    body: {
+      mode: 'gradesheet',
+      raw_ocr_text: [
+        'امیرحسین رضایی | ۰۰۲۴۵۶۷۸۹۳ | ۱۹.۵ | عالی',
+        'سارا محمدی | ۰۰۱۲۳۴۵۶۷۹ | ۱۸.۲۵ | بسیار خوب',
+      ].join('\n'),
+    },
+  });
+  assert.equal(extractRes.status, 200);
+  assert.equal(extractRes.body.data.items.length, 2);
+  assert.equal(extractRes.body.data.items[0].score, 19.5);
+  assert.equal(extractRes.body.data.feasibility_assessment.mandatory_human_in_the_loop, true);
+  assert.ok(extractRes.body.data.feasibility_assessment.honest_engineering_evaluation.printed_tables_accuracy);
+
+  // 2. Commit human-verified scores to the class created in school A
+  const commitGradesRes = await post(baseUrl, '/api/v1/ai/paper-to-digital/commit', {
+    token: adminToken,
+    body: {
+      mode: 'gradesheet',
+      class_id: targetClassId,
+      category_title: 'ارزشیابی مستمر اسکن‌شده',
+      items: extractRes.body.data.items,
+    },
+  });
+  assert.equal(commitGradesRes.status, 201);
+  assert.equal(commitGradesRes.body.data.committed_count, 2);
+
+  // 3. Extract and commit a paper exam into a live online quiz
+  const examExtractRes = await post(baseUrl, '/api/v1/ai/paper-to-digital', {
+    token: adminToken,
+    body: {
+      mode: 'exam',
+      raw_ocr_text: [
+        '۱. مشتق تابع x^2 در نقطه x=3 چند است؟',
+        'الف) ۳',
+        'ب) ۶',
+        'ج) ۹',
+        'د) ۱۲',
+        'پاسخ: ۲',
+      ].join('\n'),
+    },
+  });
+  assert.equal(examExtractRes.status, 200);
+  assert.equal(examExtractRes.body.data.items.length, 1);
+  assert.equal(examExtractRes.body.data.items[0].correct_option, '1');
+
+  const commitExamRes = await post(baseUrl, '/api/v1/ai/paper-to-digital/commit', {
+    token: adminToken,
+    body: {
+      mode: 'exam',
+      class_id: targetClassId,
+      quiz_title: 'کوییز مشتق (تبدیل از برگه کاغذی)',
+      items: examExtractRes.body.data.items,
+    },
+  });
+  assert.equal(commitExamRes.status, 201);
+  assert.ok(commitExamRes.body.data.quiz_id);
+});
+
+test('[Iran-EdTech-Shaparak-SMS] Iranian Sheba ISO-7064 validation, Shaparak IPG initiation, callback verification, and Service SMS dispatch work atomically', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+
+  // 1. Validate official Central Bank of Iran test Sheba with Persian digits
+  const validShebaRes = await post(baseUrl, '/api/v1/finance/validate-sheba', {
+    token: adminToken,
+    body: { sheba: 'IR۰۶۲۹۶۰۰۰۰۰۰۰۱۰۰۳۲۴۲۰۰۰۰۱' },
+  });
+  assert.equal(validShebaRes.status, 200);
+  assert.equal(validShebaRes.body.data.valid, true);
+  assert.equal(validShebaRes.body.data.formatted, 'IR062960000000100324200001');
+
+  // Reject invalid Sheba checksum
+  const invalidShebaRes = await post(baseUrl, '/api/v1/finance/validate-sheba', {
+    token: adminToken,
+    body: { sheba: 'IR992960000000100324200001' },
+  });
+  assert.equal(invalidShebaRes.body.data.valid, false);
+
+  // 2. Initiate Shaparak payment for an unsettled installment in school A
+  const pendingInstallmentId = INSTALLMENTS.a;
+
+  const initRes = await post(baseUrl, `/api/v1/finance/initiate-payment/${pendingInstallmentId}`, {
+    token: adminToken,
+    body: {
+      gateway: 'behpardakht_mellat',
+      school_sheba: 'IR062960000000100324200001',
+    },
+  });
+  assert.equal(initRes.status, 200);
+  assert.ok(initRes.body.data.authority.startsWith('A000'));
+  assert.equal(initRes.body.data.treasury_sheba_valid, true);
+
+  // 3. Complete Shaparak callback verification and verify ledger balance reduction + SMS dispatch
+  const callbackRes = await post(baseUrl, `/api/v1/finance/callback-verify/${pendingInstallmentId}`, {
+    token: adminToken,
+    body: {
+      authority: initRes.body.data.authority,
+      card_pan: '6037-9975-1234-5678',
+      status: 'OK',
+    },
+  });
+  assert.equal(callbackRes.status, 200);
+  assert.ok(callbackRes.body.data.receipt.shaparak_ref_id.startsWith('SHP-'));
+  assert.equal(callbackRes.body.data.receipt.masked_card_pan, '6037-****-****-5678');
+
+  // Double-settlement of same installment must be rejected with 409
+  const duplicateCallback = await post(baseUrl, `/api/v1/finance/callback-verify/${pendingInstallmentId}`, {
+    token: adminToken,
+    body: {
+      authority: initRes.body.data.authority,
+      status: 'OK',
+    },
+  });
+  assert.equal(duplicateCallback.status, 409);
+
+  // 4. Verify Service SMS log recorded the Shaparak receipt notification
+  const smsLogsRes = await get(baseUrl, '/api/v1/school/sms/logs', { token: adminToken });
+  assert.equal(smsLogsRes.status, 200);
+  assert.ok(smsLogsRes.body.data.logs.length >= 1, 'Service SMS gateway must record the tuition settlement alert');
+});
+
+
 

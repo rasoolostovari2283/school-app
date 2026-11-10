@@ -14,6 +14,28 @@ export const ALLOWED_API_ORIGINS = [
   ...(process.env.NEXT_PUBLIC_API_URL ? [new URL(process.env.NEXT_PUBLIC_API_URL, 'http://localhost:3000').origin] : []),
 ];
 
+// Clean up any legacy unrelated LAN/tunnel URLs stored in browser localStorage
+function purgeLegacyStorageUrls() {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys = ['server_api_url', 'educonnect_server_url'];
+    for (const key of keys) {
+      const val = localStorage.getItem(key);
+      if (
+        val &&
+        (val.includes('192.168.') ||
+          val.includes('pinggy') ||
+          val.includes('trycloudflare') ||
+          val.includes(':5000'))
+      ) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function isAllowedApiOrigin(candidateUrl) {
   if (!candidateUrl || typeof candidateUrl !== 'string') return false;
   try {
@@ -30,17 +52,24 @@ export function isAllowedApiOrigin(candidateUrl) {
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
+    purgeLegacyStorageUrls();
+
+    // Always prefer the same-origin proxy (/api/v1 on current window.location.origin)
+    // unless a valid same-origin override is explicitly set
     const customUrl = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
     if (customUrl && isAllowedApiOrigin(customUrl)) {
-      const clean = customUrl.trim().replace(/\/+$/, '');
-      return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+      try {
+        const parsed = new URL(customUrl, window.location.origin);
+        if (parsed.origin === window.location.origin) {
+          const clean = customUrl.trim().replace(/\/+$/, '');
+          return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+        }
+      } catch {
+        // fallback to window.location.origin
+      }
     }
 
-    const host = window.location.hostname;
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      const portPart = window.location.port ? `:${window.location.port}` : '';
-      return `${window.location.protocol}//${host}${portPart}/api/v1`;
-    }
+    return `${window.location.origin}/api/v1`;
   }
 
   return process.env.NEXT_PUBLIC_API_URL || DEFAULT_LOCAL_API;
@@ -67,12 +96,13 @@ export function resetToDefaultWifi() {
   return getApiBaseUrl();
 }
 
-export async function probeServer(url, timeoutMs = 2500) {
-  if (!url || typeof url !== 'string' || !isAllowedApiOrigin(url)) {
+export async function probeServer(url, timeoutMs = 3500) {
+  const target = url || getApiBaseUrl();
+  if (!target || typeof target !== 'string' || !isAllowedApiOrigin(target)) {
     return { success: false };
   }
   try {
-    const clean = url.trim().replace(/\/+$/, '');
+    const clean = target.trim().replace(/\/+$/, '');
     const healthUrl = clean.endsWith('/api/v1')
       ? clean.replace('/api/v1', '/api/health')
       : `${clean}/api/health`;
@@ -89,25 +119,19 @@ export async function probeServer(url, timeoutMs = 2500) {
 
 export async function autoDetectServer() {
   if (typeof window === 'undefined') return { success: false };
-  const candidates = [
-    getApiBaseUrl(),
-    DEFAULT_LOCAL_API,
-  ].filter((url) => isAllowedApiOrigin(url));
-
-  const uniqueCandidates = [...new Set(candidates)];
-  for (const url of uniqueCandidates) {
-    const res = await probeServer(url, 2500);
-    if (res && res.success) {
-      setApiBaseUrl(res.url);
-      return { success: true, url: res.url, data: res.data };
-    }
+  purgeLegacyStorageUrls();
+  const sameOriginApi = `${window.location.origin}/api/v1`;
+  const res = await probeServer(sameOriginApi, 3500);
+  if (res && res.success) {
+    setApiBaseUrl(res.url);
+    return { success: true, url: res.url, data: res.data };
   }
   return { success: false };
 }
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 12000,
+  timeout: 15000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -170,7 +194,7 @@ api.interceptors.response.use(
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         if (typeof window !== 'undefined') {
-          window.location.href = '/login/';
+          window.location.href = '/login';
         }
         return Promise.reject(refreshError);
       }

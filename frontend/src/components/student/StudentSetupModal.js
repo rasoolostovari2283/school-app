@@ -191,27 +191,6 @@ export default function StudentSetupModal({ isOpen, onClose, onSuccess, initialD
       console.warn('Could not fetch setup options from server, reading local cache:', err.message);
     }
 
-    // 1. Merge locally registered schools if any
-    try {
-      const registered = JSON.parse(localStorage.getItem('registered_schools') || '[]');
-      if (Array.isArray(registered) && registered.length > 0) {
-        const existingNames = new Set((data.schools || []).map((s) => (s.name || '').trim()));
-        for (const s of registered) {
-          const cleanName = (s.name || s.school_name || '').trim();
-          if (cleanName && !existingNames.has(cleanName)) {
-            data.schools.unshift({
-              id: s.school_code || s.id || cleanName,
-              name: cleanName,
-              code: s.school_code || s.code || '',
-              city: s.city || 'ایران',
-              is_registered: true,
-            });
-            existingNames.add(cleanName);
-          }
-        }
-      }
-    } catch (e) {}
-
     // Fallback default schools if empty
     if (!data.schools || data.schools.length === 0) {
       data.schools = [

@@ -268,15 +268,82 @@ class AuthController {
    * POST /api/v1/auth/logout
    */
   async logout(req, res) {
+    try {
+      const jwt = require('jsonwebtoken');
+      const config = require('../../config');
+      const { extractTokenFromRequest } = require('../../middleware/auth');
+
+      const accessToken = extractTokenFromRequest(req);
+      if (accessToken) {
+        try {
+          const decoded = jwt.verify(accessToken, config.jwt.secret);
+          if (decoded?.jti) {
+            await authService.revokeTokenByJti(
+              decoded.jti,
+              decoded.userId || null,
+              'access',
+              'logout',
+              decoded.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+            );
+          }
+          if (req.body?.all_devices && decoded?.userId) {
+            await authService.revokeAllUserSessions(decoded.userId, 'logout_all');
+          }
+        } catch (_e) {}
+      }
+
+      const refreshToken = req.body?.refreshToken || req.body?.refresh_token;
+      if (refreshToken) {
+        try {
+          const decodedRefresh = jwt.verify(refreshToken, config.jwt.refreshSecret);
+          if (decodedRefresh?.jti) {
+            await authService.revokeTokenByJti(
+              decodedRefresh.jti,
+              decodedRefresh.userId || null,
+              'refresh',
+              'logout',
+              decodedRefresh.exp ? new Date(decodedRefresh.exp * 1000).toISOString() : null,
+            );
+          }
+        } catch (_e) {}
+      }
+    } catch (_err) {}
+
     res.setHeader(
       'Set-Cookie',
       'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
     );
     res.json({
       success: true,
-      message: 'خروج با موفقیت انجام شد',
+      message: 'خروج با موفقیت انجام شد و نشست فعلی ابطال گردید',
       messageEn: 'Logged out successfully',
     });
+  }
+
+  /**
+   * POST /api/v1/auth/revoke-sessions
+   * Immediately revokes all active access & refresh tokens for the authenticated user
+   */
+  async revokeSessions(req, res, next) {
+    try {
+      const result = await authService.revokeAllUserSessions(
+        req.user.id,
+        'revoke_sessions',
+        req.tokenPayload?.jti || null,
+      );
+      res.setHeader(
+        'Set-Cookie',
+        'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+      );
+      res.json({
+        success: true,
+        message: 'تمامی نشست‌های فعال شما با موفقیت ابطال شدند',
+        messageEn: 'All active sessions have been revoked',
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
 
   /**

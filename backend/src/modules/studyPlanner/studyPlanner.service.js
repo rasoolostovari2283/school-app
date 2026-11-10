@@ -5,6 +5,7 @@ const {
   assertSameSchool,
   assertOwnsResource,
   assertTeacherOfStudent,
+  forbiddenError,
   notFoundError,
 } = require('../../middleware/auth');
 
@@ -171,10 +172,18 @@ class StudyPlannerService {
   }
 
   async getLogs(userId, role, targetStudentId, currentUser = null) {
+    const normalizedRole = String(role || '').toLowerCase();
+    if (['financial_officer', 'accountant'].includes(normalizedRole)) {
+      throw forbiddenError(
+        'مسئول مالی مجاز به مشاهده پرونده مشاوره و برنامه‌ریزی تحصیلی دانش‌آموزان نیست',
+        'Financial officers are not permitted to access academic study logs',
+      );
+    }
+
     const user = currentUser || await db('users').where({ id: userId }).first();
     if (!user || !user.school_id) return [];
 
-    const isStaff = ['teacher', 'admin', 'manager'].includes(role);
+    const isStaff = ['teacher', 'counselor', 'admin', 'manager', 'school_admin', 'principal', 'headmaster'].includes(normalizedRole);
     const studentId = (isStaff && targetStudentId) ? targetStudentId : userId;
 
     const logs = await db('study_logs')
@@ -254,8 +263,16 @@ class StudyPlannerService {
   }
 
   async getStats(userId, role, targetStudentId, currentUser = null) {
+    const normalizedRole = String(role || '').toLowerCase();
+    if (['financial_officer', 'accountant'].includes(normalizedRole)) {
+      throw forbiddenError(
+        'مسئول مالی مجاز به مشاهده آمار مشاوره و مطالعه دانش‌آموزان نیست',
+        'Financial officers are not permitted to access academic study stats',
+      );
+    }
+
     const user = currentUser || await db('users').where({ id: userId }).first();
-    const isStaff = ['teacher', 'admin', 'manager'].includes(role);
+    const isStaff = ['teacher', 'counselor', 'admin', 'manager', 'school_admin', 'principal', 'headmaster'].includes(normalizedRole);
     const studentId = (isStaff && targetStudentId) ? targetStudentId : userId;
 
     let logsQuery = db('study_logs')

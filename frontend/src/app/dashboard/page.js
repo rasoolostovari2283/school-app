@@ -39,11 +39,12 @@ export default function DashboardPage() {
   const [showTeacherSetup, setShowTeacherSetup] = useState(false);
   const [schoolWebsiteUrl, setSchoolWebsiteUrl] = useState('');
   const [showWebsiteModal, setShowWebsiteModal] = useState(false);
+  const [schoolMemberCounts, setSchoolMemberCounts] = useState({ teachers: 6, students: 4 });
 
-  const isTeacher = user?.role === 'teacher';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'counselor';
   const isStudent = user?.role === 'student';
   const isParent = user?.role === 'parent';
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'financial_officer';
 
   // Parse user settings
   const userSettings = (() => {
@@ -76,53 +77,30 @@ export default function DashboardPage() {
   const [loadingParent, setLoadingParent] = useState(false);
 
   useEffect(() => {
-    // Purge stale dummy/mock seeds from localStorage so teacher has clean workspace
+    // Purge deprecated parallel localStorage entity caches so Backend API is the single source of truth
     try {
-      const keysToClean = [
+      const deprecatedKeys = [
         'school_shared_attendance_reports',
         'school_shared_gradebook_reports',
         'school_classes_database',
         'school_teachers_database',
+        'school_students_database',
+        'registered_schools',
+        'sent_management_directives',
+        'cached_teacher_documents',
+        'student_study_notes_cache',
+        'teacher_plans_cache',
+        'cached_quizzes',
       ];
-      keysToClean.forEach((k) => {
-        const val = localStorage.getItem(k);
-        if (val) {
-          const parsed = JSON.parse(val);
-          if (Array.isArray(parsed)) {
-            const cleaned = parsed.filter(
-              (item) =>
-                !item.id?.startsWith('rep-seed-') &&
-                !item.id?.startsWith('gb-seed-') &&
-                !['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(item.id) &&
-                !['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(item.id) &&
-                !['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(item.id)
-            );
-            if (cleaned.length !== parsed.length) {
-              localStorage.setItem(k, JSON.stringify(cleaned));
-            }
-          }
-        }
-      });
+      deprecatedKeys.forEach((k) => localStorage.removeItem(k));
+      const dynamicKeysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && (key.startsWith('mgmt_classes_') || key.startsWith('mgmt_teachers_') || key.startsWith('mgmt_students_'))) {
-          const val = localStorage.getItem(key);
-          if (val) {
-            const parsed = JSON.parse(val);
-            if (Array.isArray(parsed)) {
-              const cleaned = parsed.filter(
-                (item) =>
-                  !['tch-101', 'tch-102', 'tch-103', 'tch-104', 'tch-105'].includes(item.id) &&
-                  !['cls-1', 'cls-2', 'cls-3', 'cls-4', 'cls-5'].includes(item.id) &&
-                  !['std-1', 'std-2', 'std-3', 'std-4', 'std-5', 'std-6', 'std-7'].includes(item.id)
-              );
-              if (cleaned.length !== parsed.length) {
-                localStorage.setItem(key, JSON.stringify(cleaned));
-              }
-            }
-          }
+          dynamicKeysToRemove.push(key);
         }
       }
+      dynamicKeysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
 
     if (isParent) {
@@ -131,6 +109,19 @@ export default function DashboardPage() {
       fetchClasses();
       fetchNotifications();
       fetchAssignmentCount();
+      api
+        .get('/school/members')
+        .then((res) => {
+          const tCount = res.data?.data?.teachers?.length;
+          const sCount = res.data?.data?.students?.length;
+          if (typeof tCount === 'number' || typeof sCount === 'number') {
+            setSchoolMemberCounts({
+              teachers: tCount || 6,
+              students: sCount || 4,
+            });
+          }
+        })
+        .catch(() => {});
     }
 
     // Fetch School Website URL
@@ -742,29 +733,29 @@ export default function DashboardPage() {
                 </Link>
 
                 <Link
-                  href="/dashboard/teachers"
+                  href="/dashboard/smart-operations"
                   className={styles.heroBtn}
                   style={{
-                    borderColor: 'rgba(99, 102, 241, 0.4)',
+                    borderColor: 'rgba(99, 102, 241, 0.45)',
                     background: 'rgba(255, 255, 255, 0.95)',
                   }}
-                  title="دیتابیس و کادر معلمان مدرسه"
+                  title="همگام‌سازی سیدا، اسکن برگه‌های کاغذی با هوش مصنوعی و پیامک خدماتی"
                 >
-                  <HiOutlineAcademicCap style={{ color: '#6366f1' }} />
-                  <span style={{ fontWeight: 800, color: '#4f46e5' }}>دیتابیس معلمان</span>
+                  <HiOutlineSparkles style={{ color: '#6366f1' }} />
+                  <span style={{ fontWeight: 800, color: '#4f46e5' }}>عملیات هوشمند (سیدا و OCR)</span>
                 </Link>
 
                 <Link
-                  href="/dashboard/report-card"
+                  href="/dashboard/finance"
                   className={styles.heroBtn}
                   style={{
-                    borderColor: 'rgba(16, 185, 129, 0.4)',
+                    borderColor: 'rgba(16, 185, 129, 0.45)',
                     background: 'rgba(255, 255, 255, 0.95)',
                   }}
-                  title="کارنامه‌ها و دفتر نمرات کل مجتمع"
+                  title="امور شهریه، اقساط و درگاه شاپرک"
                 >
                   <HiOutlineDocumentText style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 800, color: '#059669' }}>دفتر نمرات کل</span>
+                  <span style={{ fontWeight: 800, color: '#059669' }}>امور مالی و شاپرک</span>
                 </Link>
               </>
             )}
@@ -976,25 +967,25 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className={styles.kpiValueRow}>
-                <span className={styles.kpiValue}>۱۲ دبیر</span>
+                <span className={styles.kpiValue}>{schoolMemberCounts.teachers.toLocaleString('fa-IR')} کادر</span>
               </div>
-              <span className={styles.kpiLabel}>معلمان و دبیران فعال مجتمع</span>
+              <span className={styles.kpiLabel}>معلمان و کادر فعال مجتمع</span>
             </div>
 
-            {/* Admin KPI 2: School Webinars & Meetings */}
+            {/* Admin KPI 2: Enrolled Students */}
             <div className={styles.kpiCard}>
               <div className={styles.kpiHeader}>
                 <div className={styles.kpiIconBox} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
-                  <HiOutlineVideoCamera />
+                  <HiOutlineUserGroup />
                 </div>
                 <span className={styles.kpiBadge} style={{ background: '#fef2f2', color: '#dc2626' }}>
-                  جلسات آنلاین
+                  دانش‌آموزان
                 </span>
               </div>
               <div className={styles.kpiValueRow}>
-                <span className={styles.kpiValue}>۴ وبینار</span>
+                <span className={styles.kpiValue}>{schoolMemberCounts.students.toLocaleString('fa-IR')} نفر</span>
               </div>
-              <span className={styles.kpiLabel}>وبینارها و جلسات مدرسه</span>
+              <span className={styles.kpiLabel}>دانش‌آموزان ثبت‌نام‌شده مدرسه</span>
             </div>
 
             {/* Admin KPI 3: Registered Classes */}

@@ -100,9 +100,11 @@ class AiService {
   }
 
   async callExternalLlm(type, topic, count) {
-    // Standard fetch with 3.5s timeout so it never blocks during connectivity drops
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({
+      apiKey: this.geminiApiKey,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    });
 
     const prompt = `شما یک دستیار معلم متخصص در سامانه ادوکانکت هستید.
 نوع درخواست: ${type}
@@ -110,24 +112,14 @@ class AiService {
 تعداد سوالات/موارد: ${count}
 پاسخ را به زبان فارسی محترمانه و به صورت JSON خروجی دهید.`;
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      const data = await res.json();
-      return {
-        mode: 'cloud_ai',
-        raw: data.candidates?.[0]?.content?.parts?.[0]?.text || '',
-      };
-    } catch (e) {
-      clearTimeout(timeout);
-      throw e;
-    }
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+    });
+    return {
+      mode: 'cloud_ai',
+      raw: response.text || '',
+    };
   }
 }
 

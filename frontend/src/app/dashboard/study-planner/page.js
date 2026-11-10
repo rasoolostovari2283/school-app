@@ -65,21 +65,13 @@ const PRESET_GRADES = [
 
 export default function StudyPlannerPage() {
   const { user } = useAuthStore();
-  const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
+  const isTeacher = user?.role === 'teacher' || user?.role === 'counselor' || user?.role === 'admin' || user?.role === 'manager';
 
   // Teacher navigation tabs: 'schedule' (برنامه کلاسی و هفتگی), 'roadmap' (طرح درس و بودجه‌بندی), 'students' (پایش مطالعه بچه‌ها)
   const [activeTab, setActiveTab] = useState('schedule');
 
-  // Teacher Schedule & Plans
-  const [teacherPlans, setTeacherPlans] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('teacher_plans_cache');
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [];
-  });
+  // Teacher Schedule & Plans (populated from Backend API)
+  const [teacherPlans, setTeacherPlans] = useState([]);
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [gradeFilter, setGradeFilter] = useState('all');
   const [scheduleViewMode, setScheduleViewMode] = useState('matrix'); // 'matrix' (جدول برنامه هفتگی تدریس) | 'board' (تقویم ستونی) | 'bands' (ردیف‌های روزانه)
@@ -210,15 +202,7 @@ export default function StudyPlannerPage() {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
   // ── STUDENT NOTEPAD STATE (دفترچه یادداشت و برنامه‌ریزی شخصی دانش‌آموز) ──
-  const [studentNotes, setStudentNotes] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('student_study_notes_cache');
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [];
-  });
+  const [studentNotes, setStudentNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [noteForm, setNoteForm] = useState({
     title: '',
@@ -322,26 +306,10 @@ export default function StudyPlannerPage() {
       const res = await api.get('/study-planner/teacher-documents');
       if (res.data?.success) {
         const serverDocs = res.data.data.documents || [];
-        let localDocs = [];
-        try {
-          localDocs = JSON.parse(localStorage.getItem('cached_teacher_documents') || '[]');
-        } catch (e) {}
-        const mergedMap = new Map();
-        localDocs.forEach((d) => mergedMap.set(d.id, d));
-        serverDocs.forEach((d) => mergedMap.set(d.id, d));
-        const mergedList = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
-        );
-        setTeacherDocuments(mergedList);
+        setTeacherDocuments(serverDocs);
       }
     } catch (err) {
-      console.warn('Error fetching teacher documents from server, loading cached:', err?.message);
-      try {
-        const localDocs = JSON.parse(localStorage.getItem('cached_teacher_documents') || '[]');
-        if (localDocs.length > 0) {
-          setTeacherDocuments(localDocs);
-        }
-      } catch (e) {}
+      console.warn('Error fetching teacher documents from server:', err?.message);
     } finally {
       setLoadingDocs(false);
     }
@@ -444,28 +412,10 @@ export default function StudyPlannerPage() {
         description: docForm.description.trim(),
       };
 
-      try {
-        const res = await api.post('/study-planner/teacher-documents', payload);
-        if (res.data?.success) {
-          const newDoc = res.data.data.document;
-          setTeacherDocuments((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
-          try {
-            const existing = JSON.parse(localStorage.getItem('cached_teacher_documents') || '[]');
-            localStorage.setItem('cached_teacher_documents', JSON.stringify([newDoc, ...existing.filter((d) => d.id !== newDoc.id)]));
-          } catch (e) {}
-        }
-      } catch (dbErr) {
-        console.warn('Server record save failed, persisting locally:', dbErr?.message);
-        const fallbackDoc = {
-          id: `doc-${Date.now()}`,
-          ...payload,
-          created_at: new Date().toISOString(),
-        };
-        setTeacherDocuments((prev) => [fallbackDoc, ...prev]);
-        try {
-          const existing = JSON.parse(localStorage.getItem('cached_teacher_documents') || '[]');
-          localStorage.setItem('cached_teacher_documents', JSON.stringify([fallbackDoc, ...existing]));
-        } catch (e) {}
+      const res = await api.post('/study-planner/teacher-documents', payload);
+      if (res.data?.success) {
+        const newDoc = res.data.data.document;
+        setTeacherDocuments((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
       }
 
       toast.success('سند طرح درس / تقویم محتوایی با موفقیت بارگذاری شد 🎉', { id: toastId });
@@ -494,18 +444,14 @@ export default function StudyPlannerPage() {
       return;
     }
     try {
-      setTeacherDocuments((prev) => prev.filter((d) => d.id !== docId));
-      try {
-        const existing = JSON.parse(localStorage.getItem('cached_teacher_documents') || '[]');
-        localStorage.setItem('cached_teacher_documents', JSON.stringify(existing.filter((d) => d.id !== docId)));
-      } catch (e) {}
       const res = await api.delete(`/study-planner/teacher-documents/${docId}`);
       if (res.data?.success) {
+        setTeacherDocuments((prev) => prev.filter((d) => d.id !== docId));
         toast.success('سند آموزشی با موفقیت حذف شد');
       }
     } catch (err) {
-      console.warn('Server delete error, removed from client state:', err?.message);
-      toast.success('سند از لیست حذف گردید');
+      console.warn('Server delete error:', err?.message);
+      toast.error('خطا در حذف سند آموزشی');
     }
   };
 
@@ -545,9 +491,6 @@ export default function StudyPlannerPage() {
       if (res.data?.success) {
         const list = res.data.data.notes || [];
         setStudentNotes(list);
-        try {
-          localStorage.setItem('student_study_notes_cache', JSON.stringify(list));
-        } catch (e) {}
       }
     } catch (err) {
       console.error('Error fetching student notes:', err);
@@ -568,13 +511,7 @@ export default function StudyPlannerPage() {
       if (res.data?.success) {
         toast.success('یادداشت جدید با موفقیت ثبت شد 📝');
         const newNote = res.data.data.note;
-        setStudentNotes((prev) => {
-          const updated = [newNote, ...prev.filter((n) => n.id !== newNote.id)];
-          try {
-            localStorage.setItem('student_study_notes_cache', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
+        setStudentNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
         setNoteForm((prev) => ({
           title: '',
           content: '',
@@ -600,13 +537,9 @@ export default function StudyPlannerPage() {
       if (res.data?.success) {
         toast.success('یادداشت با موفقیت ویرایش شد ✍️');
         const updatedNote = res.data.data.note;
-        setStudentNotes((prev) => {
-          const updated = prev.map((n) => (n.id === editingNote.id ? updatedNote : n));
-          try {
-            localStorage.setItem('student_study_notes_cache', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
+        setStudentNotes((prev) =>
+          prev.map((n) => (n.id === editingNote.id ? updatedNote : n))
+        );
         setEditingNote(null);
       }
     } catch (err) {
@@ -624,13 +557,7 @@ export default function StudyPlannerPage() {
       const res = await api.delete(`/study-planner/notes/${noteId}`);
       if (res.data?.success) {
         toast.success('یادداشت حذف شد');
-        setStudentNotes((prev) => {
-          const updated = prev.filter((n) => n.id !== noteId);
-          try {
-            localStorage.setItem('student_study_notes_cache', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
+        setStudentNotes((prev) => prev.filter((n) => n.id !== noteId));
       }
     } catch (err) {
       console.error(err);
@@ -648,15 +575,11 @@ export default function StudyPlannerPage() {
       });
       if (res.data?.success) {
         toast.success(newPinnedStatus ? 'یادداشت سنجاق شد 📌' : 'سنجاق یادداشت برداشته شد');
-        setStudentNotes((prev) => {
-          const updated = prev.map((n) =>
+        setStudentNotes((prev) =>
+          prev.map((n) =>
             n.id === note.id ? { ...n, is_pinned: newPinnedStatus } : n
-          );
-          try {
-            localStorage.setItem('student_study_notes_cache', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
+          )
+        );
       }
     } catch (err) {
       console.error(err);
@@ -709,15 +632,11 @@ export default function StudyPlannerPage() {
     const newCompletedStatus = !note.is_completed;
 
     // Optimistic UI update
-    setStudentNotes((prev) => {
-      const updated = prev.map((n) =>
+    setStudentNotes((prev) =>
+      prev.map((n) =>
         n.id === note.id ? { ...n, is_completed: newCompletedStatus } : n
-      );
-      try {
-        localStorage.setItem('student_study_notes_cache', JSON.stringify(updated));
-      } catch (err) {}
-      return updated;
-    });
+      )
+    );
 
     if (newCompletedStatus) {
       setCelebratingNoteId(note.id);
@@ -855,16 +774,9 @@ export default function StudyPlannerPage() {
       if (res.data?.success) {
         const plans = res.data.data.plans || [];
         setTeacherPlans(plans);
-        try {
-          localStorage.setItem('teacher_plans_cache', JSON.stringify(plans));
-        } catch (e) {}
       }
     } catch (err) {
       console.error(err);
-      try {
-        const saved = localStorage.getItem('teacher_plans_cache');
-        if (saved) setTeacherPlans(JSON.parse(saved));
-      } catch (e) {}
     } finally {
       setLoadingPlans(false);
     }
@@ -920,13 +832,7 @@ export default function StudyPlannerPage() {
 
       toast.success(res.data?.message || `جلسه «${payload.subject}» با موفقیت در تقویم تدریس ثبت شد 🎉`);
 
-      setTeacherPlans((prev) => {
-        const updated = [...prev, createdPlan];
-        try {
-          localStorage.setItem('teacher_plans_cache', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
+      setTeacherPlans((prev) => [...prev, createdPlan]);
 
       setBriefingDay(parseInt(payload.day_of_week, 10));
       setGradeFilter('all');
@@ -941,23 +847,7 @@ export default function StudyPlannerPage() {
       fetchTeacherPlans();
     } catch (err) {
       console.error(err);
-      // Fallback local save so teacher's plan is preserved and visible
-      const localPlan = {
-        ...payload,
-        id: 'local-' + Date.now(),
-        status: 'upcoming',
-      };
-      setTeacherPlans((prev) => {
-        const updated = [...prev, localPlan];
-        try {
-          localStorage.setItem('teacher_plans_cache', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
-      setBriefingDay(parseInt(payload.day_of_week, 10));
-      setGradeFilter('all');
-      setShowAddPlanModal(false);
-      toast.success(`جلسه «${payload.subject}» با موفقیت ثبت شد 🎉`);
+      toast.error('خطا در ثبت برنامه کلاسی در دیتابیس');
     } finally {
       setSubmittingPlan(false);
     }
