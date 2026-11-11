@@ -176,24 +176,30 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) throw new Error('No refresh token');
+        const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
 
         const currentBaseUrl = getApiBaseUrl();
         if (!isAllowedApiOrigin(currentBaseUrl)) {
           throw new Error('Disallowed API origin');
         }
 
-        const { data } = await axios.post(`${currentBaseUrl}/auth/refresh`, { refreshToken }, { withCredentials: true });
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
-
-        originalRequest.headers.Authorization = `Bearer ${data.data.accessToken}`;
+        const { data } = await axios.post(
+          `${currentBaseUrl}/auth/refresh`,
+          refreshToken ? { refreshToken } : {},
+          { withCredentials: true }
+        );
+        if (typeof window !== 'undefined' && data?.data?.accessToken) {
+          localStorage.setItem('accessToken', data.data.accessToken);
+          if (data.data.refreshToken) {
+            localStorage.setItem('refreshToken', data.data.refreshToken);
+          }
+          originalRequest.headers.Authorization = `Bearer ${data.data.accessToken}`;
+        }
         return api(originalRequest);
       } catch (refreshError) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
         if (typeof window !== 'undefined') {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
           window.location.href = '/login';
         }
         return Promise.reject(refreshError);

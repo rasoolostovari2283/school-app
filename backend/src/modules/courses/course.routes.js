@@ -25,12 +25,14 @@ router.get('/', async (req, res, next) => {
       })
       .orderBy('courses.code', 'asc');
 
-    if (req.user.role === 'student') {
+    if (req.user.role === 'student' && courses.length > 0) {
+      const courseIds = courses.map((c) => c.id);
+      const enrollments = await db('course_enrollments')
+        .whereIn('course_id', courseIds)
+        .andWhere({ student_id: req.user.id });
+      const enrollmentByCourse = new Map(enrollments.map((e) => [e.course_id, e]));
       for (const c of courses) {
-        const enrollment = await db('course_enrollments')
-          .where({ course_id: c.id, student_id: req.user.id })
-          .first();
-        c.enrollment = enrollment || null;
+        c.enrollment = enrollmentByCourse.get(c.id) || null;
       }
     }
 
@@ -47,38 +49,62 @@ router.post('/:id/enroll', async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'فقط دانش‌آموزان مجاز به انتخاب واحد هستند' });
     }
 
-    const course = await db('courses').where({ id: req.params.id, is_active: true }).first();
-    if (!course) {
+    const initialCourse = await db('courses').where({ id: req.params.id, is_active: true }).first();
+    if (!initialCourse) {
       return res.status(404).json({ success: false, message: 'درس یافت نشد' });
     }
 
-    if (course.teacher_id) {
-      const teacher = await db('users').where({ id: course.teacher_id }).first();
-      if (teacher && teacher.school_id && req.user.school_id && teacher.school_id !== req.user.school_id) {
-        return res.status(403).json({ success: false, message: 'دسترسی به درس مدرسه دیگر مجاز نیست' });
+    const enrollment = await db.transaction(async (trx) => {
+      const course = await trx('courses').where({ id: req.params.id, is_active: true }).first();
+      if (!course) {
+        const err = new Error('درس یافت نشد');
+        err.statusCode = 404;
+        throw err;
       }
-    }
 
-    if (course.enrolled_count >= course.capacity) {
-      return res.status(400).json({ success: false, message: 'ظرفیت درس تکمیل شده است' });
-    }
+      if (course.teacher_id) {
+        const teacher = await trx('users').where({ id: course.teacher_id }).first();
+        if (teacher && teacher.school_id && req.user.school_id && teacher.school_id !== req.user.school_id) {
+          const err = new Error('دسترسی به درس مدرسه دیگر مجاز نیست');
+          err.statusCode = 403;
+          throw err;
+        }
+      }
 
-    const existing = await db('course_enrollments')
-      .where({ course_id: req.params.id, student_id: req.user.id })
-      .first();
-    if (existing && existing.status === 'enrolled') {
-      return res.status(400).json({ success: false, message: 'قبلاً در این درس ثبت‌نام کرده‌اید' });
-    }
+      if (course.enrolled_count >= course.capacity) {
+        const err = new Error('ظرفیت درس تکمیل شده است');
+        err.statusCode = 400;
+        throw err;
+      }
 
-    const enrollment = {
-      id: uuidv4(),
-      course_id: req.params.id,
-      student_id: req.user.id,
-      status: 'enrolled',
-    };
+      const existing = await trx('course_enrollments')
+        .where({ course_id: req.params.id, student_id: req.user.id })
+        .first();
+      if (existing && existing.status === 'enrolled') {
+        const err = new Error('قبلاً در این درس ثبت‌نام کرده‌اید');
+        err.statusCode = 400;
+        throw err;
+      }
 
-    await db('course_enrollments').insert(enrollment);
-    await db('courses').where('id', req.params.id).increment('enrolled_count', 1);
+      let record;
+      if (existing) {
+        await trx('course_enrollments')
+          .where({ id: existing.id })
+          .update({ status: 'enrolled', dropped_at: null, enrolled_at: new Date().toISOString() });
+        record = { ...existing, status: 'enrolled', dropped_at: null };
+      } else {
+        record = {
+          id: uuidv4(),
+          course_id: req.params.id,
+          student_id: req.user.id,
+          status: 'enrolled',
+        };
+        await trx('course_enrollments').insert(record);
+      }
+
+      await trx('courses').where('id', req.params.id).increment('enrolled_count', 1);
+      return record;
+    });
 
     res.status(201).json({ success: true, message: 'انتخاب واحد با موفقیت انجام شد', data: { enrollment } });
   } catch (err) { next(err); }
@@ -89,25 +115,31 @@ router.post('/:id/enroll', async (req, res, next) => {
  */
 router.post('/:id/drop', async (req, res, next) => {
   try {
-    const enrollment = await db('course_enrollments')
-      .where({ course_id: req.params.id, student_id: req.user.id, status: 'enrolled' })
-      .first();
-    if (!enrollment) {
-      return res.status(404).json({ success: false, message: 'ثبت‌نامی یافت نشد' });
-    }
-
-    const course = await db('courses').where({ id: req.params.id }).first();
-    if (course && course.teacher_id) {
-      const teacher = await db('users').where({ id: course.teacher_id }).first();
-      if (teacher) {
-        assertSameSchool(req.user, teacher);
+    await db.transaction(async (trx) => {
+      const enrollment = await trx('course_enrollments')
+        .where({ course_id: req.params.id, student_id: req.user.id, status: 'enrolled' })
+        .first();
+      if (!enrollment) {
+        const err = new Error('ثبت‌نامی یافت نشد');
+        err.statusCode = 404;
+        throw err;
       }
-    }
 
-    await db('course_enrollments')
-      .where('id', enrollment.id)
-      .update({ status: 'dropped', dropped_at: new Date().toISOString() });
-    await db('courses').where('id', req.params.id).decrement('enrolled_count', 1);
+      const course = await trx('courses').where({ id: req.params.id }).first();
+      if (course && course.teacher_id) {
+        const teacher = await trx('users').where({ id: course.teacher_id }).first();
+        if (teacher) {
+          assertSameSchool(req.user, teacher);
+        }
+      }
+
+      await trx('course_enrollments')
+        .where('id', enrollment.id)
+        .update({ status: 'dropped', dropped_at: new Date().toISOString() });
+      if (course && course.enrolled_count > 0) {
+        await trx('courses').where('id', req.params.id).decrement('enrolled_count', 1);
+      }
+    });
 
     res.json({ success: true, message: 'درس با موفقیت حذف شد' });
   } catch (err) { next(err); }

@@ -1,5 +1,44 @@
 const authService = require('./auth.service');
 const { registerSchema, loginSchema, quickEntrySchema } = require('./auth.validators');
+const config = require('../../config');
+
+function setAuthCookies(res, accessToken, refreshToken) {
+  if (!accessToken) return;
+  const isProd = config.nodeEnv === 'production';
+  const secureFlag = isProd ? '; Secure' : '';
+  const cookies = [
+    `accessToken=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureFlag}`,
+    `access_token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureFlag}`,
+  ];
+  if (refreshToken) {
+    cookies.push(
+      `refreshToken=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${secureFlag}`
+    );
+  }
+  res.setHeader('Set-Cookie', cookies);
+}
+
+function clearAuthCookies(res) {
+  res.setHeader('Set-Cookie', [
+    'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+    'access_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+    'refreshToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+  ]);
+}
+
+function extractRefreshTokenFromCookie(req) {
+  const cookieHeader = req.headers?.cookie;
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(';').map((c) => c.trim());
+  for (const prefix of ['refreshToken=', 'refresh_token=']) {
+    const match = parts.find((c) => c.startsWith(prefix));
+    if (match) {
+      const val = decodeURIComponent(match.slice(prefix.length)).trim();
+      if (val) return val;
+    }
+  }
+  return null;
+}
 
 class AuthController {
   /**
@@ -15,6 +54,7 @@ class AuthController {
       }
 
       const result = await authService.quickEntry(value);
+      setAuthCookies(res, result.accessToken, result.refreshToken);
 
       res.status(200).json({
         success: true,
@@ -40,6 +80,7 @@ class AuthController {
       }
 
       const result = await authService.register(value);
+      setAuthCookies(res, result.accessToken, result.refreshToken);
 
       res.status(201).json({
         success: true,
@@ -58,6 +99,7 @@ class AuthController {
   async registerSchool(req, res, next) {
     try {
       const result = await authService.registerSchool(req.body);
+      setAuthCookies(res, result.accessToken, result.refreshToken);
       res.status(201).json({
         success: true,
         message: `مدرسه «${result.school.name}» با موفقیت ثبت شد! کد اختصاصی مدرسه: ${result.school.school_code}`,
@@ -90,6 +132,8 @@ class AuthController {
         }
       );
 
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+
       res.json({
         success: true,
         message: 'ورود موفقیت‌آمیز',
@@ -106,8 +150,28 @@ class AuthController {
    */
   async parentLogin(req, res, next) {
     try {
-      const { student_code, parent_name, phone } = req.body;
-      const result = await authService.parentLoginByStudentCode(student_code, parent_name, phone);
+      const {
+        student_code,
+        student_identifier,
+        parent_name,
+        phone,
+        parent_phone,
+        school_id,
+        school_code,
+        school_name,
+      } = req.body || {};
+
+      const resolvedStudentCode = student_code || student_identifier || '';
+      const resolvedPhone = phone || parent_phone || '';
+
+      const result = await authService.parentLoginByStudentCode(
+        resolvedStudentCode,
+        parent_name,
+        resolvedPhone,
+        { school_id, school_code, school_name }
+      );
+
+      setAuthCookies(res, result.accessToken, result.refreshToken);
 
       res.json({
         success: true,
@@ -125,7 +189,7 @@ class AuthController {
    */
   async refresh(req, res, next) {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = req.body?.refreshToken || extractRefreshTokenFromCookie(req);
       if (!refreshToken) {
         return res.status(400).json({
           success: false,
@@ -135,6 +199,7 @@ class AuthController {
       }
 
       const tokens = await authService.refreshToken(refreshToken);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
       res.json({
         success: true,
@@ -292,7 +357,10 @@ class AuthController {
         } catch (_e) {}
       }
 
-      const refreshToken = req.body?.refreshToken || req.body?.refresh_token;
+      const refreshToken =
+        req.body?.refreshToken ||
+        req.body?.refresh_token ||
+        extractRefreshTokenFromCookie(req);
       if (refreshToken) {
         try {
           const decodedRefresh = jwt.verify(refreshToken, config.jwt.refreshSecret);
@@ -309,10 +377,7 @@ class AuthController {
       }
     } catch (_err) {}
 
-    res.setHeader(
-      'Set-Cookie',
-      'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
-    );
+    clearAuthCookies(res);
     res.json({
       success: true,
       message: 'خروج با موفقیت انجام شد و نشست فعلی ابطال گردید',
@@ -331,10 +396,7 @@ class AuthController {
         'revoke_sessions',
         req.tokenPayload?.jti || null,
       );
-      res.setHeader(
-        'Set-Cookie',
-        'accessToken=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
-      );
+      clearAuthCookies(res);
       res.json({
         success: true,
         message: 'تمامی نشست‌های فعال شما با موفقیت ابطال شدند',

@@ -6,7 +6,9 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const db = require('../config/database');
+const config = require('../config');
 
 async function logAudit(firstArg, actionArg, moduleArg, targetIdArg = null, detailsArg = null) {
   try {
@@ -35,19 +37,36 @@ async function logAudit(firstArg, actionArg, moduleArg, targetIdArg = null, deta
       ip = firstArg.ip || firstArg.headers?.['x-forwarded-for'] || null;
     }
 
-    const detailsStr = typeof details === 'object' && details !== null ? JSON.stringify(details) : details;
+    const id = uuidv4();
+    const createdAt = new Date().toISOString();
+    const normAction = String(action || 'ACTION').toUpperCase();
+    const normModule = String(moduleName || 'SYSTEM').toUpperCase();
+    const normTarget = targetId ? String(targetId) : null;
+
+    const payloadObj =
+      typeof details === 'object' && details !== null
+        ? { ...details }
+        : details
+        ? { message: String(details) }
+        : {};
+
+    const hmacKey = process.env.AUDIT_HMAC_SECRET || config.jwt?.secret || 'educonnect-audit-hmac';
+    const canonical = `${id}|${userId || ''}|${normAction}|${normModule}|${normTarget || ''}|${createdAt}`;
+    payloadObj._integrity_hmac = crypto.createHmac('sha256', hmacKey).update(canonical).digest('hex').slice(0, 32);
+
+    const detailsStr = JSON.stringify(payloadObj);
 
     await db('audit_logs').insert({
-      id: uuidv4(),
+      id,
       user_id: userId,
       user_name: userName,
       user_role: userRole,
-      action: String(action || 'ACTION').toUpperCase(),
-      module: String(moduleName || 'SYSTEM').toUpperCase(),
-      target_id: targetId ? String(targetId) : null,
+      action: normAction,
+      module: normModule,
+      target_id: normTarget,
       details: detailsStr,
       ip_address: ip,
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
     });
   } catch (err) {
     console.warn('[AuditLogger] write error:', err.message);

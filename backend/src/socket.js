@@ -34,7 +34,9 @@ function extractSocketToken(socket) {
     return header.slice(7).trim();
   }
 
-  const cookieToken = parseCookieHeader(socket.handshake?.headers?.cookie, 'access_token');
+  const cookieToken =
+    parseCookieHeader(socket.handshake?.headers?.cookie, 'accessToken') ||
+    parseCookieHeader(socket.handshake?.headers?.cookie, 'access_token');
   if (cookieToken) {
     return cookieToken;
   }
@@ -87,16 +89,37 @@ function getOrCreateClassroom(classId) {
 }
 
 function initSocket(server, config) {
+  const isAllowedSocketOrigin = (origin) => {
+    if (!origin) return true;
+    const allowedList = [
+      config?.frontendUrl,
+      process.env.FRONTEND_URL,
+      process.env.TUNNEL_URL,
+      ...(process.env.CORS_ALLOWED_ORIGINS ? process.env.CORS_ALLOWED_ORIGINS.split(',') : []),
+    ]
+      .filter(Boolean)
+      .map((u) => u.trim().replace(/\/+$/, ''));
+    const normalized = String(origin).trim().replace(/\/+$/, '');
+    if (allowedList.includes(normalized)) return true;
+    if (config?.nodeEnv !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized)) {
+      return true;
+    }
+    return false;
+  };
+
   const io = new Server(server, {
     cors: {
       origin: (origin, callback) => {
-        callback(null, true);
+        if (isAllowedSocketOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('CORS origin not allowed'), false);
       },
       methods: ['GET', 'POST'],
       credentials: true,
     },
     transports: ['websocket', 'polling'],
-    maxHttpBufferSize: 5 * 1024 * 1024,
+    maxHttpBufferSize: 2 * 1024 * 1024,
     pingTimeout: 35000,
     pingInterval: 15000,
   });
@@ -138,11 +161,54 @@ function initSocket(server, config) {
       }
 
       socket.data.user = user;
+      socket.data.tokenJti = decoded.jti || null;
+      socket.data.tokenVersion = decoded.tv !== undefined ? Number(decoded.tv) : Number(user.token_version || 0);
+      socket.data.tokenExp = decoded.exp ? decoded.exp * 1000 : null;
+      socket.data.lastSessionCheck = Date.now();
       return next();
     } catch (_err) {
       return next(new Error('توکن احراز هویت نامعتبر یا منقضی شده است'));
     }
   });
+
+  const isSessionStillValid = async (socket) => {
+    try {
+      if (socket.data.tokenExp && Date.now() > socket.data.tokenExp) {
+        socket.emit('error_message', { message: 'نشست کاربری منقضی شده است' });
+        socket.disconnect(true);
+        return false;
+      }
+      if (Date.now() - (socket.data.lastSessionCheck || 0) < 2000) {
+        return true;
+      }
+      const freshUser = await db('users')
+        .where({ id: socket.data.user.id })
+        .select('id', 'is_active', 'token_version', 'role', 'school_id')
+        .first();
+      if (!freshUser || freshUser.is_active === false || freshUser.is_active === 0) {
+        socket.disconnect(true);
+        return false;
+      }
+      if (Number(freshUser.token_version || 0) !== Number(socket.data.tokenVersion || 0)) {
+        socket.disconnect(true);
+        return false;
+      }
+      if (socket.data.tokenJti) {
+        const revoked = await db('revoked_tokens')
+          .where({ jti: socket.data.tokenJti })
+          .first()
+          .catch(() => null);
+        if (revoked) {
+          socket.disconnect(true);
+          return false;
+        }
+      }
+      socket.data.lastSessionCheck = Date.now();
+      return true;
+    } catch (_e) {
+      return true;
+    }
+  };
 
   io.on('connection', (socket) => {
     const authUser = socket.data.user;
@@ -152,6 +218,18 @@ function initSocket(server, config) {
     }
 
     let currentClassId = null;
+    let eventWindowStart = Date.now();
+    let eventCount = 0;
+    const allowSocketEvent = (limitPerSecond = 60) => {
+      const now = Date.now();
+      if (now - eventWindowStart > 1000) {
+        eventWindowStart = now;
+        eventCount = 0;
+      }
+      eventCount += 1;
+      return eventCount <= limitPerSecond;
+    };
+
     const currentUser = {
       id: authUser.id,
       name: authUser.display_name || 'کاربر',
@@ -163,6 +241,7 @@ function initSocket(server, config) {
     // ── Join a Class Room ──
     socket.on('join_class', async ({ classId } = {}) => {
       if (!classId) return;
+      if (!(await isSessionStillValid(socket))) return;
 
       let cls = null;
       try {
@@ -170,6 +249,25 @@ function initSocket(server, config) {
       } catch (_err) {
         socket.emit('error_message', { message: 'شما مجاز به ورود به این کلاس نیستید' });
         return;
+      }
+
+      // Clean up previous room membership if switching rooms (SEC-SOCKET-012)
+      if (currentClassId && currentClassId !== classId) {
+        socket.leave(`class:${currentClassId}`);
+        if (activeClassrooms.has(currentClassId)) {
+          const prevRoom = activeClassrooms.get(currentClassId);
+          const prevParticipant = prevRoom.participants.get(socket.id);
+          prevRoom.participants.delete(socket.id);
+          if (prevRoom.teacherSocketId === socket.id) {
+            prevRoom.teacherSocketId = null;
+          }
+          io.to(`class:${currentClassId}`).emit('participant_left', {
+            socketId: socket.id,
+            userId: prevParticipant?.userId,
+            name: prevParticipant?.name,
+            participantsCount: prevRoom.participants.size,
+          });
+        }
       }
 
       currentClassId = classId;
@@ -559,11 +657,20 @@ function initSocket(server, config) {
     });
 
     socket.on('screen_frame', ({ classId, frame } = {}) => {
+      if (!allowSocketEvent(30)) return;
       if (!classId || classId !== currentClassId) return;
+      const room = getOrCreateClassroom(classId);
+      const participant = room?.participants.get(socket.id);
+      if (!isRoomTeacher(room) && !participant?.canScreenShare) {
+        socket.emit('error_message', { message: 'شما مجاز به اشتراک‌گذاری صفحه نیستید' });
+        return;
+      }
+      if (typeof frame !== 'string' || frame.length > 1_000_000) return;
       socket.to(`class:${classId}`).emit('screen_frame', frame);
     });
 
     socket.on('audio_chunk', ({ classId, chunk } = {}) => {
+      if (!allowSocketEvent(45)) return;
       if (!classId || classId !== currentClassId) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
@@ -576,16 +683,25 @@ function initSocket(server, config) {
       });
     });
 
-    socket.on('send_chat_message', ({ classId, text } = {}) => {
+    socket.on('send_chat_message', async ({ classId, text } = {}) => {
+      if (!allowSocketEvent(10)) return;
       if (!classId || classId !== currentClassId) return;
-      if (!text || !text.trim()) return;
+      if (!text || typeof text !== 'string' || !text.trim()) return;
+      if (!(await isSessionStillValid(socket))) return;
+
+      const sanitizedText = text
+        .replace(/<[^>]*>?/gm, '')
+        .trim()
+        .slice(0, 1000);
+      if (!sanitizedText) return;
+
       const room = getOrCreateClassroom(classId);
       const msg = {
         id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         senderId: currentUser.id,
         senderName: currentUser.name,
         senderRole: currentUser.role,
-        text: text.trim(),
+        text: sanitizedText,
         createdAt: new Date().toISOString(),
       };
 
@@ -659,24 +775,48 @@ function initSocket(server, config) {
       });
     });
 
-    socket.on('webrtc_signal', ({ targetSocketId, signal, senderData } = {}) => {
+    socket.on('webrtc_signal', ({ targetSocketId, signal } = {}) => {
+      if (!allowSocketEvent(50)) return;
+      if (!currentClassId || !activeClassrooms.has(currentClassId)) return;
+      const room = activeClassrooms.get(currentClassId);
+      const senderParticipant = room.participants.get(socket.id);
+      if (!senderParticipant) return;
+
+      const verifiedSenderData = {
+        userId: senderParticipant.userId,
+        name: senderParticipant.name,
+        role: senderParticipant.role,
+      };
+
       if (targetSocketId) {
+        // Only relay WebRTC signals to sockets in the exact same classroom (SEC-SOCKET-002)
+        if (!room.participants.has(targetSocketId)) {
+          socket.emit('error_message', { message: 'مقصد سیگنال در این کلاس حضور ندارد' });
+          return;
+        }
         io.to(targetSocketId).emit('webrtc_signal', {
           senderSocketId: socket.id,
           signal,
-          senderData,
+          senderData: verifiedSenderData,
         });
-      } else if (currentClassId) {
+      } else {
         socket.to(`class:${currentClassId}`).emit('webrtc_signal', {
           senderSocketId: socket.id,
           signal,
-          senderData,
+          senderData: verifiedSenderData,
         });
       }
     });
 
     socket.on('live_video_frame', ({ classId, frame } = {}) => {
+      if (!allowSocketEvent(30)) return;
       if (!classId || classId !== currentClassId) return;
+      const room = getOrCreateClassroom(classId);
+      if (!isRoomTeacher(room)) {
+        socket.emit('error_message', { message: 'فقط دبیر کلاس مجاز به ارسال تصویر زنده است' });
+        return;
+      }
+      if (typeof frame !== 'string' || frame.length > 1_000_000) return;
       socket.to(`class:${classId}`).emit('live_video_frame', frame);
     });
 
@@ -686,8 +826,22 @@ function initSocket(server, config) {
         const leavingParticipant = room.participants.get(socket.id);
         room.participants.delete(socket.id);
 
+        if (room.screenSharingUser?.socketId === socket.id) {
+          room.screenSharingUser = null;
+          io.to(`class:${currentClassId}`).emit('screen_share_stopped', { socketId: socket.id });
+        }
+
         if (socket.id === room.teacherSocketId) {
           room.teacherSocketId = null;
+          const remainingTeacher = Array.from(room.participants.values()).find(
+            (p) => p.role === 'teacher' || p.role === 'admin' || p.role === 'manager'
+          );
+          if (remainingTeacher) {
+            room.teacherSocketId = remainingTeacher.socketId;
+          } else if (room.isLive && room.participants.size === 0) {
+            room.isLive = false;
+            room.startedAt = null;
+          }
         }
 
         io.to(`class:${currentClassId}`).emit('participant_left', {

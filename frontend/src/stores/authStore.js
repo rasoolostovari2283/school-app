@@ -181,14 +181,20 @@ export const useAuthStore = create((set, get) => ({
     return user;
   },
 
-  parentLogin: async ({ student_identifier, parent_name, parent_phone, relation, password, school_name }) => {
+  parentLogin: async ({ student_identifier, student_code, parent_name, parent_phone, phone, relation, password, school_name, school_code, school_id }) => {
+    const resolvedCode = student_code || student_identifier;
+    const resolvedPhone = phone || parent_phone;
     const { data } = await api.post('/auth/parent-login', {
-      student_identifier,
+      student_code: resolvedCode,
+      student_identifier: resolvedCode,
       parent_name,
-      parent_phone,
+      phone: resolvedPhone,
+      parent_phone: resolvedPhone,
       relation,
       password,
       school_name,
+      school_code,
+      school_id,
     });
     const { user, student, accessToken, refreshToken } = data.data;
     localStorage.setItem('accessToken', accessToken);

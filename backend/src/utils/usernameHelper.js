@@ -80,7 +80,32 @@ async function generateUniqueUsername(db, displayName, excludeUserId = null) {
   }
 }
 
+/**
+ * Ensures a user record has a unique username, generating and persisting one if missing
+ */
+async function ensureUserHasUsername(userOrId, dbInstance = null) {
+  const database = dbInstance || require('../config/database');
+  const user =
+    typeof userOrId === 'object' && userOrId !== null
+      ? userOrId
+      : await database('users').where({ id: userOrId }).first();
+
+  if (!user) return 'user';
+  if (user.username && String(user.username).trim()) {
+    return String(user.username).trim();
+  }
+
+  const generated = await generateUniqueUsername(
+    database,
+    user.display_name || user.email || 'user',
+    user.id
+  );
+  await database('users').where({ id: user.id }).update({ username: generated });
+  return generated;
+}
+
 module.exports = {
   generateBaseUsername,
   generateUniqueUsername,
+  ensureUserHasUsername,
 };

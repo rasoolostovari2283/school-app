@@ -8,6 +8,7 @@ const {
   authorize,
   assertSameSchool,
   assertOwnsResource,
+  assertTeacherOfStudent,
 } = require('../../middleware/auth');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
 
@@ -121,6 +122,8 @@ router.get('/members', async (req, res, next) => {
       db('users').where({ role: 'student', school_id: schoolId }).orderBy('created_at', 'desc'),
     ]);
 
+    const isStaffViewer = ['admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'].includes(req.user.role);
+
     const teachers = rawTeachers.map((t) => {
       let settings = {};
       try {
@@ -133,7 +136,7 @@ router.get('/members', async (req, res, next) => {
         role: t.role,
         code: t.personnel_code || `TCH-${t.id.slice(-4)}`,
         subject: t.job_title || settings.subject || 'عمومی',
-        phone: t.phone || 'ثبت نشده',
+        phone: isStaffViewer ? (t.phone || 'ثبت نشده') : 'محرمانه',
         grades: Array.isArray(settings.taught_grades) && settings.taught_grades.length > 0 ? settings.taught_grades : ['پایه دهم'],
         created_at: t.created_at,
       };
@@ -145,6 +148,7 @@ router.get('/members', async (req, res, next) => {
         settings = typeof s.settings === 'string' ? JSON.parse(s.settings) : (s.settings || {});
       } catch (e) {}
 
+      const isSelf = s.id === req.user.id;
       return {
         id: s.id,
         name: s.display_name,
@@ -152,7 +156,7 @@ router.get('/members', async (req, res, next) => {
         grade: s.department || settings.grade || 'پایه دهم',
         class_name: settings.class_name || 'کلاس عمومی',
         teacher_name: settings.teacher_name || 'دبیر محترم',
-        parent_phone: settings.parent_phone || s.phone || 'ثبت نشده',
+        parent_phone: (isStaffViewer || isSelf) ? (settings.parent_phone || s.phone || 'ثبت نشده') : 'محرمانه',
         created_at: s.created_at,
       };
     });
@@ -262,12 +266,14 @@ router.delete('/teachers/:id', authorize('admin', 'manager'), async (req, res, n
 
     assertSameSchool(req.user, teacher);
 
-    await db('class_members').where({ user_id: teacherId }).del().catch(() => {});
-    await db('classes')
-      .where({ teacher_id: teacherId, school_id: req.user.school_id })
-      .update({ teacher_id: req.user.id })
-      .catch(() => {});
-    await db('users').where({ id: teacherId, school_id: req.user.school_id }).whereIn('role', STAFF_ROLES).del();
+    await db.transaction(async (trx) => {
+      await trx('class_members').where({ user_id: teacherId }).del().catch(() => {});
+      await trx('classes')
+        .where({ teacher_id: teacherId, school_id: req.user.school_id })
+        .update({ teacher_id: req.user.id })
+        .catch(() => {});
+      await trx('users').where({ id: teacherId, school_id: req.user.school_id }).whereIn('role', STAFF_ROLES).del();
+    });
 
     res.json({
       success: true,
@@ -383,9 +389,14 @@ router.delete('/students/:id', authorize('admin', 'manager', 'teacher'), async (
     }
 
     assertSameSchool(req.user, student);
+    if (req.user.role === 'teacher') {
+      await assertTeacherOfStudent(req.user, studentId);
+    }
 
-    await db('class_members').where({ user_id: studentId }).del().catch(() => {});
-    await db('users').where({ id: studentId, role: 'student', school_id: req.user.school_id }).del();
+    await db.transaction(async (trx) => {
+      await trx('class_members').where({ user_id: studentId }).del().catch(() => {});
+      await trx('users').where({ id: studentId, role: 'student', school_id: req.user.school_id }).del();
+    });
 
     res.json({
       success: true,

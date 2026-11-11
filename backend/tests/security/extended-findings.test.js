@@ -19,7 +19,7 @@ const { loginAs } = require('../support/auth');
 const localCaptcha = require('../../src/utils/localCaptcha');
 const { cache } = require('../../src/utils/cache');
 const db = require('../../src/config/database');
-const { SCHOOLS, USERS, CLASSES, INSTALLMENTS, FIXTURE_PASSWORD, emailFor } = require('../fixtures/twoSchools');
+const { SCHOOLS, USERS, CLASSES, INSTALLMENTS, QUIZZES, FIXTURE_PASSWORD, emailFor } = require('../fixtures/twoSchools');
 
 let baseUrl;
 
@@ -694,5 +694,345 @@ test('[Iran-EdTech-Shaparak-SMS] Iranian Sheba ISO-7064 validation, Shaparak IPG
   assert.ok(smsLogsRes.body.data.logs.length >= 1, 'Service SMS gateway must record the tuition settlement alert');
 });
 
+test('[Argon4-SEC-FIN-001 & PRIV-012] Finance callback-verify rejects unissued authority and unauthorized roles; teachers receive redacted installment details', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+  const { accessToken: teacherToken } = await loginAs(baseUrl, 'a', 'teacher');
+  const { accessToken: studentBToken } = await loginAs(baseUrl, 'b', 'student');
+
+  // 1. PRIV-012: Class teacher reading student ledger has tracking_number and receipt_url redacted
+  const teacherLedgerRes = await get(baseUrl, `/api/v1/finance/ledger?student_id=${USERS.a.student}`, {
+    token: teacherToken,
+  });
+  assert.equal(teacherLedgerRes.status, 200);
+  assert.equal(teacherLedgerRes.body.data.installments[0].tracking_number, null, 'Teacher view must redact bank tracking_number');
+  assert.equal(teacherLedgerRes.body.data.installments[0].receipt_url, null, 'Teacher view must redact bank receipt_url');
+
+  // 2. SEC-FIN-001: Teacher cannot call callback-verify
+  const teacherCallbackRes = await post(baseUrl, `/api/v1/finance/callback-verify/${INSTALLMENTS.a}`, {
+    token: teacherToken,
+    body: { authority: 'A00000000000000000000000000123456789', status: 'OK' },
+  });
+  assert.equal(teacherCallbackRes.status, 403, 'Teachers must be blocked from settling installments');
+
+  // 3. SEC-FIN-001: Unrelated student cannot settle installment
+  const crossStudentCallback = await post(baseUrl, `/api/v1/finance/callback-verify/${INSTALLMENTS.a}`, {
+    token: studentBToken,
+    body: { authority: 'A00000000000000000000000000123456789', status: 'OK' },
+  });
+  assert.equal(crossStudentCallback.status, 403, 'Cross-tenant student must be blocked from settling installment');
+
+  // 4. SEC-FIN-001: Forged/unissued authority string is rejected even for authorized caller
+  const forgedAuthorityRes = await post(baseUrl, `/api/v1/finance/callback-verify/${INSTALLMENTS.a}`, {
+    token: adminToken,
+    body: { authority: 'A00000000000000000000000000999999999', status: 'OK' },
+  });
+  assert.equal(forgedAuthorityRes.status, 403, 'Forged/unissued Shaparak authority must be rejected with 403');
+});
+
+test('[Argon4-SEC-AI-001 & SEC-AI-002] Paper-to-Digital returns empty list on blank OCR input and blocks commit of unreviewed needs_review items', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+
+  // 1. SEC-AI-001: Empty input must NOT fabricate fake students or grades
+  for (const mode of ['roster', 'gradesheet', 'exam']) {
+    const emptyRes = await post(baseUrl, '/api/v1/ai/paper-to-digital', {
+      token: adminToken,
+      body: { mode, raw_ocr_text: '' },
+    });
+    assert.equal(emptyRes.status, 200);
+    assert.equal(emptyRes.body.data.items.length, 0, `Empty OCR in ${mode} mode must return 0 items`);
+    assert.equal(emptyRes.body.data.feasibility_assessment.overall_confidence, 0);
+  }
+
+  // 2. SEC-AI-002: Commit must reject items that have needs_review === true and have not been human_reviewed
+  const unreviewedCommitRes = await post(baseUrl, '/api/v1/ai/paper-to-digital/commit', {
+    token: adminToken,
+    body: {
+      mode: 'gradesheet',
+      class_id: CLASSES.a,
+      items: [
+        {
+          student_name: 'دانش‌آموز الف',
+          student_code: 'STD-A-1001',
+          score: 18,
+          confidence: 0.65,
+          needs_review: true,
+        },
+      ],
+    },
+  });
+  assert.equal(unreviewedCommitRes.status, 422, 'Unreviewed items flagged with needs_review must be blocked by Human-in-the-Loop gate');
+});
+
+test('[Argon4-SEC-DIR-001, SEC-CORS-001, SEC-DATA-001, FW-AUTH-001, BL-ENR-002] Directory username generation, CORS origin whitelist, backup super-admin guard, parent-login contract, and per-student batch password hashes', async () => {
+  const { accessToken: adminToken } = await loginAs(baseUrl, 'a', 'admin');
+
+  // 1. SEC-DIR-001: User with null username does not crash /api/v1/messages/directory
+  await db('users').where({ id: USERS.a.teacher }).update({ username: null });
+  const dirRes = await get(baseUrl, '/api/v1/messages/directory', { token: adminToken });
+  assert.equal(dirRes.status, 200, 'Directory endpoint must succeed even when a user has username=null');
+  const updatedTeacher = await db('users').where({ id: USERS.a.teacher }).first();
+  assert.ok(updatedTeacher.username && updatedTeacher.username.length > 0, 'ensureUserHasUsername must populate missing username');
+
+  // 2. SEC-CORS-001: Untrusted external Origin must not be reflected in Access-Control-Allow-Origin
+  const corsFetch = await fetch(`${baseUrl}/api/health`, {
+    headers: { Origin: 'https://evil.example.com' },
+  });
+  assert.equal(corsFetch.status, 200);
+  assert.notEqual(
+    corsFetch.headers.get('access-control-allow-origin'),
+    'https://evil.example.com',
+    'Arbitrary external origin must not be reflected in Access-Control-Allow-Origin'
+  );
+
+  // 3. SEC-DATA-001: School manager (non-super-admin) cannot list or trigger raw multi-tenant DB backups
+  await db('users').where({ id: USERS.a.teacher }).update({ role: 'manager' });
+  const managerLogin = await loginAs(baseUrl, 'a', 'teacher');
+  const managerBackupRes = await get(baseUrl, '/api/v1/system/backups', { token: managerLogin.accessToken });
+  assert.equal(managerBackupRes.status, 403, 'School manager must not access raw multi-tenant DB backups');
+
+  // 4. FW-AUTH-001 & SEC-AUTH-001: Parent login works with frontend contract (student_identifier, parent_phone) and enforces school scoping
+  const parentFrontendContractRes = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: {
+      student_identifier: 'STD-A-1001',
+      parent_name: 'ولی تست',
+      parent_phone: '09123334455',
+    },
+  });
+  assert.equal(parentFrontendContractRes.status, 200, 'Parent login must accept frontend student_identifier contract');
+
+  const crossSchoolParentLoginRes = await post(baseUrl, '/api/v1/auth/parent-login', {
+    body: {
+      student_identifier: 'STD-A-1001',
+      school_id: SCHOOLS.b.id || SCHOOLS.b,
+    },
+  });
+  assert.equal(crossSchoolParentLoginRes.status, 401, 'Parent login scoped to School B must not resolve School A student');
+
+  // 5. BL-ENR-002: Batch student enrollment assigns distinct password hashes per student
+  const batchRes = await post(baseUrl, `/api/v1/classes/${CLASSES.a}/students/batch`, {
+    token: adminToken,
+    body: {
+      students: [
+        { display_name: 'دانش‌آموز دسته‌ای ۱', student_code: 'BATCH-901' },
+        { display_name: 'دانش‌آموز دسته‌ای ۲', student_code: 'BATCH-902' },
+      ],
+    },
+  });
+  assert.ok([200, 201].includes(batchRes.status), 'Batch add students must succeed');
+  const createdBatchUsers = await db('users').whereIn('student_code', ['BATCH-901', 'BATCH-902']);
+  assert.equal(createdBatchUsers.length, 2);
+  assert.notEqual(
+    createdBatchUsers[0].password_hash,
+    createdBatchUsers[1].password_hash,
+    'Each batch-enrolled student must receive an independent password hash'
+  );
+});
+
+test('[Argon4-SEC-XSS-001, PRIV-006, SEC-FIN-002, SEC-UPLOAD-005, PRIV-015] HttpOnly auth cookies, AES-256-GCM encryption, audit HMAC integrity, teacher classroom finance isolation, and malware upload scanning', async () => {
+  const { encryptBuffer, decryptBuffer, encryptPII, decryptPII, MAGIC_HEADER } = require('../../src/utils/cryptoHelper');
+  const { emailFor, FIXTURE_PASSWORD } = require('../fixtures/twoSchools');
+
+  // 1. SEC-XSS-001: Login sets HttpOnly cookies and allows cookie-only auth & refresh
+  const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: emailFor('a', 'admin'), password: FIXTURE_PASSWORD }),
+  });
+  assert.equal(loginRes.status, 200);
+  const setCookieHeaders = loginRes.headers.getSetCookie ? loginRes.headers.getSetCookie() : [loginRes.headers.get('set-cookie') || ''];
+  const combinedCookies = setCookieHeaders.join('; ');
+  assert.ok(combinedCookies.includes('HttpOnly'), 'Auth cookies must include HttpOnly flag');
+  assert.ok(combinedCookies.includes('accessToken='), 'Auth cookies must include accessToken');
+  assert.ok(combinedCookies.includes('refreshToken='), 'Auth cookies must include refreshToken');
+
+  const cookieHeaderValue = setCookieHeaders.map((c) => c.split(';')[0]).join('; ');
+  const meWithCookieRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
+    headers: { Cookie: cookieHeaderValue },
+  });
+  assert.equal(meWithCookieRes.status, 200, 'GET /auth/me must authenticate using HttpOnly cookie alone');
+
+  const refreshWithCookieRes = await fetch(`${baseUrl}/api/v1/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookieHeaderValue },
+    body: JSON.stringify({}),
+  });
+  assert.equal(refreshWithCookieRes.status, 200, 'POST /auth/refresh must succeed using HttpOnly refreshToken cookie');
+
+  // 2. PRIV-006 & SEC-DATA-001: AES-256-GCM encryption for buffers and PII fields
+  const rawBuffer = Buffer.from('SQLite format 3\0test-database-content', 'utf8');
+  const encryptedBuf = encryptBuffer(rawBuffer, 'test-secret-key');
+  assert.ok(encryptedBuf.subarray(0, MAGIC_HEADER.length).equals(MAGIC_HEADER), 'Encrypted buffer must start with EDUCENC1 header');
+  const decryptedBuf = decryptBuffer(encryptedBuf, 'test-secret-key');
+  assert.deepEqual(decryptedBuf, rawBuffer, 'Decrypted buffer must match original');
+
+  const encryptedNationalCode = encryptPII('0012345678', 'test-pii-key');
+  assert.ok(encryptedNationalCode.startsWith('enc:v1:'), 'Encrypted PII must have enc:v1: prefix');
+  assert.equal(decryptPII(encryptedNationalCode, 'test-pii-key'), '0012345678');
+
+  // 3. SEC-FIN-002: Teacher cannot submit pay-installment or initiate-payment, and unenrolled teacher cannot view student ledger
+  const { accessToken: teacherToken } = await loginAs(baseUrl, 'a', 'teacher');
+  const teacherPayRes = await post(baseUrl, `/api/v1/finance/pay-installment/${INSTALLMENTS.a}`, {
+    token: teacherToken,
+    body: { tracking_number: 'TRX-TEACHER-FORGED' },
+  });
+  assert.equal(teacherPayRes.status, 403, 'Teacher must be forbidden from submitting installment receipts');
+
+  const teacherInitRes = await post(baseUrl, `/api/v1/finance/initiate-payment/${INSTALLMENTS.a}`, {
+    token: teacherToken,
+    body: {},
+  });
+  assert.equal(teacherInitRes.status, 403, 'Teacher must be forbidden from initiating Shaparak payment');
+
+  // Remove student from teacher's class and verify teacher can no longer view student's ledger
+  await db('class_members').where({ class_id: CLASSES.a, user_id: USERS.a.student }).del();
+  const unenrolledTeacherLedgerRes = await get(baseUrl, `/api/v1/finance/ledger?student_id=${USERS.a.student}`, {
+    token: teacherToken,
+  });
+  assert.equal(unenrolledTeacherLedgerRes.status, 403, 'Teacher who does not teach the student must be blocked from viewing ledger');
+
+  // 4. SEC-UPLOAD-005: Upload endpoint blocks EICAR and embedded PHP/script payloads
+  const eicarForm = new FormData();
+  eicarForm.append(
+    'file',
+    new Blob(['X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'], { type: 'text/plain' }),
+    'eicar.txt'
+  );
+  const eicarUploadRes = await fetch(`${baseUrl}/api/v1/upload`, {
+    method: 'POST',
+    headers: { Cookie: cookieHeaderValue },
+    body: eicarForm,
+  });
+  assert.equal(eicarUploadRes.status, 400, 'EICAR test file must be rejected by upload scanner');
+
+  const phpPolyglotForm = new FormData();
+  phpPolyglotForm.append(
+    'file',
+    new Blob(['<?php system($_GET["cmd"]); ?>'], { type: 'image/jpeg' }),
+    'avatar.jpg'
+  );
+  const phpUploadRes = await fetch(`${baseUrl}/api/v1/upload`, {
+    method: 'POST',
+    headers: { Cookie: cookieHeaderValue },
+    body: phpPolyglotForm,
+  });
+  assert.equal(phpUploadRes.status, 400, 'Embedded PHP payload disguised as JPEG must be rejected');
+
+  // 5. PRIV-015: Audit logs contain cryptographic _integrity_hmac
+  const latestAudit = await db('audit_logs').orderBy('created_at', 'desc').first();
+  if (latestAudit && latestAudit.details) {
+    const parsedDetails = JSON.parse(latestAudit.details);
+    assert.ok(parsedDetails._integrity_hmac, 'Audit log entry must include _integrity_hmac signature');
+  }
+});
+
+test('[ZeroTo100Scan] AI RBAC, anonymous feedback redaction, discipline role separation, Sida CSV formula injection, quiz auto_submitted timer bypass, course re-enrollment, and member PII minimization', async () => {
+  const { accessToken: adminAToken } = await loginAs(baseUrl, 'a', 'admin');
+  const { accessToken: teacherAToken } = await loginAs(baseUrl, 'a', 'teacher');
+  const { accessToken: studentAToken } = await loginAs(baseUrl, 'a', 'student');
+
+  // 1. AI Generation RBAC: Student must be forbidden (403) from invoking POST /api/v1/ai/generate
+  const studentAiRes = await post(baseUrl, '/api/v1/ai/generate', {
+    token: studentAToken,
+    body: { type: 'quiz', topic: 'معادلات درجه دوم', count: 3 },
+  });
+  assert.equal(studentAiRes.status, 403, 'Students must not be allowed to invoke POST /api/v1/ai/generate');
+
+  // Empty topic returns 400 Bad Request (not 500)
+  const emptyTopicAiRes = await post(baseUrl, '/api/v1/ai/generate', {
+    token: teacherAToken,
+    body: { type: 'quiz', topic: '   ' },
+  });
+  assert.equal(emptyTopicAiRes.status, 400, 'Empty AI topic must return 400 Bad Request');
+
+  // 2. Anonymous Feedback Redaction: Admin cannot see submitted_by when is_anonymous is true
+  const createFbRes = await post(baseUrl, '/api/v1/feedback', {
+    token: studentAToken,
+    body: { category: 'suggestion', message: 'پیشنهاد ناشناس دانش‌آموز', is_anonymous: true },
+  });
+  assert.equal(createFbRes.status, 201);
+  const trackingCode = createFbRes.body.data.tracking_code;
+
+  const adminListFbRes = await get(baseUrl, '/api/v1/feedback', { token: adminAToken });
+  assert.equal(adminListFbRes.status, 200);
+  const anonTicket = adminListFbRes.body.data.tickets.find((t) => t.tracking_code === trackingCode);
+  assert.ok(anonTicket, 'Admin should see the feedback ticket in school list');
+  assert.equal(anonTicket.submitted_by, null, 'Anonymous feedback must redact submitted_by for non-submitters');
+
+  const adminTrackFbRes = await get(baseUrl, `/api/v1/feedback/track/${trackingCode}`, { token: adminAToken });
+  assert.equal(adminTrackFbRes.status, 200);
+  assert.equal(adminTrackFbRes.body.data.ticket.submitted_by, null, 'Anonymous feedback track endpoint must redact submitted_by for admin');
+
+  // 3. Discipline & Counseling Role Separation: financial_officer is blocked (403) from viewing discipline/counseling
+  await db('users').where({ id: USERS.a.teacher }).update({ role: 'financial_officer' });
+  const finLogin = await loginAs(baseUrl, 'a', 'teacher');
+  const finDisciplineRes = await get(baseUrl, '/api/v1/discipline', { token: finLogin.accessToken });
+  assert.equal(finDisciplineRes.status, 403, 'Financial officer must be blocked from viewing discipline records');
+  const finCounselingRes = await get(baseUrl, '/api/v1/discipline/counseling', { token: finLogin.accessToken });
+  assert.equal(finCounselingRes.status, 403, 'Financial officer must be blocked from viewing counseling records');
+
+  // Counselor can create counseling records (201)
+  await db('users').where({ id: USERS.a.teacher }).update({ role: 'counselor' });
+  const counselorLogin = await loginAs(baseUrl, 'a', 'teacher');
+  const counselorCreateRes = await post(baseUrl, '/api/v1/discipline/counseling', {
+    token: counselorLogin.accessToken,
+    body: {
+      student_id: USERS.a.student,
+      session_title: 'جلسه هدایت تحصیلی',
+      counselor_notes: 'بررسی رغبت تحصیلی',
+    },
+  });
+  assert.equal(counselorCreateRes.status, 201, 'Counselor must be allowed to create counseling sessions');
+
+  // Restore teacher role
+  await db('users').where({ id: USERS.a.teacher }).update({ role: 'teacher' });
+
+  // 4. Sida CSV Formula Injection Prevention: Malicious student name starting with =CMD|... is escaped with leading single quote
+  await db('users').where({ id: USERS.a.student }).update({ display_name: '=CMD|\'/C calc\'!A0' });
+  const sidaCsvRes = await fetch(`${baseUrl}/api/v1/school/sida/export-grades?class_id=${CLASSES.a}&format=csv`, {
+    headers: { Authorization: `Bearer ${adminAToken}` },
+  });
+  assert.equal(sidaCsvRes.status, 200);
+  const csvText = await sidaCsvRes.text();
+  assert.ok(
+    csvText.includes("\"'=CMD|'/C calc'!A0\""),
+    'Sida CSV export must prefix leading = with a single quote to prevent CSV Formula Injection'
+  );
+
+  // 5. Quiz auto_submitted Timer Bypass Prevention: Passing auto_submitted: true after deadline still returns 403
+  const { accessToken: studentBToken } = await loginAs(baseUrl, 'b', 'student');
+  const expiredStartedAt = new Date(Date.now() - 120 * 60 * 1000).toISOString();
+  await db('quizzes').where({ id: QUIZZES.b }).update({ is_published: true });
+  await db('quiz_attempts').where({ quiz_id: QUIZZES.b, student_id: USERS.b.student }).del();
+  await db('quiz_attempts').insert({
+    id: 'attempt-expired-auto-bypass',
+    quiz_id: QUIZZES.b,
+    student_id: USERS.b.student,
+    started_at: expiredStartedAt,
+    answers: '{}',
+    score: 0,
+    total_points: 0,
+  });
+
+  const bypassQuizRes = await post(baseUrl, `/api/v1/classes/${CLASSES.b}/quizzes/${QUIZZES.b}/submit`, {
+    token: studentBToken,
+    body: {
+      answers: {},
+      auto_submitted: true,
+    },
+  });
+  assert.equal(bypassQuizRes.status, 403, 'Client-supplied auto_submitted: true must not bypass server-side quiz timer');
+
+  // 6. School Members & Directory PII Minimization: Student caller does not receive raw teacher/student phone numbers
+  const studentMembersRes = await get(baseUrl, '/api/v1/school/members', { token: studentAToken });
+  assert.equal(studentMembersRes.status, 200);
+  for (const t of studentMembersRes.body.data.teachers) {
+    assert.equal(t.phone, 'محرمانه', 'Teacher phone numbers must be redacted for student callers on /school/members');
+  }
+  const studentDirRes = await get(baseUrl, '/api/v1/messages/directory', { token: studentAToken });
+  assert.equal(studentDirRes.status, 200);
+  for (const t of studentDirRes.body.data.teachers) {
+    assert.equal(t.phone, '', 'Teacher phone numbers must be empty for student callers on /messages/directory');
+  }
+});
 
 

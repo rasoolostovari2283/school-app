@@ -10,6 +10,8 @@ const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
 
+const TICKET_STAFF_ROLES = ['teacher', 'counselor', 'financial_officer', 'accountant', 'admin', 'manager'];
+
 /**
  * GET /api/v1/tickets
  * List tickets scoped to the requester's school
@@ -25,7 +27,7 @@ router.get('/', async (req, res, next) => {
         'users.role as creator_role'
       );
 
-    if (!['teacher', 'admin', 'manager'].includes(req.user.role)) {
+    if (!TICKET_STAFF_ROLES.includes(req.user.role)) {
       query = query.where('school_tickets.user_id', req.user.id);
     }
 
@@ -61,13 +63,14 @@ router.post('/', async (req, res, next) => {
       status: 'open',
     };
 
-    await db('school_tickets').insert(newTicket);
-
-    await db('school_ticket_messages').insert({
-      id: uuidv4(),
-      ticket_id: ticketId,
-      sender_id: req.user.id,
-      message,
+    await db.transaction(async (trx) => {
+      await trx('school_tickets').insert(newTicket);
+      await trx('school_ticket_messages').insert({
+        id: uuidv4(),
+        ticket_id: ticketId,
+        sender_id: req.user.id,
+        message,
+      });
     });
 
     res.status(201).json({
@@ -103,7 +106,7 @@ router.get('/:id', async (req, res, next) => {
 
     assertSameSchool(req.user, { school_id: ticket.creator_school_id });
 
-    if (!['teacher', 'admin', 'manager'].includes(req.user.role) && ticket.user_id !== req.user.id) {
+    if (!TICKET_STAFF_ROLES.includes(req.user.role) && ticket.user_id !== req.user.id) {
       throw forbiddenError('دسترسی غیرمجاز');
     }
 
@@ -141,7 +144,7 @@ router.post('/:id/reply', async (req, res, next) => {
     const creator = await db('users').where('id', ticket.user_id).first();
     assertSameSchool(req.user, creator);
 
-    if (!['teacher', 'admin', 'manager'].includes(req.user.role) && ticket.user_id !== req.user.id) {
+    if (!TICKET_STAFF_ROLES.includes(req.user.role) && ticket.user_id !== req.user.id) {
       throw forbiddenError('شما مجاز به پاسخ به این تیکت نیستید');
     }
 
@@ -153,15 +156,16 @@ router.post('/:id/reply', async (req, res, next) => {
       attachment_url: attachment_url || null,
     };
 
-    await db('school_ticket_messages').insert(reply);
-
-    const newStatus = ['teacher', 'admin', 'manager'].includes(req.user.role) ? 'resolved' : 'in_progress';
-    await db('school_tickets')
-      .where('id', id)
-      .update({
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      });
+    const newStatus = TICKET_STAFF_ROLES.includes(req.user.role) ? 'resolved' : 'in_progress';
+    await db.transaction(async (trx) => {
+      await trx('school_ticket_messages').insert(reply);
+      await trx('school_tickets')
+        .where('id', id)
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        });
+    });
 
     res.status(201).json({ success: true, message: 'پاسخ با موفقیت ارسال شد', data: { reply } });
   } catch (err) {

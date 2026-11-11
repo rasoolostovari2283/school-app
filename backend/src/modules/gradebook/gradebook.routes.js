@@ -259,43 +259,49 @@ router.post('/scores/batch', authorize('teacher', 'admin', 'manager'), async (re
     }
 
     for (const item of scores) {
-      const { category_id, student_id, score, teacher_comment } = item;
+      const { category_id, student_id } = item;
       if (!category_id || !student_id) continue;
-
       const category = await db('gradebook_categories').where({ id: category_id }).first();
       if (!category) {
         return res.status(404).json({ success: false, message: 'آیتم ارزشیابی یافت نشد' });
       }
-
       await assertOwnsClass(req.user, category.class_id);
       await assertTeacherOfStudent(req.user, student_id);
-
-      if (score === '' || score === null || score === undefined) {
-        await db('gradebook_scores').where({ category_id, student_id }).del();
-        continue;
-      }
-
-      const maxScore = category.max_score || 20;
-      const numericScore = parsePersianScore(score);
-      if (numericScore === null || numericScore < 0 || numericScore > maxScore) continue;
-
-      const existing = await db('gradebook_scores').where({ category_id, student_id }).first();
-      if (existing) {
-        await db('gradebook_scores').where('id', existing.id).update({
-          score: numericScore,
-          teacher_comment: teacher_comment || '',
-          graded_at: new Date().toISOString(),
-        });
-      } else {
-        await db('gradebook_scores').insert({
-          id: uuidv4(),
-          category_id,
-          student_id,
-          score: numericScore,
-          teacher_comment: teacher_comment || '',
-        });
-      }
+      item._maxScore = category.max_score || 20;
     }
+
+    await db.transaction(async (trx) => {
+      for (const item of scores) {
+        const { category_id, student_id, score, teacher_comment, _maxScore } = item;
+        if (!category_id || !student_id) continue;
+
+        if (score === '' || score === null || score === undefined) {
+          await trx('gradebook_scores').where({ category_id, student_id }).del();
+          continue;
+        }
+
+        const maxScore = _maxScore || 20;
+        const numericScore = parsePersianScore(score);
+        if (numericScore === null || numericScore < 0 || numericScore > maxScore) continue;
+
+        const existing = await trx('gradebook_scores').where({ category_id, student_id }).first();
+        if (existing) {
+          await trx('gradebook_scores').where('id', existing.id).update({
+            score: numericScore,
+            teacher_comment: teacher_comment || '',
+            graded_at: new Date().toISOString(),
+          });
+        } else {
+          await trx('gradebook_scores').insert({
+            id: uuidv4(),
+            category_id,
+            student_id,
+            score: numericScore,
+            teacher_comment: teacher_comment || '',
+          });
+        }
+      }
+    });
 
     await logAudit(req, 'BATCH_UPSERT_GRADEBOOK_SCORES', 'gradebook_score', req.user.id, { count: scores.length });
     res.json({ success: true, message: 'تمام نمرات با موفقیت ذخیره شدند ✓' });

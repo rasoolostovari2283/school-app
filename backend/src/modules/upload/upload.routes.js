@@ -99,6 +99,81 @@ async function processImageOptimization(file) {
   }
 }
 
+const TIERED_MAX_SIZE_BYTES = {
+  image: 15 * 1024 * 1024,      // 15 MB for images
+  document: 25 * 1024 * 1024,   // 25 MB for PDFs, Office docs, archives
+  audio: 50 * 1024 * 1024,      // 50 MB for audio lessons/voice notes
+  video: 250 * 1024 * 1024,     // 250 MB for educational videos
+};
+
+/**
+ * Validates per-category file size limits, magic bytes, and scans for EICAR / executable / script payloads
+ * (SEC-UPLOAD-004, SEC-UPLOAD-005, FW-UPLOAD-001)
+ */
+function verifyAndScanUploadedFile(file) {
+  if (!file || !file.path || !fs.existsSync(file.path)) {
+    throw new Error('فایل بارگذاری‌شده یافت نشد');
+  }
+
+  const mime = String(file.mimetype || '').toLowerCase();
+  const ext = path.extname(file.originalname || file.filename || '').toLowerCase();
+
+  // 1. Tiered size limit check (SEC-UPLOAD-004)
+  let maxAllowedBytes = TIERED_MAX_SIZE_BYTES.document;
+  if (mime.startsWith('image/')) {
+    maxAllowedBytes = TIERED_MAX_SIZE_BYTES.image;
+  } else if (mime.startsWith('audio/')) {
+    maxAllowedBytes = TIERED_MAX_SIZE_BYTES.audio;
+  } else if (mime.startsWith('video/')) {
+    maxAllowedBytes = TIERED_MAX_SIZE_BYTES.video;
+  }
+
+  if (file.size > maxAllowedBytes) {
+    const maxMb = Math.round(maxAllowedBytes / (1024 * 1024));
+    const err = new Error(`حجم فایل بیش از سقف مجاز برای این نوع فایل (${maxMb} مگابایت) است`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 2. Read header/sample bytes for signature & malware scanning (SEC-UPLOAD-005, FW-UPLOAD-001)
+  const sampleSize = Math.min(file.size || 0, 16384);
+  if (sampleSize > 0) {
+    const buffer = Buffer.alloc(sampleSize);
+    const fd = fs.openSync(file.path, 'r');
+    try {
+      fs.readSync(fd, buffer, 0, sampleSize, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    const asciiSample = buffer.toString('latin1');
+
+    // EICAR standard antivirus signature
+    if (asciiSample.includes('EICAR-STANDARD-ANTIVIRUS-TEST-FILE')) {
+      const err = new Error('فایل آلوده به امضای بدافزار (EICAR) شناسایی و مسدود شد');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Reject Windows PE ('MZ') and Linux ELF ('\x7FELF') binaries disguised as other extensions
+    if (
+      (buffer.length >= 2 && buffer[0] === 0x4d && buffer[1] === 0x5a && !['.doc', '.xls', '.ppt'].includes(ext)) ||
+      (buffer.length >= 4 && buffer[0] === 0x7f && buffer[1] === 0x45 && buffer[2] === 0x4c && buffer[3] === 0x46)
+    ) {
+      const err = new Error('بارگذاری فایل‌های اجرایی باینری (PE/ELF) مجاز نیست');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Reject embedded server-side / XSS active scripts inside non-video/archive files
+    if (/<\?php|<script[\s>]|#!/i.test(asciiSample.slice(0, 2048))) {
+      const err = new Error('محتوای اسکریپتی غیرمجاز در فایل بارگذاری‌شده شناسایی شد');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+}
+
 /**
  * POST /api/v1/upload
  * Supports single file ('file') or multiple files ('files', 'attachments', etc.)
@@ -122,13 +197,32 @@ router.post('/', (req, res, next) => {
         });
       }
 
+      // Verify tiered size limits & malware/script signatures before accepting any file
+      for (const f of uploadedFiles) {
+        try {
+          verifyAndScanUploadedFile(f);
+        } catch (scanErr) {
+          for (const cleanupFile of uploadedFiles) {
+            try {
+              if (cleanupFile?.path && fs.existsSync(cleanupFile.path)) {
+                fs.unlinkSync(cleanupFile.path);
+              }
+            } catch (_e) {}
+          }
+          return res.status(scanErr.statusCode || 400).json({
+            success: false,
+            message: scanErr.message,
+          });
+        }
+      }
+
       const mapped = await Promise.all(
         uploadedFiles.map(async (f) => {
           let cleanName = f.originalname;
           try {
             // Busboy decodes headers as latin1 by default; fix UTF-8 Persian/Arabic chars
             const decoded = Buffer.from(f.originalname, 'latin1').toString('utf8');
-            if (!decoded.includes('')) {
+            if (!decoded.includes('\uFFFD')) {
               cleanName = decoded;
             }
           } catch (e) {}

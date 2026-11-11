@@ -16,13 +16,13 @@ function extractTokenFromRequest(req) {
   }
   const cookieHeader = req.headers.cookie;
   if (cookieHeader) {
-    const match = cookieHeader
-      .split(';')
-      .map((c) => c.trim())
-      .find((c) => c.startsWith('accessToken='));
-    if (match) {
-      const value = decodeURIComponent(match.slice('accessToken='.length)).trim();
-      if (value) return value;
+    const cookies = cookieHeader.split(';').map((c) => c.trim());
+    for (const prefix of ['accessToken=', 'access_token=']) {
+      const match = cookies.find((c) => c.startsWith(prefix));
+      if (match) {
+        const value = decodeURIComponent(match.slice(prefix.length)).trim();
+        if (value) return value;
+      }
     }
   }
   return null;
@@ -148,7 +148,8 @@ function assertOwnsResource(actor, resource, ownerField = 'teacher_id') {
 }
 
 /**
- * Loads `studentId` from `users` and verifies that `actor` belongs to the same school.
+ * Loads `studentId` from `users`, verifies that `actor` belongs to the same school,
+ * and if `actor` is a teacher, verifies that `actor` actually teaches a class in which `student` is enrolled.
  */
 async function assertTeacherOfStudent(actor, studentId) {
   const student = await db('users').where({ id: studentId }).first();
@@ -156,6 +157,32 @@ async function assertTeacherOfStudent(actor, studentId) {
     throw notFoundError('دانش‌آموز یافت نشد', 'Student not found');
   }
   assertSameSchool(actor, student);
+
+  const role = String(actor.role || '').toLowerCase();
+  if (role === 'teacher') {
+    const sharedClass = await db('class_members as cm')
+      .join('classes as c', 'c.id', 'cm.class_id')
+      .where({
+        'cm.user_id': student.id,
+        'c.school_id': actor.school_id,
+      })
+      .andWhere((qb) => {
+        qb.where('c.teacher_id', actor.id).orWhereIn(
+          'c.id',
+          db('class_members')
+            .where({ user_id: actor.id, role: 'teacher' })
+            .select('class_id')
+        );
+      })
+      .first();
+
+    if (!sharedClass) {
+      throw forbiddenError('شما معلم هیچ‌یک از کلاس‌های این دانش‌آموز نیستید', 'You do not teach any class of this student');
+    }
+  } else if (!isSchoolAdmin(actor) && !['financial_officer', 'accountant', 'counselor'].includes(role)) {
+    throw forbiddenError('شما مجاز به دسترسی به اطلاعات این دانش‌آموز نیستید', 'Not authorized to access this student');
+  }
+
   return student;
 }
 

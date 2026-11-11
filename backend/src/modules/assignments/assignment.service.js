@@ -48,18 +48,32 @@ class AssignmentService {
 
   async getByClass(classId, userId, role) {
     const assignments = await db('assignments').where({ class_id: classId }).orderBy('created_at', 'desc');
+    if (assignments.length === 0) return assignments;
+
+    const assignmentIds = assignments.map((a) => a.id);
 
     if (role === 'student') {
+      const subs = await db('submissions')
+        .whereIn('assignment_id', assignmentIds)
+        .andWhere({ student_id: userId });
+      const subByAssignment = new Map(subs.map((s) => [s.assignment_id, s]));
       for (const a of assignments) {
-        a.submission = await db('submissions').where({ assignment_id: a.id, student_id: userId }).first() || null;
+        a.submission = subByAssignment.get(a.id) || null;
       }
-    }
-    if (role === 'teacher' || role === 'admin' || role === 'manager') {
+    } else if (role === 'teacher' || role === 'admin' || role === 'manager') {
+      const statsRows = await db('submissions')
+        .whereIn('assignment_id', assignmentIds)
+        .select(
+          'assignment_id',
+          db.raw('COUNT(*) as total'),
+          db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")
+        )
+        .groupBy('assignment_id');
+      const statsByAssignment = new Map(statsRows.map((r) => [r.assignment_id, r]));
       for (const a of assignments) {
-        const stats = await db('submissions').where({ assignment_id: a.id })
-          .select(db.raw('COUNT(*) as total'), db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")).first();
-        a.submission_count = parseInt(stats ? stats.total : 0, 10);
-        a.graded_count = parseInt(stats ? stats.graded : 0, 10);
+        const st = statsByAssignment.get(a.id);
+        a.submission_count = parseInt(st ? st.total : 0, 10);
+        a.graded_count = parseInt(st ? st.graded : 0, 10);
       }
     }
     return assignments;
@@ -107,24 +121,55 @@ class AssignmentService {
     }
 
     const assignments = await assignmentsQuery.orderBy('assignments.created_at', 'desc');
+    if (assignments.length === 0) return assignments;
+
+    const assignmentIds = assignments.map((a) => a.id);
+
+    let subByAssignment = new Map();
+    let statsByAssignment = new Map();
+    let childName = null;
+
+    if (role === 'student') {
+      const subs = await db('submissions')
+        .whereIn('assignment_id', assignmentIds)
+        .andWhere({ student_id: userId });
+      subByAssignment = new Map(subs.map((s) => [s.assignment_id, s]));
+    } else if (role === 'parent' && childIds.length > 0) {
+      const subs = await db('submissions')
+        .whereIn('assignment_id', assignmentIds)
+        .whereIn('student_id', childIds);
+      for (const s of subs) {
+        if (!subByAssignment.has(s.assignment_id)) {
+          subByAssignment.set(s.assignment_id, s);
+        }
+      }
+      const childUser = await db('users').whereIn('id', childIds).first();
+      if (childUser) childName = childUser.display_name;
+    } else if (role === 'teacher' || role === 'admin' || role === 'manager') {
+      const statsRows = await db('submissions')
+        .whereIn('assignment_id', assignmentIds)
+        .select(
+          'assignment_id',
+          db.raw('COUNT(*) as total'),
+          db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")
+        )
+        .groupBy('assignment_id');
+      statsByAssignment = new Map(statsRows.map((r) => [r.assignment_id, r]));
+    }
 
     for (const a of assignments) {
       if (typeof a.attachments === 'string') {
         try { a.attachments = JSON.parse(a.attachments); } catch (_e) { a.attachments = []; }
       }
       if (role === 'student') {
-        a.submission = await db('submissions').where({ assignment_id: a.id, student_id: userId }).first() || null;
+        a.submission = subByAssignment.get(a.id) || null;
       } else if (role === 'parent') {
-        a.submission = await db('submissions').where({ assignment_id: a.id }).whereIn('student_id', childIds).first() || null;
-        if (childIds.length > 0) {
-          const childUser = await db('users').whereIn('id', childIds).first();
-          if (childUser) a.child_name = childUser.display_name;
-        }
+        a.submission = subByAssignment.get(a.id) || null;
+        if (childName) a.child_name = childName;
       } else if (role === 'teacher' || role === 'admin' || role === 'manager') {
-        const stats = await db('submissions').where({ assignment_id: a.id })
-          .select(db.raw('COUNT(*) as total'), db.raw("COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded")).first();
-        a.submission_count = parseInt(stats ? stats.total : 0, 10);
-        a.graded_count = parseInt(stats ? stats.graded : 0, 10);
+        const st = statsByAssignment.get(a.id);
+        a.submission_count = parseInt(st ? st.total : 0, 10);
+        a.graded_count = parseInt(st ? st.graded : 0, 10);
       }
     }
     return assignments;

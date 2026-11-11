@@ -40,36 +40,74 @@ router.get('/overview', authorize('admin', 'manager', 'teacher'), async (req, re
     const classStats = [];
     const schoolClassIds = classes.map((c) => c.id);
 
+    // Batch queries across all school classes to eliminate N+1 queries
+    const studentCountsRaw = schoolClassIds.length > 0
+      ? await db('class_members')
+          .whereIn('class_id', schoolClassIds)
+          .where({ role: 'student' })
+          .select('class_id')
+          .count('id as count')
+          .groupBy('class_id')
+      : [];
+    const studentCountByClass = new Map(studentCountsRaw.map((r) => [r.class_id, parseInt(r.count || 0, 10)]));
+
+    const categoryRows = schoolClassIds.length > 0
+      ? await db('gradebook_categories').whereIn('class_id', schoolClassIds).select('id', 'class_id')
+      : [];
+    const schoolCategoryIds = categoryRows.map((c) => c.id);
+    const categoryToClass = new Map(categoryRows.map((c) => [c.id, c.class_id]));
+
+    const scoreRows = schoolCategoryIds.length > 0
+      ? await db('gradebook_scores').whereIn('category_id', schoolCategoryIds).select('category_id', 'student_id', 'score')
+      : [];
+    const allScores = scoreRows.map((s) => Number(s.score)).filter((n) => !Number.isNaN(n));
+
+    const classScoresMap = new Map();
+    const studentScoresMap = new Map();
+    for (const s of scoreRows) {
+      const val = Number(s.score);
+      if (Number.isNaN(val)) continue;
+      const cid = categoryToClass.get(s.category_id);
+      if (cid) {
+        if (!classScoresMap.has(cid)) classScoresMap.set(cid, []);
+        classScoresMap.get(cid).push(val);
+      }
+      if (s.student_id) {
+        if (!studentScoresMap.has(s.student_id)) studentScoresMap.set(s.student_id, []);
+        studentScoresMap.get(s.student_id).push(val);
+      }
+    }
+
+    const sessionRows = schoolClassIds.length > 0
+      ? await db('attendance_sessions').whereIn('class_id', schoolClassIds).select('id', 'class_id')
+      : [];
+    const sessionIds = sessionRows.map((s) => s.id);
+    const sessionToClass = new Map(sessionRows.map((s) => [s.id, s.class_id]));
+
+    const attendanceRecords = sessionIds.length > 0
+      ? await db('attendance_records').whereIn('session_id', sessionIds).select('session_id', 'status')
+      : [];
+    const classAttendanceMap = new Map();
+    for (const rec of attendanceRecords) {
+      const cid = sessionToClass.get(rec.session_id);
+      if (!cid) continue;
+      if (!classAttendanceMap.has(cid)) classAttendanceMap.set(cid, { total: 0, present: 0 });
+      const entry = classAttendanceMap.get(cid);
+      entry.total += 1;
+      if (rec.status === 'present') entry.present += 1;
+    }
+
     for (const c of classes) {
-      const studentCountRes = await db('class_members')
-        .where({ class_id: c.id, role: 'student' })
-        .count('id as count')
-        .first();
-      const studentCount = parseInt(studentCountRes?.count || 0, 10);
+      const studentCount = studentCountByClass.get(c.id) || 0;
+      const cScores = classScoresMap.get(c.id) || [];
+      const avgScore = cScores.length > 0
+        ? parseFloat((cScores.reduce((a, b) => a + b, 0) / cScores.length).toFixed(2))
+        : 0;
 
-      const categories = await db('gradebook_categories').where('class_id', c.id).pluck('id');
-      let avgScore = 0;
-      if (categories.length > 0) {
-        const avgRes = await db('gradebook_scores')
-          .whereIn('category_id', categories)
-          .avg('score as average')
-          .first();
-        if (avgRes?.average) {
-          avgScore = parseFloat(parseFloat(avgRes.average).toFixed(2));
-        }
-      }
-
-      const sessions = await db('attendance_sessions').where('class_id', c.id).pluck('id');
-      let attendancePct = 0;
-      if (sessions.length > 0) {
-        const totalRecords = await db('attendance_records').whereIn('session_id', sessions).count('id as total').first();
-        const presents = await db('attendance_records').whereIn('session_id', sessions).where('status', 'present').count('id as present').first();
-        const total = parseInt(totalRecords?.total || 0, 10);
-        const pres = parseInt(presents?.present || 0, 10);
-        if (total > 0) {
-          attendancePct = parseFloat(((pres / total) * 100).toFixed(1));
-        }
-      }
+      const att = classAttendanceMap.get(c.id) || { total: 0, present: 0 };
+      const attendancePct = att.total > 0
+        ? parseFloat(((att.present / att.total) * 100).toFixed(1))
+        : 0;
 
       classStats.push({
         id: c.id,
@@ -85,13 +123,6 @@ router.get('/overview', authorize('admin', 'manager', 'teacher'), async (req, re
     }
 
     // 2. Grade distribution in school (scoped to school's classes)
-    const schoolCategoryIds = schoolClassIds.length > 0
-      ? await db('gradebook_categories').whereIn('class_id', schoolClassIds).pluck('id')
-      : [];
-    const allScores = schoolCategoryIds.length > 0
-      ? await db('gradebook_scores').whereIn('category_id', schoolCategoryIds).pluck('score')
-      : [];
-
     let gradeDistribution = [];
     if (allScores.length > 0) {
       const topCount = allScores.filter((s) => s >= 19).length;
@@ -126,18 +157,35 @@ router.get('/overview', authorize('admin', 'manager', 'teacher'), async (req, re
     const totalStudents = parseInt(totalStudentsRes?.count || 0, 10);
     const totalTeachers = parseInt(totalTeachersRes?.count || 0, 10);
 
-    // 4. Top-ranked students in this school only
-    const topStudents = await db('users')
+    // 4. Top-ranked students in this school computed from real gradebook_scores
+    const schoolStudents = await db('users')
       .where({ role: 'student', school_id: schoolId })
-      .select('id', 'display_name', 'student_code')
-      .limit(5);
+      .select('id', 'display_name', 'student_code');
 
-    const rankings = topStudents.map((st, i) => ({
+    const studentsWithRealGpa = schoolStudents.map((st) => {
+      const stScores = studentScoresMap.get(st.id) || [];
+      const realAvg = stScores.length > 0
+        ? stScores.reduce((a, b) => a + b, 0) / stScores.length
+        : null;
+      return {
+        ...st,
+        realAvg,
+      };
+    });
+
+    studentsWithRealGpa.sort((a, b) => {
+      if (a.realAvg === null && b.realAvg === null) return 0;
+      if (a.realAvg === null) return 1;
+      if (b.realAvg === null) return -1;
+      return b.realAvg - a.realAvg;
+    });
+
+    const rankings = studentsWithRealGpa.slice(0, 5).map((st, i) => ({
       id: st.id,
       rank: i + 1,
       name: st.display_name,
       student_code: st.student_code || `STD-${i + 1}`,
-      gpa: allScores.length > 0 ? (19.85 - i * 0.15).toFixed(2) : '--',
+      gpa: st.realAvg !== null ? st.realAvg.toFixed(2) : '--',
       olympiad_status: 'دانش‌آموز فعال',
     }));
 

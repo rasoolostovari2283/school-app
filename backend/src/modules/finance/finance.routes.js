@@ -10,6 +10,9 @@ const {
 } = require('../../middleware/auth');
 const { logAudit } = require('../../utils/auditLogger');
 
+// In-memory registry of server-issued Shaparak payment authorities per installment (SEC-FIN-001)
+const issuedAuthorities = new Map();
+
 router.use(authenticate);
 
 /**
@@ -66,11 +69,21 @@ router.get('/ledger', async (req, res, next) => {
       .where('student_id', studentId)
       .first();
 
-    const installments = ledger
+    const rawInstallments = ledger
       ? await db('tuition_installments')
           .where('ledger_id', ledger.id)
           .orderBy('installment_number', 'asc')
       : [];
+
+    // Data minimization (PRIV-012): redact bank receipt URLs, bank names, and tracking numbers for regular teachers
+    const installments = callerRole === 'teacher'
+      ? rawInstallments.map((inst) => ({
+          ...inst,
+          tracking_number: null,
+          receipt_url: null,
+          bank_name: null,
+        }))
+      : rawInstallments;
 
     res.json({
       success: true,
@@ -112,10 +125,10 @@ router.post('/pay-installment/:id', async (req, res, next) => {
     assertSameSchool(req.user, student);
 
     const callerRole = String(req.user.role || '').toLowerCase();
-    if (callerRole === 'counselor') {
+    if (callerRole === 'counselor' || callerRole === 'teacher') {
       throw forbiddenError(
-        'مشاور تحصیلی مجاز به ثبت یا تغییر تراکنش‌های مالی نیست',
-        'Counselors are not permitted to submit financial transactions',
+        'شما مجاز به ثبت یا تغییر تراکنش‌های مالی دانش‌آموزان نیستید',
+        'Teachers and counselors are not permitted to submit financial transactions',
       );
     }
 
@@ -181,17 +194,29 @@ router.post('/verify-installment/:id', authorize('admin', 'manager', 'financial_
       });
     }
 
-    await db('tuition_installments').where('id', id).update({
-      status: 'verified',
-      verified_by: req.user.id,
-    });
+    await db.transaction(async (trx) => {
+      const updatedRows = await trx('tuition_installments')
+        .where({ id })
+        .whereNot('status', 'verified')
+        .update({
+          status: 'verified',
+          verified_by: req.user.id,
+        });
 
-    const newPaid = ledger.paid_amount + installment.amount;
-    const newBalance = Math.max(0, ledger.balance - installment.amount);
-    await db('tuition_ledgers').where('id', ledger.id).update({
-      paid_amount: newPaid,
-      balance: newBalance,
-      status: newBalance === 0 ? 'settled' : 'partial',
+      if (!updatedRows) {
+        const conflictErr = new Error('این قسط قبلاً تایید و در مانده حساب اعمال شده است');
+        conflictErr.statusCode = 409;
+        throw conflictErr;
+      }
+
+      const freshLedger = await trx('tuition_ledgers').where('id', ledger.id).first();
+      const newPaid = Number(freshLedger.paid_amount || 0) + Number(installment.amount || 0);
+      const newBalance = Math.max(0, Number(freshLedger.balance || 0) - Number(installment.amount || 0));
+      await trx('tuition_ledgers').where('id', ledger.id).update({
+        paid_amount: newPaid,
+        balance: newBalance,
+        status: newBalance === 0 ? 'settled' : 'partial',
+      });
     });
 
     logAudit({
@@ -258,51 +283,53 @@ router.post('/create-ledger', authorize('admin', 'manager', 'financial_officer',
 
     let ledger = await db('tuition_ledgers').where({ student_id: student.id }).first();
     if (!ledger) {
-      const ledgerId = generateId();
-      const totalRial = Number(total_amount) || 450000000;
-      await db('tuition_ledgers').insert({
-        id: ledgerId,
-        student_id: student.id,
-        academic_year,
-        total_amount: totalRial,
-        paid_amount: 0,
-        discount_amount: 0,
-        balance: totalRial,
-        status: 'unpaid',
-      });
-      ledger = await db('tuition_ledgers').where({ id: ledgerId }).first();
+      await db.transaction(async (trx) => {
+        const ledgerId = generateId();
+        const totalRial = Number(total_amount) || 450000000;
+        await trx('tuition_ledgers').insert({
+          id: ledgerId,
+          student_id: student.id,
+          academic_year,
+          total_amount: totalRial,
+          paid_amount: 0,
+          discount_amount: 0,
+          balance: totalRial,
+          status: 'unpaid',
+        });
+        ledger = await trx('tuition_ledgers').where({ id: ledgerId }).first();
 
-      const perInstallment = Math.floor(totalRial / 3);
-      const installmentsToInsert = [
-        {
-          id: generateId(),
-          ledger_id: ledgerId,
-          installment_number: 1,
-          title: 'پیش‌پرداخت ثبت‌نام و خدمات آموزشی نوبت اول',
-          amount: perInstallment,
-          due_date: '1403/07/15',
-          status: 'pending',
-        },
-        {
-          id: generateId(),
-          ledger_id: ledgerId,
-          installment_number: 2,
-          title: 'قسط دوم شهریه و کلاس‌های فوق‌برنامه',
-          amount: perInstallment,
-          due_date: '1403/10/15',
-          status: 'pending',
-        },
-        {
-          id: generateId(),
-          ledger_id: ledgerId,
-          installment_number: 3,
-          title: 'قسط سوم و تسویه نهایی سال تحصیلی',
-          amount: totalRial - perInstallment * 2,
-          due_date: '1403/12/15',
-          status: 'pending',
-        },
-      ];
-      await db('tuition_installments').insert(installmentsToInsert);
+        const perInstallment = Math.floor(totalRial / 3);
+        const installmentsToInsert = [
+          {
+            id: generateId(),
+            ledger_id: ledgerId,
+            installment_number: 1,
+            title: 'پیش‌پرداخت ثبت‌نام و خدمات آموزشی نوبت اول',
+            amount: perInstallment,
+            due_date: '1403/07/15',
+            status: 'pending',
+          },
+          {
+            id: generateId(),
+            ledger_id: ledgerId,
+            installment_number: 2,
+            title: 'قسط دوم شهریه و کلاس‌های فوق‌برنامه',
+            amount: perInstallment,
+            due_date: '1403/10/15',
+            status: 'pending',
+          },
+          {
+            id: generateId(),
+            ledger_id: ledgerId,
+            installment_number: 3,
+            title: 'قسط سوم و تسویه نهایی سال تحصیلی',
+            amount: totalRial - perInstallment * 2,
+            due_date: '1403/12/15',
+            status: 'pending',
+          },
+        ];
+        await trx('tuition_installments').insert(installmentsToInsert);
+      });
     }
 
     const installments = await db('tuition_installments')
@@ -329,8 +356,8 @@ router.post('/initiate-payment/:id', async (req, res, next) => {
     const { gateway = 'behpardakht_mellat', school_sheba = 'IR062960000000100324200001' } = req.body || {};
 
     const callerRole = String(req.user.role || '').toLowerCase();
-    if (callerRole === 'counselor') {
-      throw forbiddenError('مشاور تحصیلی مجاز به آغاز تراکنش مالی نیست');
+    if (callerRole === 'counselor' || callerRole === 'teacher') {
+      throw forbiddenError('شما مجاز به آغاز تراکنش مالی نیستید');
     }
 
     const installment = await db('tuition_installments').where({ id }).first();
@@ -376,6 +403,15 @@ router.post('/initiate-payment/:id', async (req, res, next) => {
     const amountRial = Number(installment.amount) || 0;
     const amountToman = Math.round(amountRial / 10);
 
+    // Record server-issued authority for this installment (SEC-FIN-001)
+    issuedAuthorities.set(String(installment.id), {
+      authority,
+      studentId: ledger.student_id,
+      schoolId: req.user.school_id,
+      amountRial,
+      issuedAt: Date.now(),
+    });
+
     res.json({
       success: true,
       message: 'نشست پرداخت امن شاپرک ایجاد شد',
@@ -413,8 +449,8 @@ router.post('/callback-verify/:id', async (req, res, next) => {
     const { authority, card_pan = '6037-9975-****-4812', status = 'OK' } = req.body || {};
 
     const callerRole = String(req.user.role || '').toLowerCase();
-    if (callerRole === 'counselor') {
-      throw forbiddenError('مشاور تحصیلی مجاز به تایید تراکنش مالی نیست');
+    if (callerRole === 'counselor' || callerRole === 'teacher') {
+      throw forbiddenError('شما مجاز به تایید تراکنش مالی شاپرک نیستید');
     }
 
     if (status !== 'OK') {
@@ -442,6 +478,23 @@ router.post('/callback-verify/:id', async (req, res, next) => {
     }
     assertSameSchool(req.user, student);
 
+    // Ownership & role enforcement (SEC-FIN-001)
+    if (callerRole === 'student') {
+      if (ledger.student_id !== req.user.id) {
+        throw forbiddenError('شما فقط مجاز به تایید پرداخت اقساط خودتان هستید');
+      }
+    } else if (callerRole === 'parent') {
+      const link = await db('parent_student_links')
+        .where({ parent_id: req.user.id, student_id: ledger.student_id })
+        .first();
+      const matchedCode = req.user.student_code && req.user.student_code === student.student_code;
+      if (!link && !matchedCode) {
+        throw forbiddenError('شما فقط مجاز به تایید پرداخت اقساط فرزند خود هستید');
+      }
+    } else if (!['admin', 'manager', 'financial_officer', 'accountant'].includes(callerRole)) {
+      throw forbiddenError('نقش کاربری شما مجاز به تایید تراکنش مالی نیست');
+    }
+
     if (installment.status === 'verified') {
       return res.status(409).json({
         success: false,
@@ -449,26 +502,55 @@ router.post('/callback-verify/:id', async (req, res, next) => {
       });
     }
 
+    // Verify that `authority` was genuinely issued by `/initiate-payment/:id` (SEC-FIN-001)
+    const issuedSession = issuedAuthorities.get(String(installment.id));
+    if (
+      !authority ||
+      typeof authority !== 'string' ||
+      !issuedSession ||
+      issuedSession.authority !== authority.trim()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'کد مرجع درگاه شاپرک (Authority) نامعتبر است یا نشست پرداختی برای این قسط آغاز نشده است',
+      });
+    }
+
     const refId = `SHP-${Date.now().toString().slice(-8)}`;
     const maskedPan = String(card_pan || '6037-99**-****-1234').replace(/^(\d{4})[\d*-]+(\d{4})$/, '$1-****-****-$2');
     const shamsiDate = new Date().toLocaleDateString('fa-IR');
 
-    await db('tuition_installments').where({ id }).update({
-      status: 'verified',
-      tracking_number: refId,
-      bank_name: `شاپرک آنلاین (${maskedPan})`,
-      paid_at: shamsiDate,
-      verified_by: req.user.id,
+    let newBalance = 0;
+    await db.transaction(async (trx) => {
+      const updatedRows = await trx('tuition_installments')
+        .where({ id })
+        .whereNot('status', 'verified')
+        .update({
+          status: 'verified',
+          tracking_number: refId,
+          bank_name: `شاپرک آنلاین (${maskedPan})`,
+          paid_at: shamsiDate,
+          verified_by: req.user.id,
+        });
+
+      if (!updatedRows) {
+        const conflictErr = new Error('این قسط قبلاً تسویه شده و در مانده حساب منظور گردیده است');
+        conflictErr.statusCode = 409;
+        throw conflictErr;
+      }
+
+      const freshLedger = await trx('tuition_ledgers').where({ id: ledger.id }).first();
+      const newPaid = Number(freshLedger.paid_amount || 0) + Number(installment.amount || 0);
+      newBalance = Math.max(0, Number(freshLedger.balance || 0) - Number(installment.amount || 0));
+
+      await trx('tuition_ledgers').where({ id: ledger.id }).update({
+        paid_amount: newPaid,
+        balance: newBalance,
+        status: newBalance === 0 ? 'settled' : 'partial',
+      });
     });
 
-    const newPaid = Number(ledger.paid_amount || 0) + Number(installment.amount || 0);
-    const newBalance = Math.max(0, Number(ledger.balance || 0) - Number(installment.amount || 0));
-
-    await db('tuition_ledgers').where({ id: ledger.id }).update({
-      paid_amount: newPaid,
-      balance: newBalance,
-      status: newBalance === 0 ? 'settled' : 'partial',
-    });
+    issuedAuthorities.delete(String(installment.id));
 
     // Send instant pattern SMS receipt to parent/student
     try {

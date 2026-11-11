@@ -1,7 +1,12 @@
 const bcrypt = require('bcryptjs');
 
 exports.seed = async function (knex) {
-  const passwordHash = await bcrypt.hash('123456', 10);
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PRODUCTION_SEED !== 'true') {
+    console.log('ℹ️ [EduConnect Seed] Skipping demo seed in production environment.');
+    return;
+  }
+  const seedPassword = process.env.DEMO_SEED_PASSWORD || '123456';
+  const passwordHash = await bcrypt.hash(seedPassword, 10);
   const DEFAULT_SCHOOL_ID = 'sch-1';
   const DEFAULT_SCHOOL_NAME = 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)';
   const DEFAULT_SCHOOL_CODE = 'SCH-1001';

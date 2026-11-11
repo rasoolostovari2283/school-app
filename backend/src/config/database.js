@@ -7,6 +7,10 @@ let db;
 try {
   db = knex(knexConfig[environment]);
 } catch (err) {
+  if (environment === 'production') {
+    console.error('[EduConnect] FATAL: Database initialization failed in production:', err.message);
+    throw err;
+  }
   console.warn('[AI Studio] Database not connected — using in-memory mock stub:', err.message);
   const createChain = () => {
     const chain = Promise.resolve([]);

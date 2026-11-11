@@ -130,6 +130,15 @@ function normalizeRowObject(rawRow, index) {
   };
 }
 
+function sanitizeCsvCell(value) {
+  if (value === null || value === undefined) return '""';
+  let str = String(value).replace(/"/g, '""');
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str}"`;
+}
+
 class SidaService {
   /**
    * Dry-run preview & intelligent column mapping for Sida / Legacy Excel imports
@@ -174,151 +183,153 @@ class SidaService {
       throw err;
     }
 
-    const defaultPasswordHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
-
-    // Fetch existing classes for this school in 1 query
-    const existingClasses = await db('classes').where({ school_id: schoolId });
-    const classByName = new Map();
-    for (const cls of existingClasses) {
-      classByName.set(normalizePersianText(cls.name).trim(), cls);
-    }
-
-    let createdClassesCount = 0;
-    let importedStudentsCount = 0;
-    let updatedStudentsCount = 0;
-    let linkedParentsCount = 0;
-    const importedStudents = [];
-
-    for (const row of preview.rows) {
-      const cleanClassName = normalizePersianText(row.class_name || 'کلاس عمومی').trim();
-      let targetClass = classByName.get(cleanClassName);
-
-      if (!targetClass && auto_create_classes) {
-        const joinCode = `SIDA-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-        targetClass = await insertAndReturn(db, 'classes', {
-          name: cleanClassName,
-          subject: row.major && row.major !== 'عمومی' ? row.major : 'عمومی / سیدا',
-          grade: row.grade || 'پایه دهم',
-          teacher_id: currentUser.id,
-          school_id: schoolId,
-          join_code: joinCode,
-        });
-        classByName.set(cleanClassName, targetClass);
-        createdClassesCount++;
+    return db.transaction(async (trx) => {
+      // Fetch existing classes for this school in 1 query
+      const existingClasses = await trx('classes').where({ school_id: schoolId });
+      const classByName = new Map();
+      for (const cls of existingClasses) {
+        classByName.set(normalizePersianText(cls.name).trim(), cls);
       }
 
-      const codeToUse = row.national_code || row.student_code;
-      let student = await db('users')
-        .where({ school_id: schoolId, role: 'student', student_code: codeToUse })
-        .first();
+      let createdClassesCount = 0;
+      let importedStudentsCount = 0;
+      let updatedStudentsCount = 0;
+      let linkedParentsCount = 0;
+      const importedStudents = [];
 
-      const studentSettings = JSON.stringify({
-        national_code: row.national_code,
-        sida_code: row.student_code,
-        father_name: row.father_name,
-        class_name: cleanClassName,
-        grade: row.grade,
-        major: row.major,
-        parent_phone: row.parent_phone || null,
-        imported_from: source_system,
-      });
+      for (const row of preview.rows) {
+        const cleanClassName = normalizePersianText(row.class_name || 'کلاس عمومی').trim();
+        let targetClass = classByName.get(cleanClassName);
 
-      if (student) {
-        await db('users')
-          .where({ id: student.id, school_id: schoolId })
-          .update({
-            display_name: row.full_name,
-            department: row.grade,
-            settings: studentSettings,
+        if (!targetClass && auto_create_classes) {
+          const joinCode = `SIDA-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+          targetClass = await insertAndReturn(trx, 'classes', {
+            name: cleanClassName,
+            subject: row.major && row.major !== 'عمومی' ? row.major : 'عمومی / سیدا',
+            grade: row.grade || 'پایه دهم',
+            teacher_id: currentUser.id,
+            school_id: schoolId,
+            join_code: joinCode,
           });
-        updatedStudentsCount++;
-      } else {
-        student = await insertAndReturn(db, 'users', {
-          display_name: row.full_name,
-          student_code: codeToUse,
-          department: row.grade,
-          phone: null,
-          role: 'student',
-          password_hash: defaultPasswordHash,
-          school_id: schoolId,
-          locale: 'fa',
-          is_verified: true,
-          is_active: true,
-          settings: studentSettings,
-        });
-        importedStudentsCount++;
-      }
-
-      if (targetClass) {
-        const existingMember = await db('class_members')
-          .where({ class_id: targetClass.id, user_id: student.id })
-          .first();
-        if (!existingMember) {
-          await db('class_members').insert({
-            id: generateId(),
-            class_id: targetClass.id,
-            user_id: student.id,
-            role: 'student',
-            joined_at: db.fn.now(),
-          }).catch(() => {});
+          classByName.set(cleanClassName, targetClass);
+          createdClassesCount++;
         }
-      }
 
-      if (auto_link_parents && row.parent_phone && row.phone_valid) {
-        let parentUser = await db('users')
-          .where({ school_id: schoolId, role: 'parent', phone: row.parent_phone })
+        const codeToUse = row.national_code || row.student_code;
+        let student = await trx('users')
+          .where({ school_id: schoolId, role: 'student', student_code: codeToUse })
           .first();
 
-        if (!parentUser) {
-          parentUser = await insertAndReturn(db, 'users', {
-            display_name: `ولی ${row.full_name} (${row.father_name !== 'ثبت نشده' ? row.father_name : 'والد'})`,
-            phone: row.parent_phone,
+        const studentSettings = JSON.stringify({
+          national_code: row.national_code,
+          sida_code: row.student_code,
+          father_name: row.father_name,
+          class_name: cleanClassName,
+          grade: row.grade,
+          major: row.major,
+          parent_phone: row.parent_phone || null,
+          imported_from: source_system,
+        });
+
+        if (student) {
+          await trx('users')
+            .where({ id: student.id, school_id: schoolId })
+            .update({
+              display_name: row.full_name,
+              department: row.grade,
+              settings: studentSettings,
+            });
+          updatedStudentsCount++;
+        } else {
+          const studentPasswordHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 8);
+          student = await insertAndReturn(trx, 'users', {
+            display_name: row.full_name,
             student_code: codeToUse,
-            role: 'parent',
-            password_hash: defaultPasswordHash,
+            department: row.grade,
+            phone: null,
+            role: 'student',
+            password_hash: studentPasswordHash,
             school_id: schoolId,
             locale: 'fa',
             is_verified: true,
             is_active: true,
-            settings: JSON.stringify({ linked_student_code: codeToUse }),
+            settings: studentSettings,
           });
+          importedStudentsCount++;
         }
 
-        const existingLink = await db('parent_student_links')
-          .where({ parent_id: parentUser.id, student_id: student.id })
-          .first();
-        if (!existingLink) {
-          await db('parent_student_links').insert({
-            id: generateId(),
-            parent_id: parentUser.id,
-            student_id: student.id,
-            relation: 'پدر / ولی قانونی',
-          }).catch(() => {});
-          linkedParentsCount++;
+        if (targetClass) {
+          const existingMember = await trx('class_members')
+            .where({ class_id: targetClass.id, user_id: student.id })
+            .first();
+          if (!existingMember) {
+            await trx('class_members').insert({
+              id: generateId(),
+              class_id: targetClass.id,
+              user_id: student.id,
+              role: 'student',
+              joined_at: trx.fn.now(),
+            }).catch(() => {});
+          }
         }
+
+        if (auto_link_parents && row.parent_phone && row.phone_valid) {
+          let parentUser = await trx('users')
+            .where({ school_id: schoolId, role: 'parent', phone: row.parent_phone })
+            .first();
+
+          if (!parentUser) {
+            const parentPasswordHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 8);
+            parentUser = await insertAndReturn(trx, 'users', {
+              display_name: `ولی ${row.full_name} (${row.father_name !== 'ثبت نشده' ? row.father_name : 'والد'})`,
+              phone: row.parent_phone,
+              student_code: codeToUse,
+              role: 'parent',
+              password_hash: parentPasswordHash,
+              school_id: schoolId,
+              locale: 'fa',
+              is_verified: true,
+              is_active: true,
+              settings: JSON.stringify({ linked_student_code: codeToUse }),
+            });
+          }
+
+          const existingLink = await trx('parent_student_links')
+            .where({ parent_id: parentUser.id, student_id: student.id })
+            .first();
+          if (!existingLink) {
+            await trx('parent_student_links').insert({
+              id: generateId(),
+              parent_id: parentUser.id,
+              student_id: student.id,
+              relation: 'پدر / ولی قانونی',
+            }).catch(() => {});
+            linkedParentsCount++;
+          }
+        }
+
+        importedStudents.push({
+          id: student.id,
+          name: row.full_name,
+          national_code: row.national_code,
+          student_code: codeToUse,
+          grade: row.grade,
+          class_name: cleanClassName,
+          class_id: targetClass ? targetClass.id : null,
+          parent_phone: row.parent_phone,
+        });
       }
 
-      importedStudents.push({
-        id: student.id,
-        name: row.full_name,
-        national_code: row.national_code,
-        student_code: codeToUse,
-        grade: row.grade,
-        class_name: cleanClassName,
-        class_id: targetClass ? targetClass.id : null,
-        parent_phone: row.parent_phone,
-      });
-    }
-
-    return {
-      source_system,
-      imported_students_count: importedStudentsCount,
-      updated_students_count: updatedStudentsCount,
-      created_classes_count: createdClassesCount,
-      linked_parents_count: linkedParentsCount,
-      total_processed: preview.rows.length,
-      students: importedStudents,
-    };
+      return {
+        source_system,
+        imported_students_count: importedStudentsCount,
+        updated_students_count: updatedStudentsCount,
+        created_classes_count: createdClassesCount,
+        linked_parents_count: linkedParentsCount,
+        total_processed: preview.rows.length,
+        students: importedStudents,
+      };
+    });
   }
 
   /**
@@ -415,17 +426,17 @@ class SidaService {
       ...sidaRows.map((r) =>
         [
           r.row_number,
-          `"${r.national_code}"`,
-          `"${r.student_code}"`,
-          `"${r.full_name}"`,
-          `"${r.father_name}"`,
-          `"${r.grade}"`,
-          `"${r.class_name}"`,
-          `"${r.subject}"`,
+          sanitizeCsvCell(r.national_code),
+          sanitizeCsvCell(r.student_code),
+          sanitizeCsvCell(r.full_name),
+          sanitizeCsvCell(r.father_name),
+          sanitizeCsvCell(r.grade),
+          sanitizeCsvCell(r.class_name),
+          sanitizeCsvCell(r.subject),
           r.continuous_score,
           r.final_score,
           r.weighted_average,
-          `"${r.pass_status}"`,
+          sanitizeCsvCell(r.pass_status),
         ].join(',')
       ),
     ];

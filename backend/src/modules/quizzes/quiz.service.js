@@ -80,16 +80,24 @@ class QuizService {
 
   async getByClass(classId) {
     const quizzes = await db('quizzes').where({ class_id: classId }).orderBy('created_at', 'desc');
+    if (quizzes.length === 0) return quizzes;
+
+    const quizIds = quizzes.map((q) => q.id);
+    const [qCounts, attemptCounts] = await Promise.all([
+      db('quiz_questions').whereIn('quiz_id', quizIds).select('quiz_id').count('id as count').groupBy('quiz_id'),
+      db('quiz_attempts').whereIn('quiz_id', quizIds).select('quiz_id').count('id as count').groupBy('quiz_id'),
+    ]);
+    const qCountMap = new Map(qCounts.map((r) => [r.quiz_id, parseInt(r.count || 0, 10)]));
+    const attemptCountMap = new Map(attemptCounts.map((r) => [r.quiz_id, parseInt(r.count || 0, 10)]));
+
     for (const q of quizzes) {
       if (typeof q.attachments === 'string') {
         try { q.attachments = JSON.parse(q.attachments); } catch (_e) { q.attachments = []; }
       } else if (!q.attachments) {
         q.attachments = [];
       }
-      const qCount = await db('quiz_questions').where({ quiz_id: q.id }).count('id as count').first();
-      q.questions_count = parseInt(qCount ? (qCount.count || Object.values(qCount)[0]) : 0, 10);
-      const attemptsCount = await db('quiz_attempts').where({ quiz_id: q.id }).count('id as count').first();
-      q.attempts_count = parseInt(attemptsCount ? (attemptsCount.count || Object.values(attemptsCount)[0]) : 0, 10);
+      q.questions_count = qCountMap.get(q.id) || 0;
+      q.attempts_count = attemptCountMap.get(q.id) || 0;
     }
     return quizzes;
   }
@@ -307,14 +315,18 @@ class QuizService {
       return existing;
     }
 
-    return insertAndReturn(db, 'quiz_attempts', {
-      quiz_id: quizId,
-      student_id: studentId,
-      started_at: new Date().toISOString(),
-      answers: '{}',
-      score: 0,
-      total_points: 0,
-    });
+    try {
+      return await insertAndReturn(db, 'quiz_attempts', {
+        quiz_id: quizId,
+        student_id: studentId,
+        started_at: new Date().toISOString(),
+        answers: '{}',
+        score: 0,
+        total_points: 0,
+      });
+    } catch (_err) {
+      return db('quiz_attempts').where({ quiz_id: quizId, student_id: studentId }).first();
+    }
   }
 
   async submitAttempt(quizId, studentId, body = {}, classId = null, currentUser = null) {
@@ -341,15 +353,26 @@ class QuizService {
       }
     }
 
-    const existing = await db('quiz_attempts')
+    const existingAttempt = await db('quiz_attempts')
       .where({ quiz_id: quizId, student_id: studentId })
-      .whereNotNull('completed_at')
       .first();
 
-    if (existing) {
+    if (existingAttempt && existingAttempt.completed_at) {
       const e = new Error('پاسخنامه شما برای این آزمون قبلاً نهایی و ثبت شده است');
       e.statusCode = 409;
       throw e;
+    }
+
+    // Enforce server-side quiz duration limit with a 2-minute network grace window (BL-QUIZ-002 / FBA-017)
+    // Note: auto_submitted flag from client must NOT bypass the server-side deadline!
+    if (existingAttempt?.started_at && quiz.duration_minutes) {
+      const startedMs = new Date(existingAttempt.started_at).getTime();
+      const maxAllowedMs = (Number(quiz.duration_minutes) + 2) * 60 * 1000;
+      if (!Number.isNaN(startedMs) && Date.now() - startedMs > maxAllowedMs) {
+        const timeoutErr = new Error('مهلت زمانی شرکت در این آزمون به پایان رسیده است');
+        timeoutErr.statusCode = 403;
+        throw timeoutErr;
+      }
     }
 
     const questions = await db('quiz_questions').where({ quiz_id: quizId });

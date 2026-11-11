@@ -17,6 +17,13 @@ router.use(authenticate);
  */
 router.get('/', async (req, res, next) => {
   try {
+    if (['financial_officer', 'accountant'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'مسئول امور مالی مجاز به مشاهده پرونده‌های انضباطی دانش‌آموزان نیست',
+      });
+    }
+
     const { student_id } = req.query;
     let query = db('discipline_records')
       .join('users as students', 'students.id', 'discipline_records.student_id')
@@ -42,6 +49,16 @@ router.get('/', async (req, res, next) => {
     } else if (targetStudentId) {
       await assertTeacherOfStudent(req.user, targetStudentId);
       query = query.where('discipline_records.student_id', targetStudentId);
+    } else if (req.user.role === 'teacher') {
+      const taughtStudentIds = await db('class_members')
+        .join('classes', 'classes.id', 'class_members.class_id')
+        .where({
+          'classes.teacher_id': req.user.id,
+          'classes.school_id': req.user.school_id,
+          'class_members.role': 'student',
+        })
+        .pluck('class_members.user_id');
+      query = query.whereIn('discipline_records.student_id', taughtStudentIds);
     }
 
     const records = await query.orderBy('discipline_records.created_at', 'desc');
@@ -70,9 +87,9 @@ router.get('/', async (req, res, next) => {
 
 /**
  * POST /api/v1/discipline
- * Add a reward or warning card (same-school teacher/admin only)
+ * Add a reward or warning card (same-school teacher/counselor/admin only)
  */
-router.post('/', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
+router.post('/', authorize('teacher', 'counselor', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { student_id, type, category, title, description, points, date, is_parent_viewable } = req.body;
     if (!student_id || !type || !title) {
@@ -113,6 +130,13 @@ router.post('/', authorize('teacher', 'admin', 'manager'), async (req, res, next
  */
 router.get('/counseling', async (req, res, next) => {
   try {
+    if (['financial_officer', 'accountant'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'مسئول امور مالی مجاز به مشاهده پرونده‌های مشاوره دانش‌آموزان نیست',
+      });
+    }
+
     const { student_id } = req.query;
     let query = db('counseling_cases')
       .join('users as students', 'students.id', 'counseling_cases.student_id')
@@ -132,6 +156,16 @@ router.get('/counseling', async (req, res, next) => {
     } else if (student_id) {
       await assertTeacherOfStudent(req.user, student_id);
       query = query.where('counseling_cases.student_id', student_id);
+    } else if (req.user.role === 'teacher') {
+      const taughtStudentIds = await db('class_members')
+        .join('classes', 'classes.id', 'class_members.class_id')
+        .where({
+          'classes.teacher_id': req.user.id,
+          'classes.school_id': req.user.school_id,
+          'class_members.role': 'student',
+        })
+        .pluck('class_members.user_id');
+      query = query.whereIn('counseling_cases.student_id', taughtStudentIds);
     }
 
     const sessions = await query.orderBy('counseling_cases.created_at', 'desc');
@@ -143,9 +177,9 @@ router.get('/counseling', async (req, res, next) => {
 
 /**
  * POST /api/v1/discipline/counseling
- * Add new counseling log (same-school teacher/admin only)
+ * Add new counseling log (same-school teacher/counselor/admin only)
  */
-router.post('/counseling', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
+router.post('/counseling', authorize('teacher', 'counselor', 'admin', 'manager'), async (req, res, next) => {
   try {
     const { student_id, session_title, session_date, student_concerns, counselor_notes, recommendations, follow_up_date, shared_with_parent } = req.body;
     if (!student_id || !session_title) {

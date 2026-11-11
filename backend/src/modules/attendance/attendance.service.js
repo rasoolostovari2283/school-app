@@ -161,32 +161,45 @@ class AttendanceService {
       await this.assertSessionBelongsToClass(sessionId, classId, currentUser);
     }
 
-    const session = await updateAndReturn(db, 'attendance_sessions', { id: sessionId }, { status: 'closed' });
+    let session = null;
+    let absentStudentIds = [];
+
+    await db.transaction(async (trx) => {
+      session = await updateAndReturn(trx, 'attendance_sessions', { id: sessionId }, { status: 'closed' });
+      if (!session) return;
+
+      const classMembers = await trx('class_members')
+        .where({ class_id: session.class_id, role: 'student' })
+        .select('user_id');
+
+      const checkedIn = await trx('attendance_records')
+        .where({ session_id: sessionId })
+        .select('student_id');
+
+      const checkedInIds = new Set(checkedIn.map((r) => r.student_id));
+
+      absentStudentIds = classMembers
+        .map((m) => m.user_id)
+        .filter((userId) => !checkedInIds.has(userId));
+
+      if (absentStudentIds.length > 0) {
+        const absentRecords = absentStudentIds.map((studentId) => ({
+          id: generateId(),
+          session_id: sessionId,
+          student_id: studentId,
+          status: 'absent',
+          recorded_at: null,
+        }));
+        await trx('attendance_records')
+          .insert(absentRecords)
+          .onConflict(['session_id', 'student_id'])
+          .ignore();
+      }
+    });
+
     if (!session) return null;
 
-    const classMembers = await db('class_members')
-      .where({ class_id: session.class_id, role: 'student' })
-      .select('user_id');
-
-    const checkedIn = await db('attendance_records')
-      .where({ session_id: sessionId })
-      .select('student_id');
-
-    const checkedInIds = new Set(checkedIn.map((r) => r.student_id));
-
-    const absentStudentIds = classMembers
-      .map((m) => m.user_id)
-      .filter((userId) => !checkedInIds.has(userId));
-
     if (absentStudentIds.length > 0) {
-      const absentRecords = absentStudentIds.map((studentId) => ({
-        id: generateId(),
-        session_id: sessionId,
-        student_id: studentId,
-        status: 'absent',
-        recorded_at: null,
-      }));
-      await db('attendance_records').insert(absentRecords).catch(() => {});
 
       const parentLinks = await db('parent_student_links')
         .whereIn('student_id', absentStudentIds)

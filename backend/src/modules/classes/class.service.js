@@ -268,11 +268,20 @@ class ClassService {
       throw error;
     }
 
-    await insertAndReturn(db, 'class_members', {
-      class_id: cls.id,
-      user_id: actor.id,
-      role: role === 'parent' ? 'parent' : 'student',
-    });
+    try {
+      await insertAndReturn(db, 'class_members', {
+        class_id: cls.id,
+        user_id: actor.id,
+        role: role === 'parent' ? 'parent' : 'student',
+      });
+    } catch (err) {
+      if (String(err.message || '').includes('UNIQUE') || err.code === 'SQLITE_CONSTRAINT') {
+        const dupErr = new Error('شما قبلاً عضو این کلاس هستید');
+        dupErr.statusCode = 409;
+        throw dupErr;
+      }
+      throw err;
+    }
 
     return sanitizeClassSecrets(cls);
   }
@@ -317,14 +326,14 @@ class ClassService {
 
     const cls = await assertOwnsClass(actor || { id: actorOrId, role: userRole }, classId);
 
-    try { await db('class_members').where({ class_id: classId }).del(); } catch (e) {}
-    try { await db('assignments').where({ class_id: classId }).del(); } catch (e) {}
-    try { await db('announcements').where({ class_id: classId }).del(); } catch (e) {}
-    try { await db('invite_links').where({ class_id: classId }).del(); } catch (e) {}
-    try { await db('messages').where({ class_id: classId }).del(); } catch (e) {}
-    try { await db('attendance').where({ class_id: classId }).del(); } catch (e) {}
-
-    await db('classes').where({ id: classId }).del();
+    await db.transaction(async (trx) => {
+      await trx('class_members').where({ class_id: classId }).del();
+      await trx('assignments').where({ class_id: classId }).del();
+      await trx('announcements').where({ class_id: classId }).del();
+      await trx('invite_links').where({ class_id: classId }).del();
+      await trx('messages').where({ class_id: classId }).del();
+      await trx('classes').where({ id: classId }).del();
+    });
     return sanitizeClassSecrets(cls);
   }
 
@@ -620,9 +629,6 @@ class ClassService {
       await db('class_members').where({ class_id: classId }).pluck('user_id')
     );
 
-    // Pre-compute a single bcrypt hash for newly created student accounts in this batch
-    const sharedBatchPasswordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
-
     const addedStudents = [];
     const newMembershipsToInsert = [];
 
@@ -632,13 +638,15 @@ class ClassService {
 
       if (!studentUser) {
         const assignedCode = cleanCode || Math.floor(100000 + Math.random() * 900000).toString();
+        // Generate an independent cryptographically random password hash per student (BL-ENR-002)
+        const perStudentPasswordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 8);
         studentUser = await insertAndReturn(db, 'users', {
           display_name: item.display_name.trim(),
           student_code: assignedCode,
           department: item.department ? item.department.trim() : cls.grade || null,
           role: 'student',
           school_id: cls.school_id,
-          password_hash: sharedBatchPasswordHash,
+          password_hash: perStudentPasswordHash,
         });
         if (cleanCode) {
           existingUsersByCode.set(cleanCode, studentUser);

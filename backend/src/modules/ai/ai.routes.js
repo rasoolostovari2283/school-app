@@ -6,7 +6,7 @@ const { authenticate, authorize } = require('../../middleware/auth');
 
 router.use(authenticate);
 
-router.post('/generate', async (req, res, next) => {
+router.post('/generate', authorize('admin', 'manager', 'teacher', 'counselor'), async (req, res, next) => {
   try {
     const { type, topic, count } = req.body;
     const result = await aiService.generateContent({ type, topic, count });

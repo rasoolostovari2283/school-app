@@ -1,10 +1,15 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const crypto = require('crypto');
 
-// Ensure required environment defaults for local/preview execution
+// Ensure required environment defaults for local/preview execution (SEC-CFG-001)
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'educonnect-iran-enterprise-jwt-secret-key-2026-secure';
-process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'educonnect-iran-enterprise-jwt-refresh-key-2026-secure';
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET)) {
+  console.error('❌ [EduConnect] FATAL: JWT_SECRET and JWT_REFRESH_SECRET must be explicitly set in production.');
+  process.exit(1);
+}
+process.env.JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || crypto.randomBytes(32).toString('hex');
 process.env.BACKEND_PORT = process.env.BACKEND_PORT || '5000';
 
 async function prepareDatabase() {
@@ -13,9 +18,11 @@ async function prepareDatabase() {
     await db.migrate.latest({
       directory: path.join(__dirname, 'backend/src/database/migrations'),
     });
-    await db.seed.run({
-      directory: path.join(__dirname, 'backend/src/database/seeds'),
-    });
+    if (process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_DATA === 'true') {
+      await db.seed.run({
+        directory: path.join(__dirname, 'backend/src/database/seeds'),
+      });
+    }
     console.log('✅ [EduConnect] Database migrations & seeds verified.');
   } catch (err) {
     console.error('⚠️ [EduConnect] Database init warning:', err.message);

@@ -77,9 +77,11 @@ class MessageService {
       };
     }
 
+    const isStaffCaller = ['admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'].includes(currentUser.role);
+
     const teacherRows = await db('users')
       .where({ school_id: schoolId })
-      .whereIn('role', ['teacher', 'admin', 'manager'])
+      .whereIn('role', ['teacher', 'counselor', 'financial_officer', 'accountant', 'admin', 'manager'])
       .whereNot('id', userId)
       .select('id', 'display_name', 'role', 'department', 'job_title', 'email', 'phone', 'username', 'avatar_url')
       .orderBy('display_name', 'asc');
@@ -89,7 +91,14 @@ class MessageService {
         r.username = await ensureUserHasUsername(r.id);
       }
     }
-    const teachers = teacherRows.map((r) => this.normalizeTeacherRecord(r));
+    const teachers = teacherRows.map((r) => {
+      const normalized = this.normalizeTeacherRecord(r);
+      if (!isStaffCaller) {
+        normalized.phone = '';
+        normalized.email = '';
+      }
+      return normalized;
+    });
 
     const classRows = await db('classes')
       .leftJoin('users as t', 't.id', 'classes.teacher_id')
@@ -143,23 +152,30 @@ class MessageService {
         grade_level: firstClass?.grade_level || 'عمومی',
         class_name: firstClass?.class_name || `پایه ${firstClass?.grade_level || 'عمومی'}`,
         class_id: firstClass?.class_id || null,
-        student_code: s.student_code || '',
-        phone: s.phone || '',
+        student_code: isStaffCaller ? (s.student_code || '') : '',
+        phone: isStaffCaller ? (s.phone || '') : '',
         username: s.username || '',
       };
     });
 
-    const parentRows = await db('users')
+    const rawParentRows = await db('users')
       .where({ role: 'parent', school_id: schoolId })
       .whereNot('id', userId)
       .select('id', 'display_name', 'email', 'phone', 'username', 'student_code', 'avatar_url')
       .orderBy('display_name', 'asc');
 
-    for (const p of parentRows) {
+    for (const p of rawParentRows) {
       if (!p.username) {
         p.username = await ensureUserHasUsername(p.id);
       }
     }
+
+    const parentRows = rawParentRows.map((p) => ({
+      ...p,
+      email: isStaffCaller ? (p.email || '') : '',
+      phone: isStaffCaller ? (p.phone || '') : '',
+      student_code: isStaffCaller ? (p.student_code || '') : '',
+    }));
 
     const studentsByGrade = {};
     students.forEach((s) => {
@@ -466,7 +482,7 @@ class MessageService {
 
       const otherStaff = await db('users')
         .where({ school_id: schoolId })
-        .whereIn('role', ['teacher', 'admin', 'manager'])
+        .whereIn('role', ['teacher', 'counselor', 'financial_officer', 'accountant', 'admin', 'manager'])
         .whereNotIn('id', Array.from(existingIds))
         .select('id', 'display_name', 'avatar_url', 'role', 'department', 'username', 'phone')
         .limit(8);
@@ -607,42 +623,47 @@ class MessageService {
     const id = generateId();
     const timestamp = now();
 
-    await db('message_groups').insert({
-      id,
-      name: String(name).trim(),
-      description: description || '',
-      category: category || 'general',
-      avatar_url: avatar_url || null,
-      created_by: user.id,
-      created_at: timestamp,
-    });
-
-    await db('message_group_members').insert({
-      id: generateId(),
-      group_id: id,
-      user_id: user.id,
-      role: 'admin',
-      joined_at: timestamp,
-    });
-
+    const validMemberIds = [];
     if (Array.isArray(member_ids) && member_ids.length > 0) {
       for (const mId of member_ids) {
         if (mId && mId !== user.id) {
           const validMemberId = await this.ensureUserExists(mId, user.school_id);
-          if (!validMemberId) continue;
-          const exists = await db('message_group_members').where({ group_id: id, user_id: validMemberId }).first();
-          if (!exists) {
-            await db('message_group_members').insert({
-              id: generateId(),
-              group_id: id,
-              user_id: validMemberId,
-              role: 'member',
-              joined_at: timestamp,
-            });
+          if (validMemberId && !validMemberIds.includes(validMemberId)) {
+            validMemberIds.push(validMemberId);
           }
         }
       }
     }
+
+    await db.transaction(async (trx) => {
+      await trx('message_groups').insert({
+        id,
+        name: String(name).trim(),
+        description: description || '',
+        category: category || 'general',
+        avatar_url: avatar_url || null,
+        created_by: user.id,
+        created_at: timestamp,
+      });
+
+      await trx('message_group_members').insert({
+        id: generateId(),
+        group_id: id,
+        user_id: user.id,
+        role: 'admin',
+        joined_at: timestamp,
+      });
+
+      for (const validMemberId of validMemberIds) {
+        await trx('message_group_members').insert({
+          id: generateId(),
+          group_id: id,
+          user_id: validMemberId,
+          role: 'member',
+          joined_at: timestamp,
+        });
+      }
+    });
 
     return db('message_groups').where({ id }).first();
   }
@@ -807,9 +828,11 @@ class MessageService {
       throw forbiddenError('فقط سازنده گروه یا مدیر مدرسه می‌تواند گروه را حذف کند');
     }
 
-    await db('message_group_messages').where({ group_id: groupId }).del();
-    await db('message_group_members').where({ group_id: groupId }).del();
-    await db('message_groups').where({ id: groupId }).del();
+    await db.transaction(async (trx) => {
+      await trx('message_group_messages').where({ group_id: groupId }).del();
+      await trx('message_group_members').where({ group_id: groupId }).del();
+      await trx('message_groups').where({ id: groupId }).del();
+    });
     return { deleted: true };
   }
 
@@ -954,8 +977,10 @@ class MessageService {
       created_at: timestamp,
     }));
 
-    if (messageRows.length) await db('messages').insert(messageRows);
-    if (notifRows.length) await db('notifications').insert(notifRows);
+    await db.transaction(async (trx) => {
+      if (messageRows.length) await trx('messages').insert(messageRows);
+      if (notifRows.length) await trx('notifications').insert(notifRows);
+    });
 
     return { recipients_count: members.length };
   }

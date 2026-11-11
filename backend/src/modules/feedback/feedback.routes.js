@@ -22,7 +22,13 @@ router.get('/', async (req, res, next) => {
       query = query.where('feedback.submitted_by', req.user.id);
     }
 
-    const tickets = await query;
+    const rawTickets = await query;
+    const tickets = rawTickets.map((t) => {
+      if (t.is_anonymous && t.submitted_by !== req.user.id) {
+        return { ...t, submitted_by: null };
+      }
+      return t;
+    });
     res.json({ success: true, data: { tickets } });
   } catch (err) { next(err); }
 });
@@ -32,12 +38,15 @@ router.get('/', async (req, res, next) => {
  */
 router.post('/', async (req, res, next) => {
   try {
+    if (!req.body?.message || !String(req.body.message).trim()) {
+      return res.status(400).json({ success: false, message: 'متن بازخورد الزامی است' });
+    }
     const trackingCode = `FB-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const ticket = {
       id: uuidv4(),
       tracking_code: trackingCode,
       category: req.body.category || 'general',
-      message: req.body.message,
+      message: String(req.body.message).trim(),
       submitted_by: req.user.id,
       is_anonymous: req.body.is_anonymous !== false,
     };
@@ -57,17 +66,23 @@ router.post('/', async (req, res, next) => {
  */
 router.get('/track/:code', async (req, res, next) => {
   try {
+    const canTrackAllSchool = isSchoolAdmin(req.user) || ['teacher', 'counselor'].includes(req.user.role);
     const ticket = await db('feedback')
       .leftJoin('users as submitter', 'submitter.id', 'feedback.submitted_by')
       .where('feedback.tracking_code', req.params.code)
       .andWhere(function () {
-        this.where('feedback.submitted_by', req.user.id)
-          .orWhere('submitter.school_id', req.user.school_id);
+        this.where('feedback.submitted_by', req.user.id);
+        if (canTrackAllSchool && req.user.school_id) {
+          this.orWhere('submitter.school_id', req.user.school_id);
+        }
       })
       .select('feedback.*')
       .first();
     if (!ticket) {
       return res.status(404).json({ success: false, message: 'بازخوردی با این کد پیگیری یافت نشد' });
+    }
+    if (ticket.is_anonymous && ticket.submitted_by !== req.user.id) {
+      ticket.submitted_by = null;
     }
     res.json({ success: true, data: { ticket } });
   } catch (err) { next(err); }

@@ -189,3 +189,59 @@ test('[F8] a client-supplied role must not grant teacher privileges', async () =
     await closeSocket(socket);
   }
 });
+
+test('[SEC-SOCKET-001 & SEC-SOCKET-002] unpermitted student cannot broadcast screen_frame or live_video_frame, and webrtc_signal blocks cross-room relay and sanitizes senderData', async () => {
+  const teacherA = await loginAs(baseUrl, 'a', 'teacher');
+  const studentA = await loginAs(baseUrl, 'a', 'student');
+  const teacherB = await loginAs(baseUrl, 'b', 'teacher');
+
+  const { socket: tASocket } = await openSocket({ auth: { token: teacherA.accessToken } });
+  const { socket: sASocket } = await openSocket({ auth: { token: studentA.accessToken } });
+  const { socket: tBSocket } = await openSocket({ auth: { token: teacherB.accessToken } });
+
+  try {
+    tASocket.emit('join_class', { classId: CLASSES.a });
+    await waitForEvent(tASocket, 'init_class_state');
+
+    sASocket.emit('join_class', { classId: CLASSES.a });
+    await waitForEvent(sASocket, 'init_class_state');
+
+    tBSocket.emit('join_class', { classId: CLASSES.b });
+    await waitForEvent(tBSocket, 'init_class_state');
+
+    // 1. SEC-SOCKET-001: Student without canScreenShare emitting screen_frame or live_video_frame must be rejected
+    const screenFrameOnTeacher = waitForEvent(tASocket, 'screen_frame', 400);
+    const liveVideoOnTeacher = waitForEvent(tASocket, 'live_video_frame', 400);
+    sASocket.emit('screen_frame', { classId: CLASSES.a, frame: 'data:image/jpeg;base64,spoofed' });
+    sASocket.emit('live_video_frame', { classId: CLASSES.a, frame: 'data:image/jpeg;base64,spoofed' });
+
+    assert.equal(await screenFrameOnTeacher, null, 'Unpermitted student must not broadcast screen_frame');
+    assert.equal(await liveVideoOnTeacher, null, 'Student must not broadcast live_video_frame');
+
+    // 2. SEC-SOCKET-002: Student in Class A cannot send webrtc_signal to teacher in Class B
+    const crossRoomSignal = waitForEvent(tBSocket, 'webrtc_signal', 400);
+    sASocket.emit('webrtc_signal', {
+      targetSocketId: tBSocket.id,
+      signal: { type: 'offer' },
+      senderData: { name: 'Spoofed Principal', role: 'admin' },
+    });
+    assert.equal(await crossRoomSignal, null, 'webrtc_signal must not cross classroom/tenant boundaries');
+
+    // 3. SEC-SOCKET-002: Intra-room webrtc_signal overwrites spoofed senderData with verified server identity
+    const validRoomSignalPromise = waitForEvent(tASocket, 'webrtc_signal', 1000);
+    sASocket.emit('webrtc_signal', {
+      targetSocketId: tASocket.id,
+      signal: { type: 'offer' },
+      senderData: { name: 'Spoofed Principal', role: 'admin' },
+    });
+    const receivedSignal = await validRoomSignalPromise;
+    assert.ok(receivedSignal, 'Intra-room webrtc_signal must be delivered');
+    assert.equal(receivedSignal.senderData.role, 'student', 'Spoofed senderData role must be overwritten by server');
+    assert.equal(receivedSignal.senderData.userId, studentA.user.id);
+  } finally {
+    await closeSocket(tASocket);
+    await closeSocket(sASocket);
+    await closeSocket(tBSocket);
+  }
+});
+

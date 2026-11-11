@@ -107,48 +107,50 @@ class NotificationService {
       ? `مدیریت مدرسه (${sender_name || senderUser.display_name || 'مدیر'})`
       : (sender_name || senderUser.display_name || 'دبیر');
 
-    try {
-      await db('announcements').insert({
-        id: announcementId,
-        teacher_id: senderUser.id,
-        class_id: null,
-        title: `🏛️ ${title}`,
-        content: `${body}\n\n— ارسال شده توسط: ${authorLabel}`,
-        priority: priority === 'urgent' ? 'urgent' : (priority === 'high' ? 'important' : 'normal'),
-        is_pinned: Boolean(is_pinned || priority === 'urgent'),
-        is_mandatory: Boolean(is_mandatory),
-        target_audience: target_audience || 'all',
-        target_class_ids: JSON.stringify(['*']),
-        target_grades: JSON.stringify(normalizedGrades),
-        target_subjects: JSON.stringify(['*']),
-        attachments: JSON.stringify([]),
-        created_at: timestamp,
-      });
-    } catch (err) {
-      console.warn('Could not mirror broadcast to announcements table:', err.message);
-    }
-
-    if (targetUsers.length > 0) {
-      const notifRows = targetUsers.map((u) => ({
-        id: generateId(),
-        user_id: u.id,
-        title: `📢 پیام (${authorLabel}): ${title}`,
-        body,
-        type: 'announcement',
-        data: JSON.stringify({
-          priority: priority || 'high',
-          category,
-          reference_id: announcementId,
-          reference_type: is_mandatory ? 'announcement' : 'admin_directive',
-        }),
-        is_read: false,
-        created_at: timestamp,
-      }));
-
-      for (let i = 0; i < notifRows.length; i += 100) {
-        await db('notifications').insert(notifRows.slice(i, i + 100));
+    await db.transaction(async (trx) => {
+      try {
+        await trx('announcements').insert({
+          id: announcementId,
+          teacher_id: senderUser.id,
+          class_id: null,
+          title: `🏛️ ${title}`,
+          content: `${body}\n\n— ارسال شده توسط: ${authorLabel}`,
+          priority: priority === 'urgent' ? 'urgent' : (priority === 'high' ? 'important' : 'normal'),
+          is_pinned: Boolean(is_pinned || priority === 'urgent'),
+          is_mandatory: Boolean(is_mandatory),
+          target_audience: target_audience || 'all',
+          target_class_ids: JSON.stringify(['*']),
+          target_grades: JSON.stringify(normalizedGrades),
+          target_subjects: JSON.stringify(['*']),
+          attachments: JSON.stringify([]),
+          created_at: timestamp,
+        });
+      } catch (err) {
+        console.warn('Could not mirror broadcast to announcements table:', err.message);
       }
-    }
+
+      if (targetUsers.length > 0) {
+        const notifRows = targetUsers.map((u) => ({
+          id: generateId(),
+          user_id: u.id,
+          title: `📢 پیام (${authorLabel}): ${title}`,
+          body,
+          type: 'announcement',
+          data: JSON.stringify({
+            priority: priority || 'high',
+            category,
+            reference_id: announcementId,
+            reference_type: is_mandatory ? 'announcement' : 'admin_directive',
+          }),
+          is_read: false,
+          created_at: timestamp,
+        }));
+
+        for (let i = 0; i < notifRows.length; i += 100) {
+          await trx('notifications').insert(notifRows.slice(i, i + 100));
+        }
+      }
+    });
 
     return {
       announcement_id: announcementId,

@@ -462,25 +462,44 @@ class AuthService {
    * Direct login for parents by entering student code
    * Allows parent to enter child's student code, automatically resolves/creates parent account
    */
-  async parentLoginByStudentCode(studentCode, parentName = '', phone = '') {
-    if (!studentCode || !studentCode.trim()) {
+  async parentLoginByStudentCode(studentCode, parentName = '', phone = '', options = {}) {
+    if (!studentCode || !String(studentCode).trim()) {
       const error = new Error('لطفاً کد دانش‌آموزی فرزند خود را وارد کنید');
       error.statusCode = 400;
       throw error;
     }
 
-    const rawCode = studentCode.trim();
+    const rawCode = String(studentCode).trim();
     // The student code must match exactly: "40301" and "STD-40301" are the two
     // spellings of the same code, but a partial code never resolves a student
     // (report finding A3).
     const normalizedCode = rawCode.toLowerCase();
-    const student = await db('users')
+
+    let resolvedSchoolId =
+      typeof options?.school_id === 'string'
+        ? options.school_id.trim()
+        : options?.school_id?.id || null;
+    if (!resolvedSchoolId && options?.school_code && typeof options.school_code === 'string') {
+      const sch = await db('schools').where({ code: options.school_code.trim() }).first();
+      if (sch) resolvedSchoolId = sch.id;
+    }
+    if (!resolvedSchoolId && options?.school_name && typeof options.school_name === 'string') {
+      const sch = await db('schools').where({ name: options.school_name.trim() }).first();
+      if (sch) resolvedSchoolId = sch.id;
+    }
+
+    let studentQuery = db('users')
       .where({ role: 'student' })
       .andWhere(function () {
         this.whereRaw('LOWER(student_code) = ?', [normalizedCode])
           .orWhereRaw('LOWER(student_code) = ?', [`std-${normalizedCode}`]);
-      })
-      .first();
+      });
+
+    if (resolvedSchoolId) {
+      studentQuery = studentQuery.andWhere({ school_id: resolvedSchoolId });
+    }
+
+    const student = await studentQuery.first();
 
     if (!student) {
       const error = new Error(`دانش‌آموزی با کد «${rawCode}» در سامانه مدرسه یافت نشد. لطفاً از صحت کد دانش‌آموزی اطمینان حاصل فرمایید.`);
@@ -489,10 +508,26 @@ class AuthService {
       throw error;
     }
 
-    // Check if a parent account already exists for this student
-    let parent = await db('users')
-      .where({ role: 'parent', student_code: student.student_code })
-      .first();
+    // If student has a registered parent_phone in settings and caller supplied a mismatched phone, reject (SEC-AUTH-001)
+    let stSettings = {};
+    try {
+      stSettings = typeof student.settings === 'string' ? JSON.parse(student.settings || '{}') : (student.settings || {});
+    } catch (_e) {}
+    const registeredParentPhone = stSettings.parent_phone ? String(stSettings.parent_phone).trim() : '';
+    const suppliedPhone = phone ? String(phone).trim() : '';
+    if (registeredParentPhone && suppliedPhone && registeredParentPhone !== suppliedPhone) {
+      const error = new Error('شماره همراه ولی با شماره ثبت‌شده در پرونده دانش‌آموز مطابقت ندارد');
+      error.messageEn = 'Parent phone mismatch';
+      error.statusCode = 401;
+      throw error;
+    }
+
+    // Check if a parent account already exists for this student (scoped to student's school)
+    let parentQuery = db('users').where({ role: 'parent', student_code: student.student_code });
+    if (student.school_id) {
+      parentQuery = parentQuery.andWhere({ school_id: student.school_id });
+    }
+    let parent = await parentQuery.first();
 
     // If not found by student_code, check parent_student_links
     if (!parent) {

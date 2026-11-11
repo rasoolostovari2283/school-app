@@ -12,9 +12,10 @@ class AiService {
   }
 
   async generateContent({ type, topic, count = 3, tone = 'formal' }) {
-    // If topic is empty
-    if (!topic || !topic.trim()) {
-      throw new Error('مبحث درسی الزامی است');
+    if (!topic || !String(topic).trim()) {
+      const err = new Error('مبحث درسی الزامی است');
+      err.statusCode = 400;
+      throw err;
     }
 
     // Attempt Online AI if key exists, otherwise gracefully use Domestic Heuristic Engine
@@ -113,7 +114,7 @@ class AiService {
 پاسخ را به زبان فارسی محترمانه و به صورت JSON خروجی دهید.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       contents: prompt,
     });
     return {

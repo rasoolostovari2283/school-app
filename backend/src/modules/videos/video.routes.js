@@ -212,13 +212,20 @@ function streamMediaFile(req, res, filePath) {
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
     const maxChunk = 3 * 1024 * 1024;
-    const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunk - 1, fileSize - 1);
+    const rawEnd = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunk - 1, fileSize - 1);
 
-    if (start >= fileSize) {
+    if (
+      Number.isNaN(start) ||
+      start < 0 ||
+      start >= fileSize ||
+      Number.isNaN(rawEnd) ||
+      rawEnd < start
+    ) {
       res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
       return res.end();
     }
 
+    const end = Math.min(rawEnd, fileSize - 1);
     const chunksize = end - start + 1;
     const fileStream = fs.createReadStream(filePath, { start, end });
     res.writeHead(206, {
@@ -243,13 +250,29 @@ function streamMediaFile(req, res, filePath) {
 }
 
 /**
- * GET /api/v1/videos/stream/:filename — High-speed video streaming by filename (authenticated)
+ * GET /api/v1/videos/stream/:filename — High-speed video streaming by filename (authenticated & tenant-scoped)
  */
-router.get('/stream/:filename', (req, res) => {
-  const cleanName = path.basename(req.params.filename);
-  const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
-  const filePath = path.join(uploadsDir, cleanName);
-  streamMediaFile(req, res, filePath);
+router.get('/stream/:filename', async (req, res, next) => {
+  try {
+    const cleanName = path.basename(req.params.filename);
+    const fileUrl = `/uploads/${cleanName}`;
+    const videoRecord = await db('videos')
+      .leftJoin('users', 'users.id', 'videos.teacher_id')
+      .where('videos.file_url', fileUrl)
+      .orWhere('videos.video_url', fileUrl)
+      .select('videos.*', 'users.school_id as teacher_school_id')
+      .first();
+
+    if (videoRecord && videoRecord.teacher_school_id) {
+      assertSameSchool(req.user, { school_id: videoRecord.teacher_school_id });
+    }
+
+    const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
+    const filePath = path.join(uploadsDir, cleanName);
+    streamMediaFile(req, res, filePath);
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**

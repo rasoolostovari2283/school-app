@@ -20,6 +20,7 @@ const {
 } = require('../../utils/iranianValidators');
 const sidaService = require('../school/sida.service');
 const quizService = require('../quizzes/quiz.service');
+const { logAudit } = require('../../utils/auditLogger');
 
 let GoogleGenAI = null;
 let Type = null;
@@ -31,11 +32,12 @@ try {
 
 class PaperToDigitalService {
   buildFeasibilityAssessment(mode, items, engineMode) {
-    const total = items.length || 1;
     const flaggedCount = items.filter((i) => i.needs_review).length;
-    const avgConfidence = Number(
-      (items.reduce((acc, item) => acc + (Number(item.confidence) || 0.85), 0) / total).toFixed(2)
-    );
+    const avgConfidence = items.length === 0
+      ? 0
+      : Number(
+          (items.reduce((acc, item) => acc + (Number(item.confidence) || 0.85), 0) / items.length).toFixed(2)
+        );
 
     return {
       engine_used: engineMode,
@@ -62,23 +64,25 @@ class PaperToDigitalService {
   async extractFromPaper({ mode = 'gradesheet', raw_ocr_text = '', image_base64 = '', default_grade = 'پایه دهم', default_class_name = 'دهم - الف' }) {
     const cleanMode = ['roster', 'gradesheet', 'exam'].includes(mode) ? mode : 'gradesheet';
 
-    // Try Gemini 3.8 Flash Multimodal API when GEMINI_API_KEY is present
+    // Try Gemini Multimodal Vision API when GEMINI_API_KEY is present
     if (process.env.GEMINI_API_KEY && GoogleGenAI && (image_base64 || raw_ocr_text)) {
       try {
+        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
         const aiResult = await this.callGeminiVisionExtractor({
           mode: cleanMode,
           raw_ocr_text,
           image_base64,
           default_grade,
           default_class_name,
+          modelName,
         });
         if (aiResult && Array.isArray(aiResult.items) && aiResult.items.length > 0) {
           const postProcessed = this.postProcessExtractedItems(cleanMode, aiResult.items, default_grade, default_class_name);
           return {
             mode: cleanMode,
-            engine: 'gemini-3.8-flash-multimodal',
+            engine: `${modelName}-multimodal`,
             items: postProcessed,
-            feasibility_assessment: this.buildFeasibilityAssessment(cleanMode, postProcessed, 'gemini-3.8-flash-multimodal'),
+            feasibility_assessment: this.buildFeasibilityAssessment(cleanMode, postProcessed, `${modelName}-multimodal`),
           };
         }
       } catch (err) {
@@ -98,7 +102,7 @@ class PaperToDigitalService {
     };
   }
 
-  async callGeminiVisionExtractor({ mode, raw_ocr_text, image_base64, default_grade, default_class_name }) {
+  async callGeminiVisionExtractor({ mode, raw_ocr_text, image_base64, default_grade, default_class_name, modelName = 'gemini-2.5-flash' }) {
     const ai = new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
@@ -164,7 +168,7 @@ class PaperToDigitalService {
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: modelName,
       contents: { parts },
       config: {
         responseMimeType: 'application/json',
@@ -193,35 +197,7 @@ class PaperToDigitalService {
 
     if (mode === 'roster') {
       if (lines.length === 0) {
-        return [
-          {
-            full_name: 'امیرحسین رضایی',
-            national_code: '0024567893',
-            father_name: 'محمد',
-            grade: defaultGrade,
-            class_name: defaultClassName,
-            parent_phone: '09123456789',
-            confidence: 0.96,
-          },
-          {
-            full_name: 'سارا محمدی',
-            national_code: '0012345679',
-            father_name: 'علی',
-            grade: defaultGrade,
-            class_name: defaultClassName,
-            parent_phone: '09129876543',
-            confidence: 0.94,
-          },
-          {
-            full_name: 'کیانوش کریمی',
-            national_code: '1234567890',
-            father_name: 'حسن',
-            grade: defaultGrade,
-            class_name: defaultClassName,
-            parent_phone: '09351112233',
-            confidence: 0.78,
-          },
-        ];
+        return [];
       }
 
       const items = [];
@@ -263,29 +239,7 @@ class PaperToDigitalService {
 
     if (mode === 'gradesheet') {
       if (lines.length === 0) {
-        return [
-          {
-            student_name: 'امیرحسین رضایی',
-            student_code: '0024567893',
-            score: 19.5,
-            teacher_comment: 'تسلط عالی بر مفاهیم',
-            confidence: 0.97,
-          },
-          {
-            student_name: 'سارا محمدی',
-            student_code: '0012345679',
-            score: 18.25,
-            teacher_comment: 'پاسخ برگ کامل',
-            confidence: 0.95,
-          },
-          {
-            student_name: 'کیانوش کریمی',
-            student_code: 'STD-103',
-            score: 14.5,
-            teacher_comment: 'ابهام جزئی در رقم اعشار دست‌نویس',
-            confidence: 0.81,
-          },
-        ];
+        return [];
       }
 
       const items = [];
@@ -333,27 +287,7 @@ class PaperToDigitalService {
 
     // mode === 'exam'
     if (lines.length === 0) {
-      return [
-        {
-          question_text: 'کدام گزینه در مورد مشتق تابع پیوسته در نقطه گوشه صحیح است؟',
-          options: [
-            'مشتق چپ و راست با هم برابرند',
-            'تابع در آن نقطه پیوسته است اما مشتق‌پذیر نیست',
-            'تابع در آن نقطه ناپیوسته است',
-            'مشتق تابع برابر صفر است',
-          ],
-          correct_option: '1',
-          points: 2,
-          confidence: 0.96,
-        },
-        {
-          question_text: 'حاصل حد تابع sin(3x)/x در همسایگی صفر کدام است؟',
-          options: ['۱', '۰', '۳', 'بی‌نهایت'],
-          correct_option: '2',
-          points: 2,
-          confidence: 0.95,
-        },
-      ];
+      return [];
     }
 
     const questions = [];
@@ -468,12 +402,32 @@ class PaperToDigitalService {
       throw err;
     }
 
+    // Enforce Human-in-the-Loop gate: reject unreviewed items flagged with needs_review === true (SEC-AI-002)
+    const unreviewedItems = items.filter(
+      (item) => item && item.needs_review === true && item.human_reviewed !== true && item.reviewed !== true
+    );
+    if (unreviewedItems.length > 0) {
+      const err = new Error(
+        `تعداد ${unreviewedItems.length} ردیف دارای پرچم «نیازمند بازبینی انسانی» است. لطفاً پیش از ثبت نهایی، موارد مشکوک را بازبینی و تایید کنید.`
+      );
+      err.statusCode = 422;
+      throw err;
+    }
+
     if (mode === 'roster') {
       const result = await sidaService.importRoster(currentUser, {
         rows: items,
         source_system: 'paper_to_digital',
         auto_create_classes: true,
         auto_link_parents: true,
+      });
+      await logAudit({
+        userId: currentUser.id,
+        userName: currentUser.display_name,
+        userRole: currentUser.role,
+        action: 'COMMIT_PAPER_TO_DIGITAL_ROSTER',
+        module: 'AI_OCR',
+        details: { school_id: currentUser.school_id, committed_count: result.total_processed },
       });
       return {
         mode: 'roster',
@@ -490,24 +444,13 @@ class PaperToDigitalService {
       }
       await assertOwnsClass(currentUser, class_id);
 
-      let targetCategoryId = category_id;
-      if (!targetCategoryId) {
-        const titleToFind = (category_title || 'ارزشیابی مستمر (اسکن برگه کاغذی)').trim();
-        let cat = await db('gradebook_categories')
-          .where({ class_id, title: titleToFind })
-          .first();
-        if (!cat) {
-          cat = {
-            id: uuidv4(),
-            class_id,
-            title: titleToFind,
-            weight: 1.0,
-            max_score: 20.0,
-            term: 'term1',
-          };
-          await db('gradebook_categories').insert(cat);
+      for (const item of items) {
+        const rawScore = Number(item.score);
+        if (Number.isNaN(rawScore) || rawScore < 0 || rawScore > 20) {
+          const err = new Error(`نمره نامعتبر (${item.score}): نمرات باید در بازه استاندارد ۰ تا ۲۰ باشند`);
+          err.statusCode = 400;
+          throw err;
         }
-        targetCategoryId = cat.id;
       }
 
       const enrolledStudents = await db('class_members')
@@ -519,44 +462,77 @@ class PaperToDigitalService {
         })
         .select('users.id', 'users.display_name', 'users.student_code');
 
+      let targetCategoryId = category_id;
       let savedScoresCount = 0;
-      for (const item of items) {
-        const cleanName = normalizePersianText(item.student_name || '').trim();
-        const cleanCode = normalizePersianDigits(String(item.student_code || '')).trim();
 
-        const matchedStudent = enrolledStudents.find(
-          (st) =>
-            (item.student_id && st.id === item.student_id) ||
-            (cleanCode && st.student_code === cleanCode) ||
-            (cleanName && normalizePersianText(st.display_name).trim() === cleanName)
-        );
+      await db.transaction(async (trx) => {
+        if (!targetCategoryId) {
+          const titleToFind = (category_title || 'ارزشیابی مستمر (اسکن برگه کاغذی)').trim();
+          let cat = await trx('gradebook_categories')
+            .where({ class_id, title: titleToFind })
+            .first();
+          if (!cat) {
+            cat = {
+              id: uuidv4(),
+              class_id,
+              title: titleToFind,
+              weight: 1.0,
+              max_score: 20.0,
+              term: 'term1',
+            };
+            await trx('gradebook_categories').insert(cat);
+          }
+          targetCategoryId = cat.id;
+        }
 
-        if (!matchedStudent) continue;
+        for (const item of items) {
+          const cleanName = normalizePersianText(item.student_name || '').trim();
+          const cleanCode = normalizePersianDigits(String(item.student_code || '')).trim();
 
-        const numericScore = Math.max(0, Math.min(20, Number(item.score) || 0));
-        const existing = await db('gradebook_scores')
-          .where({ category_id: targetCategoryId, student_id: matchedStudent.id })
-          .first();
+          const matchedStudent = enrolledStudents.find(
+            (st) =>
+              (item.student_id && st.id === item.student_id) ||
+              (cleanCode && st.student_code === cleanCode) ||
+              (cleanName && normalizePersianText(st.display_name).trim() === cleanName)
+          );
 
-        if (existing) {
-          await db('gradebook_scores')
-            .where({ id: existing.id })
-            .update({
+          if (!matchedStudent) continue;
+
+          const numericScore = Math.max(0, Math.min(20, Number(item.score) || 0));
+          const existing = await trx('gradebook_scores')
+            .where({ category_id: targetCategoryId, student_id: matchedStudent.id })
+            .first();
+
+          if (existing) {
+            await trx('gradebook_scores')
+              .where({ id: existing.id })
+              .update({
+                score: numericScore,
+                teacher_comment: item.teacher_comment || 'ثبت شده از اسکن برگه نمرات',
+                graded_at: new Date().toISOString(),
+              });
+          } else {
+            await trx('gradebook_scores').insert({
+              id: uuidv4(),
+              category_id: targetCategoryId,
+              student_id: matchedStudent.id,
               score: numericScore,
               teacher_comment: item.teacher_comment || 'ثبت شده از اسکن برگه نمرات',
-              graded_at: new Date().toISOString(),
             });
-        } else {
-          await db('gradebook_scores').insert({
-            id: uuidv4(),
-            category_id: targetCategoryId,
-            student_id: matchedStudent.id,
-            score: numericScore,
-            teacher_comment: item.teacher_comment || 'ثبت شده از اسکن برگه نمرات',
-          });
+          }
+          savedScoresCount++;
         }
-        savedScoresCount++;
-      }
+      });
+
+      await logAudit({
+        userId: currentUser.id,
+        userName: currentUser.display_name,
+        userRole: currentUser.role,
+        action: 'COMMIT_PAPER_TO_DIGITAL_GRADESHEET',
+        module: 'AI_OCR',
+        targetId: class_id,
+        details: { class_id, category_id: targetCategoryId, committed_count: savedScoresCount },
+      });
 
       return {
         mode: 'gradesheet',
@@ -583,6 +559,15 @@ class PaperToDigitalService {
         },
         currentUser
       );
+      await logAudit({
+        userId: currentUser.id,
+        userName: currentUser.display_name,
+        userRole: currentUser.role,
+        action: 'COMMIT_PAPER_TO_DIGITAL_EXAM',
+        module: 'AI_OCR',
+        targetId: quiz.id,
+        details: { class_id, quiz_id: quiz.id, questions_count: items.length },
+      });
       return {
         mode: 'exam',
         class_id,

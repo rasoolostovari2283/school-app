@@ -89,8 +89,35 @@ app.use(helmet({
   dnsPrefetchControl: { allow: false },
 }));
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // Same-origin, server-to-server, or test runner
+  const allowedList = [
+    config.frontendUrl,
+    process.env.FRONTEND_URL,
+    process.env.TUNNEL_URL,
+    ...(process.env.CORS_ALLOWED_ORIGINS ? process.env.CORS_ALLOWED_ORIGINS.split(',') : []),
+  ]
+    .filter(Boolean)
+    .map((u) => u.trim().replace(/\/+$/, ''));
+
+  const normalizedOrigin = String(origin).trim().replace(/\/+$/, '');
+  if (allowedList.includes(normalizedOrigin)) return true;
+
+  if (config.nodeEnv !== 'production') {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalizedOrigin)) {
+      return true;
+    }
+  }
+  return false;
+};
+
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Pinggy-No-Screen'],
@@ -136,7 +163,7 @@ app.use('/api/', limiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: config.nodeEnv === 'test' ? 500 : 30,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
@@ -146,10 +173,27 @@ const authLimiter = rateLimit({
     messageEn: 'Too many authentication attempts. Please try again in 15 minutes.',
   },
 });
+
+const financeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: config.nodeEnv === 'test' ? 500 : 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  message: {
+    success: false,
+    message: 'تعداد درخواست‌های درگاه پرداخت بیش از حد مجاز است. لطفاً چند دقیقه صبر کنید.',
+    messageEn: 'Too many payment gateway requests. Please wait a few minutes.',
+  },
+});
+
 app.use('/api/v1/auth/login', authLimiter);
+app.use('/api/v1/auth/parent-login', authLimiter);
 app.use('/api/v1/auth/quick-entry', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
 app.use('/api/v1/auth/register-school', authLimiter);
+app.use('/api/v1/finance/initiate-payment', financeLimiter);
+app.use('/api/v1/finance/callback-verify', financeLimiter);
 
 // ── Health & Sync Status Check (#36/A19) ──
 const getSyncStatusData = () => {
@@ -173,10 +217,19 @@ const getSyncStatusData = () => {
   };
 };
 
-const healthHandler = (_req, res) => {
-  res.json({
-    success: true,
-    status: 'ok',
+const healthHandler = async (_req, res) => {
+  let dbStatus = 'connected';
+  try {
+    if (db && typeof db.raw === 'function') {
+      await db.raw('SELECT 1');
+    }
+  } catch (_err) {
+    dbStatus = 'degraded';
+  }
+  res.status(dbStatus === 'connected' ? 200 : 503).json({
+    success: dbStatus === 'connected',
+    status: dbStatus === 'connected' ? 'ok' : 'degraded',
+    db: dbStatus,
     message: 'EduConnect API is running smoothly',
     timestamp: new Date().toISOString(),
     version: '1.2.0',
@@ -236,18 +289,24 @@ app.get('/api/v1/system/download-apk', (_req, res) => {
   }
 });
 
-// ── System Database Backups API ──
+// ── System Database Backups API (Restricted to global system admin; SEC-DATA-001) ──
 app.get('/api/v1/system/backups', authenticate, (req, res) => {
-  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
-    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  if (req.user.role !== 'admin' || process.env.SUPER_ADMIN_BACKUP_ENABLED === 'false') {
+    return res.status(403).json({
+      success: false,
+      message: 'دسترسی به فایل خام پایگاه داده چندمدرسه‌ای فقط برای مدیر ارشد زیرساخت مجاز است',
+    });
   }
   const backups = listBackups();
   res.json({ success: true, data: { backups } });
 });
 
 app.post('/api/v1/system/backup-now', authenticate, async (req, res) => {
-  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
-    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  if (req.user.role !== 'admin' || process.env.SUPER_ADMIN_BACKUP_ENABLED === 'false') {
+    return res.status(403).json({
+      success: false,
+      message: 'دسترسی به پشتیبان‌گیری کل پایگاه داده فقط برای مدیر ارشد زیرساخت مجاز است',
+    });
   }
   const result = await createBackup('manual');
   if (result.success) {
@@ -266,12 +325,27 @@ app.post('/api/v1/system/backup-now', authenticate, async (req, res) => {
 });
 
 app.get('/api/v1/system/download-backup/:filename', authenticate, (req, res) => {
-  if (!['admin', 'manager', 'school_admin'].includes(req.user.role)) {
-    return res.status(403).json({ success: false, message: 'دسترسی فقط برای مدیران سامانه مجاز است' });
+  if (req.user.role !== 'admin' || process.env.SUPER_ADMIN_BACKUP_ENABLED === 'false') {
+    return res.status(403).json({
+      success: false,
+      message: 'دانلود فایل خام پایگاه داده چندمدرسه‌ای برای مدیران مدرسه غیرفعال است (حفاظت داده‌های چندمستاجره)',
+    });
   }
   const cleanName = path.basename(req.params.filename);
+  if (!/^educonnect_[\w\-]+\.db$/.test(cleanName)) {
+    return res.status(400).json({ success: false, message: 'نام فایل پشتیبان نامعتبر است' });
+  }
   const filePath = path.join(BACKUP_DIR, cleanName);
   if (fs.existsSync(filePath)) {
+    logAudit({
+      userId: req.user.id,
+      userName: req.user.display_name,
+      userRole: req.user.role,
+      action: 'DOWNLOAD_BACKUP',
+      module: 'SYSTEM',
+      details: `دانلود فایل پشتیبان: ${cleanName}`,
+      ip: req.ip,
+    });
     res.download(filePath, cleanName);
   } else {
     res.status(404).json({ success: false, message: 'فایل پشتیبان یافت نشد' });
