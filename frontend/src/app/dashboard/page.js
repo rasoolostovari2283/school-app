@@ -573,7 +573,7 @@ export default function DashboardPage() {
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <Link
-              href="/dashboard/school-meetings"
+              href="/dashboard/school-meetings/"
               className="btn btn-primary"
               style={{
                 background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
@@ -600,7 +600,7 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Link href="/dashboard/messages" className="btn btn-primary">
+            <Link href="/dashboard/messages/" className="btn btn-primary">
               <HiOutlineChatBubbleLeftRight />
               <span>ورود به بخش پیام‌ها و گفتگوها</span>
             </Link>
@@ -633,7 +633,7 @@ export default function DashboardPage() {
           <h1 className={styles.heroTitle}>
             {getGreeting()}،{' '}
             <Link
-              href="/dashboard/settings"
+              href="/dashboard/settings/"
               className={styles.teacherNameLink}
               title="برای مشاهده و ویرایش مشخصات فردی و عکس پروفایل کلیک کنید"
             >
@@ -668,7 +668,7 @@ export default function DashboardPage() {
 
             {/* School Online Meetings & Webinars Hero Button */}
             <Link
-              href="/dashboard/school-meetings"
+              href="/dashboard/school-meetings/"
               className={styles.heroBtn}
               style={{
                 borderColor: 'rgba(239, 68, 68, 0.45)',
@@ -684,7 +684,7 @@ export default function DashboardPage() {
             </Link>
             {isTeacher && (
               <>
-                <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
+                <Link href="/dashboard/report-card/" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
                   <HiOutlineDocumentText style={{ color: '#6366f1' }} />
                   <span style={{ fontWeight: 800, color: 'var(--primary-600)' }}>کارنامه‌ها و ورود نمرات</span>
                 </Link>
@@ -706,13 +706,13 @@ export default function DashboardPage() {
             )}
 
             {isStudent && (
-              <Link href="/dashboard/report-card" className={styles.heroBtn} style={{ borderColor: 'rgba(16, 185, 129, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
+              <Link href="/dashboard/report-card/" className={styles.heroBtn} style={{ borderColor: 'rgba(16, 185, 129, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
                 <HiOutlineDocumentText style={{ color: '#059669' }} />
                 <span style={{ fontWeight: 800, color: '#059669' }}>کارنامه تحصیلی</span>
               </Link>
             )}
 
-            <Link href="/dashboard/record" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
+            <Link href="/dashboard/record/" className={styles.heroBtn} style={{ borderColor: 'rgba(124, 58, 237, 0.35)', background: 'rgba(255, 255, 255, 0.9)' }}>
               <span style={{ fontSize: '1.25rem' }}>🖥️</span>
               <span style={{ fontWeight: 800, color: 'var(--primary-600)' }}>ضبط کلاس و تخته</span>
             </Link>
@@ -720,7 +720,7 @@ export default function DashboardPage() {
             {isAdmin && (
               <>
                 <Link
-                  href="/dashboard/management"
+                  href="/dashboard/management/"
                   className={styles.heroBtn}
                   style={{
                     borderColor: 'rgba(245, 158, 11, 0.45)',
@@ -733,7 +733,7 @@ export default function DashboardPage() {
                 </Link>
 
                 <Link
-                  href="/dashboard/smart-operations"
+                  href="/dashboard/smart-operations/"
                   className={styles.heroBtn}
                   style={{
                     borderColor: 'rgba(99, 102, 241, 0.45)',
@@ -746,7 +746,7 @@ export default function DashboardPage() {
                 </Link>
 
                 <Link
-                  href="/dashboard/finance"
+                  href="/dashboard/finance/"
                   className={styles.heroBtn}
                   style={{
                     borderColor: 'rgba(16, 185, 129, 0.45)',
@@ -761,27 +761,27 @@ export default function DashboardPage() {
             )}
 
             {!isAdmin && (
-              <Link href="/dashboard/attendance" className={styles.heroBtn}>
+              <Link href="/dashboard/attendance/" className={styles.heroBtn}>
                 <HiOutlineUserGroup style={{ color: '#059669' }} />
                 <span>حضور و غیاب</span>
               </Link>
             )}
 
             {!isAdmin && (
-              <Link href="/dashboard/assignments" className={styles.heroBtn}>
+              <Link href="/dashboard/assignments/" className={styles.heroBtn}>
                 <HiOutlineClipboardDocumentList style={{ color: '#6366f1' }} />
                 <span>{isTeacher ? 'تعریف تکلیف' : 'تکالیف من'}</span>
               </Link>
             )}
 
             {!isAdmin && (
-              <Link href="/dashboard/quizzes" className={styles.heroBtn}>
+              <Link href="/dashboard/quizzes/" className={styles.heroBtn}>
                 <HiOutlineQuestionMarkCircle style={{ color: '#d97706' }} />
                 <span>آزمون آنلاین</span>
               </Link>
             )}
 
-            <Link href="/dashboard/messages" className={styles.heroBtn}>
+            <Link href="/dashboard/messages/" className={styles.heroBtn}>
               <HiOutlineMegaphone style={{ color: '#e11d48' }} />
               <span>پیام امن</span>
             </Link>
@@ -923,7 +923,7 @@ export default function DashboardPage() {
               <span>🏛️ ثبت و ویرایش مدرسه و پایه‌ها</span>
             </button>
             <Link
-              href="/dashboard/teacher-setup"
+              href="/dashboard/teacher-setup/"
               className="btn btn-secondary"
               style={{ fontSize: '0.8125rem' }}
               title="مشاهده در صفحه اختصاصی تمام‌صفحه"
@@ -1110,7 +1110,7 @@ export default function DashboardPage() {
               )}
             </h2>
             <Link
-              href={isAdmin ? "/dashboard/school-meetings" : "/dashboard/classes"}
+              href={isAdmin ? "/dashboard/school-meetings/" : "/dashboard/classes/"}
               className="btn btn-secondary btn-sm"
             >
               <span>{isAdmin ? "ورود به اتاق وبینار ←" : "مدیریت همه کلاس‌ها"}</span>
@@ -1130,7 +1130,7 @@ export default function DashboardPage() {
               <p style={{ color: 'var(--text-tertiary)', marginTop: '6px' }}>
                 {isTeacher ? 'اولین کلاس خود را ایجاد کنید' : 'با دریافت کد دعوت از معلم به کلاس ملحق شوید'}
               </p>
-              <Link href="/dashboard/classes" className="btn btn-primary" style={{ marginTop: '16px' }}>
+              <Link href="/dashboard/classes/" className="btn btn-primary" style={{ marginTop: '16px' }}>
                 <HiOutlinePlusCircle />
                 <span>{isTeacher ? 'ایجاد کلاس جدید' : 'عضویت با کد کلاس'}</span>
               </Link>
@@ -1146,7 +1146,7 @@ export default function DashboardPage() {
                 ];
                 const bgGrad = gradients[i % gradients.length];
                 return (
-                  <Link key={cls.id} href={`/dashboard/classes/${cls.id}`} className={styles.classCard}>
+                  <Link key={cls.id} href={`/dashboard/classes/${cls.id}/`} className={styles.classCard}>
                     <div className={styles.classCardBanner} style={{ background: bgGrad }}>
                       <span
                         style={{
@@ -1221,7 +1221,7 @@ export default function DashboardPage() {
                 <p style={{ fontSize: '0.75rem', marginTop: '4px', marginBottom: '14px' }}>
                   پس از ثبت کلاس‌ها و برنامه هفتگی، جلسات در این بخش پایش می‌شوند.
                 </p>
-                <Link href="/dashboard/classes" className="btn btn-secondary btn-sm" style={{ fontWeight: 700 }}>
+                <Link href="/dashboard/classes/" className="btn btn-secondary btn-sm" style={{ fontWeight: 700 }}>
                   <span>مدیریت و ثبت کلاس‌ها ＋</span>
                 </Link>
               </div>
@@ -1240,7 +1240,7 @@ export default function DashboardPage() {
                 : 'پس از ثبت کلاس‌ها و برگزاری اولین آزمون یا تکلیف، گزارش‌های تحلیلی هوشمند یادگیری در این بخش فعال خواهد شد.'}
             </p>
             <Link
-              href={isAdmin ? '/dashboard/school-meetings' : (classes.length > 0 ? '/dashboard/quizzes' : '/dashboard/classes')}
+              href={isAdmin ? '/dashboard/school-meetings/' : (classes.length > 0 ? '/dashboard/quizzes/' : '/dashboard/classes/')}
               className="btn btn-primary btn-sm"
               style={{ alignSelf: 'flex-start', background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' }}
             >

@@ -115,6 +115,26 @@ export const useAuthStore = create((set, get) => ({
         return;
       }
 
+      // Immediately hydrate from cached user_profile so route transitions never flash or block
+      let cachedProfile = null;
+      try {
+        const rawCached = localStorage.getItem('user_profile');
+        if (rawCached) {
+          const parsed = JSON.parse(rawCached);
+          if (parsed && parsed.id) {
+            cachedProfile = parsed;
+            set({
+              user: parsed,
+              isAuthenticated: true,
+              locale: parsed.locale || savedLocale,
+              isLoading: false,
+            });
+          }
+        }
+      } catch {
+        // ignore invalid cached json
+      }
+
       const { data } = await api.get('/auth/me');
       const profile = data?.data?.user || data?.data;
       if (!profile || !profile.id) {
@@ -127,13 +147,19 @@ export const useAuthStore = create((set, get) => ({
         locale: profile.locale || savedLocale,
         isLoading: false,
       });
-    } catch {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user_profile');
+    } catch (err) {
+      const status = err?.response?.status;
+      // Only clear credentials if token is explicitly rejected (401/403) or no cached user exists
+      if (status === 401 || status === 403 || !get().user) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user_profile');
+        }
+        set({ user: null, isAuthenticated: false, isLoading: false });
+      } else {
+        set({ isLoading: false });
       }
-      set({ user: null, isAuthenticated: false, isLoading: false });
     }
   },
 
@@ -154,6 +180,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user,
       isAuthenticated: true,
+      isLoading: false,
       locale: user.locale || 'fa',
     });
     return { user, school, data: { user, school } };
@@ -177,6 +204,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user,
       isAuthenticated: true,
+      isLoading: false,
       locale: user.locale || 'fa',
     });
     return { user, isNew, data: { user, isNew } };
@@ -198,6 +226,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user,
       isAuthenticated: true,
+      isLoading: false,
       locale: user.locale || 'fa',
     });
     return { ...user, user, data: { user } };
@@ -249,6 +278,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user,
       isAuthenticated: true,
+      isLoading: false,
       locale: user.locale || 'fa',
     });
     return { user, student, message: data.message, data: { user, student } };
@@ -275,6 +305,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user,
       isAuthenticated: true,
+      isLoading: false,
       locale: user.locale || 'fa',
     });
     return { user, redirect: account.redirect, data: { user, redirect: account.redirect } };
@@ -286,7 +317,7 @@ export const useAuthStore = create((set, get) => ({
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user_profile', JSON.stringify(user));
-    set({ user, isAuthenticated: true });
+    set({ user, isAuthenticated: true, isLoading: false });
     return { ...user, user, data: { user } };
   },
 

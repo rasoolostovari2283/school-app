@@ -9,13 +9,43 @@ export default function Home() {
 
   useEffect(() => {
     initialize();
-  }, []);
+  }, [initialize]);
 
   useEffect(() => {
     if (!isLoading) {
-      router.replace(isAuthenticated ? '/dashboard/' : '/login/');
+      if (!isAuthenticated) {
+        router.replace('/login/');
+        return;
+      }
+
+      if (typeof window !== 'undefined') {
+        const currentPath = window.location.pathname || '';
+        const search = window.location.search || '';
+        const cleanPath = currentPath.replace(/\/+$/, '');
+
+        if (cleanPath.startsWith('/dashboard/') && cleanPath !== '/dashboard') {
+          const liveMatch = cleanPath.match(/^\/dashboard\/classes\/([^/]+)\/live$/);
+          if (liveMatch && liveMatch[1] !== '1') {
+            const sep = search ? '&' : '?';
+            router.replace(`/dashboard/classes/1/live/${search}${sep}classId=${encodeURIComponent(liveMatch[1])}`);
+            return;
+          }
+
+          const classMatch = cleanPath.match(/^\/dashboard\/classes\/([^/]+)$/);
+          if (classMatch && !['1', 'cls-math-101', 'cls-phys-102'].includes(classMatch[1])) {
+            const sep = search ? '&' : '?';
+            router.replace(`/dashboard/classes/1/${search}${sep}classId=${encodeURIComponent(classMatch[1])}`);
+            return;
+          }
+
+          router.replace(`${cleanPath}/${search}`);
+          return;
+        }
+      }
+
+      router.replace('/dashboard/');
     }
-  }, [isLoading, isAuthenticated]);
+  }, [isLoading, isAuthenticated, router]);
 
   return (
     <div style={{

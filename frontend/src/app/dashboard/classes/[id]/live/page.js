@@ -81,7 +81,9 @@ export default function LiveClassroomPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
-  const classId = params?.id;
+  const queryClassId =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('classId') : null;
+  const classId = queryClassId || params?.id;
   const isTeacher = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
   const [hasWhiteboardAccess, setHasWhiteboardAccess] = useState(false);
   const [hasMicAccess, setHasMicAccess] = useState(false);

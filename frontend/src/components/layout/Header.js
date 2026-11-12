@@ -23,22 +23,23 @@ import styles from './Header.module.css';
 import toast from 'react-hot-toast';
 
 const QUICK_NAV_ITEMS = [
-  { href: '/dashboard', title: 'میز کار هوشمند (داشبورد)', keywords: 'داشبورد میز کار خانه اصلی dashboard', icon: '🏠' },
-  { href: '/dashboard/management', title: 'اتوماسیون جامع و مدیریت مدرسه', keywords: 'مدیریت ستاد دانش آموز دبیر کلاس ثبت نام', icon: '🏛️' },
-  { href: '/dashboard/smart-operations', title: 'عملیات هوشمند (سیدا، شبا و اسکن OCR)', keywords: 'سیدا sida ocr اسکن کاغذ شبا مهاجرت داده', icon: '🤖' },
-  { href: '/dashboard/finance', title: 'امور مالی، شهریه و درگاه شاپرک', keywords: 'مالی شهریه شاپرک فیش قسط بانک حسابداری', icon: '💳' },
-  { href: '/dashboard/class-rosters', title: 'لیست‌های کلاسی و حضور و غیاب', keywords: 'لیست کلاس حضور غیاب آمار دانش آموزان', icon: '📋' },
-  { href: '/dashboard/classes', title: 'کلاس‌های درس و جلسات آنلاین', keywords: 'کلاس درس ویدیو لایو جلسه', icon: '🎓' },
-  { href: '/dashboard/report-card', title: 'کارنامه رسمی و دفتر نمره', keywords: 'کارنامه نمره معدل تراز مستمر پایانی', icon: '📊' },
-  { href: '/dashboard/assignments', title: 'تکالیف و تمرین‌های کلاسی', keywords: 'تکلیف تمرین مشق پروژه تحویل', icon: '📝' },
-  { href: '/dashboard/quizzes', title: 'آزمون‌های آنلاین و بانک سوال', keywords: 'آزمون کوییز تست امتحان سوال', icon: '🧪' },
-  { href: '/dashboard/study-planner', title: 'دفتر برنامه‌ریزی تحصیلی و کنکور', keywords: 'برنامه ریزی مطالعه کنکور هدف ساعت', icon: '📅' },
-  { href: '/dashboard/discipline', title: 'پرونده انضباطی و هدایت تحصیلی', keywords: 'انضباطی مشاوره تاخیر تشویقی غیبت', icon: '🛡️' },
-  { href: '/dashboard/schedule', title: 'برنامه هفتگی و تقویم آموزشی', keywords: 'برنامه هفتگی زنگ ساعت تقویم', icon: '🕒' },
-  { href: '/dashboard/messages', title: 'پیام‌رسان و گفتگوی مستقیم', keywords: 'پیام چت گفتگو اولیا دبیر شورا', icon: '💬' },
-  { href: '/dashboard/announcements', title: 'اطلاعیه‌ها و بخشنامه‌های مدرسه', keywords: 'اطلاعیه بخشنامه خبر اعلان', icon: '📢' },
-  { href: '/dashboard/tickets', title: 'پشتیبانی و تیکت‌های مدرسه', keywords: 'تیکت پشتیبانی درخواست پیگیری', icon: '🎫' },
-  { href: '/dashboard/settings', title: 'تنظیمات حساب و پروفایل کاربری', keywords: 'تنظیمات پروفایل رمز عبور آواتار', icon: '⚙️' },
+  { href: '/dashboard/', title: 'میز کار هوشمند (داشبورد)', keywords: 'داشبورد میز کار خانه اصلی dashboard', icon: '🏠' },
+  { href: '/dashboard/management/', title: 'اتوماسیون جامع و مدیریت مدرسه', keywords: 'مدیریت ستاد دانش آموز دبیر کلاس ثبت نام', icon: '🏛️' },
+  { href: '/dashboard/smart-operations/', title: 'عملیات هوشمند (سیدا، شبا و اسکن OCR)', keywords: 'سیدا sida ocr اسکن کاغذ شبا مهاجرت داده', icon: '🤖' },
+  { href: '/dashboard/finance/', title: 'امور مالی، شهریه و درگاه شاپرک', keywords: 'مالی شهریه شاپرک فیش قسط بانک حسابداری', icon: '💳' },
+  { href: '/dashboard/class-rosters/', title: 'لیست‌های کلاسی و حضور و غیاب', keywords: 'لیست کلاس حضور غیاب آمار دانش آموزان', icon: '📋' },
+  { href: '/dashboard/classes/', title: 'کلاس‌های درس و جلسات آنلاین', keywords: 'کلاس درس ویدیو لایو جلسه', icon: '🎓' },
+  { href: '/dashboard/courses/', title: 'انتخاب واحد و دروس ترم', keywords: 'انتخاب واحد درس واحد کارنامه ترم', icon: '🏛️' },
+  { href: '/dashboard/report-card/', title: 'کارنامه رسمی و دفتر نمره', keywords: 'کارنامه نمره معدل تراز مستمر پایانی', icon: '📊' },
+  { href: '/dashboard/assignments/', title: 'تکالیف و تمرین‌های کلاسی', keywords: 'تکلیف تمرین مشق پروژه تحویل', icon: '📝' },
+  { href: '/dashboard/quizzes/', title: 'آزمون‌های آنلاین و بانک سوال', keywords: 'آزمون کوییز تست امتحان سوال', icon: '🧪' },
+  { href: '/dashboard/study-planner/', title: 'دفتر برنامه‌ریزی تحصیلی و کنکور', keywords: 'برنامه ریزی مطالعه کنکور هدف ساعت', icon: '📅' },
+  { href: '/dashboard/discipline/', title: 'پرونده انضباطی و هدایت تحصیلی', keywords: 'انضباطی مشاوره تاخیر تشویقی غیبت', icon: '🛡️' },
+  { href: '/dashboard/schedule/', title: 'برنامه هفتگی و تقویم آموزشی', keywords: 'برنامه هفتگی زنگ ساعت تقویم', icon: '🕒' },
+  { href: '/dashboard/messages/', title: 'پیام‌رسان و گفتگوی مستقیم', keywords: 'پیام چت گفتگو اولیا دبیر شورا', icon: '💬' },
+  { href: '/dashboard/announcements/', title: 'اطلاعیه‌ها و بخشنامه‌های مدرسه', keywords: 'اطلاعیه بخشنامه خبر اعلان', icon: '📢' },
+  { href: '/dashboard/tickets/', title: 'پشتیبانی و تیکت‌های مدرسه', keywords: 'تیکت پشتیبانی درخواست پیگیری', icon: '🎫' },
+  { href: '/dashboard/settings/', title: 'تنظیمات حساب و پروفایل کاربری', keywords: 'تنظیمات پروفایل رمز عبور آواتار', icon: '⚙️' },
 ];
 
 export default function Header({ onToggleMobileMenu }) {
@@ -51,10 +52,11 @@ export default function Header({ onToggleMobileMenu }) {
   const getSectionTitle = () => {
     if (pathname.includes('/live')) return 'کلاس پخش زنده';
     if (pathname.includes('/school-meetings')) return 'وبینار و جلسات آنلاین مدرسه';
-    if (pathname.startsWith('/dashboard/classes/') && pathname.split('/').length === 4) return 'صفحه اختصاصی کلاس';
+    if (pathname.startsWith('/dashboard/classes/') && pathname.replace(/\/+$/, '').split('/').length === 4) return 'صفحه اختصاصی کلاس';
     if (pathname.includes('/manage-classes')) return 'مدیریت کلاس‌ها';
     if (pathname.includes('/teachers')) return 'دیتابیس معلمان';
     if (pathname.includes('/class-rosters')) return 'لیست‌های کلاسی';
+    if (pathname.includes('/courses')) return 'انتخاب واحد و دروس';
     if (pathname.includes('/classes')) return 'کلاس‌ها و دروس';
     if (pathname.includes('/report-card')) return 'کارنامه‌ها و نمرات';
     if (pathname.includes('/quizzes')) return 'آزمون‌ها و کوییز';
@@ -81,21 +83,21 @@ export default function Header({ onToggleMobileMenu }) {
   const handleGoBack = () => {
     try {
       if (pathname.includes('/live')) {
-        const parentClassPath = pathname.replace('/live', '');
+        const parentClassPath = pathname.replace(/\/live\/?$/, '/');
         router.push(parentClassPath);
         return;
       }
-      if (pathname.startsWith('/dashboard/classes/') && pathname.split('/').length === 4) {
-        router.push('/dashboard/classes');
+      if (pathname.startsWith('/dashboard/classes/') && pathname.replace(/\/+$/, '').split('/').length === 4) {
+        router.push('/dashboard/classes/');
         return;
       }
       if (typeof window !== 'undefined' && window.history.length > 2) {
         router.back();
       } else {
-        router.push('/dashboard');
+        router.push('/dashboard/');
       }
     } catch {
-      router.push('/dashboard');
+      router.push('/dashboard/');
     }
   };
 
@@ -416,7 +418,7 @@ export default function Header({ onToggleMobileMenu }) {
           {/* Teacher School & Grades Quick Link */}
           {user?.role === 'teacher' && (
             <Link
-              href="/dashboard/teacher-setup"
+              href="/dashboard/teacher-setup/"
               className={styles.teacherSetupBtn}
               title="ثبت و ویرایش اطلاعات مدرسه و پایه‌های تحصیلی تدریس شما"
             >
@@ -437,13 +439,13 @@ export default function Header({ onToggleMobileMenu }) {
           </button>
 
           {/* Notifications */}
-          <Link href="/dashboard/notifications" className={styles.iconBtn} title="اعلان‌ها" aria-label="اعلان‌ها">
+          <Link href="/dashboard/notifications/" className={styles.iconBtn} title="اعلان‌ها" aria-label="اعلان‌ها">
             <HiOutlineBell />
             <span className={styles.badgeDot}></span>
           </Link>
 
           {/* Profile Pill */}
-          <Link href="/dashboard/settings" className={styles.profilePill} title="مشاهده و ویرایش مشخصات پروفایل">
+          <Link href="/dashboard/settings/" className={styles.profilePill} title="مشاهده و ویرایش مشخصات پروفایل">
             <div className="avatar" style={{ width: '34px', height: '34px', fontSize: '0.875rem' }}>
               {user?.avatar_url ? (
                 <img
