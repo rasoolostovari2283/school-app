@@ -3,11 +3,12 @@
    Crisp High-Contrast Dark Canvas, Refined Borders, Elegant Modern Typography
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Google Fonts (Vazirmatn for Persian + Inter for Numbers/Latin) ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Vazirmatn:wght@200;300;400;500;600;700;800;900&display=swap');
+/* ── Google Fonts (Vazirmatn for Persian + Plus Jakarta Sans & Inter for Numbers/Latin) ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Vazirmatn:wght@200;300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
 
 :root {
-  /* ─ Primary Brand Palette (Electric Indigo) ─ */
+  /* ─ Primary Brand Palette (Royal Indigo & Electric Cobalt) ─ */
   --primary-50: #eef2ff;
   --primary-100: #e0e7ff;
   --primary-200: #c7d2fe;
@@ -228,7 +229,7 @@ body {
   overflow-x: hidden;
 }
 
-/* ── Typography ── */
+/* ── Typography & Tabular Numerals Discipline ── */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-fa);
   font-weight: 800;
@@ -237,13 +238,38 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.35;
 }
 
+/* Enforce tabular numerals on all KPI values, badges, tables, clocks, and financial amounts */
+.tabular-nums,
+table,
+td,
+th,
+time,
+[class*="kpiValue"],
+[class*="StatValue"],
+[class*="badge"],
+[class*="Badge"],
+[class*="price"],
+[class*="amount"],
+[class*="score"],
+[class*="code"] {
+  font-variant-numeric: tabular-nums;
+}
+
 a {
-  color: var(--primary-400);
+  color: var(--primary-500);
   text-decoration: none;
   transition: all var(--transition-fast);
 }
 
 a:hover {
+  color: var(--primary-600);
+}
+
+[data-theme='dark'] a {
+  color: var(--primary-400);
+}
+
+[data-theme='dark'] a:hover {
   color: var(--primary-300);
 }
 

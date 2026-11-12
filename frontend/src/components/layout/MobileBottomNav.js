@@ -5,64 +5,79 @@ import useAuthStore from '../../stores/authStore';
 import {
   HiOutlineHome,
   HiOutlineAcademicCap,
-  HiOutlineVideoCamera,
-  HiOutlineChartBar,
   HiOutlineChatBubbleLeftRight,
   HiOutlineBars3,
-  HiOutlineDocumentText,
-  HiOutlineComputerDesktop,
+  HiOutlineBuildingLibrary,
+  HiOutlineBanknotes,
+  HiOutlineSparkles,
+  HiOutlineShieldCheck,
+  HiOutlineBookOpen,
 } from 'react-icons/hi2';
 import styles from './MobileBottomNav.module.css';
 
 export default function MobileBottomNav({ onOpenMenu }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || '';
   const { user } = useAuthStore();
-  const isTeacher = user?.role === 'teacher';
-  const isParent = user?.role === 'parent';
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const role =
+    user?.role === 'manager'
+      ? 'admin'
+      : user?.role === 'accountant'
+      ? 'financial_officer'
+      : user?.role || 'student';
 
-  const navLinks = [
-    {
-      id: 'home',
-      label: 'داشبورد',
-      href: '/dashboard',
-      icon: HiOutlineHome,
-      exact: true,
-    },
-    {
-      id: 'classes',
-      label: isAdmin ? 'وبینار' : (isParent ? 'جلسات مدرسه' : 'کلاس‌ها'),
-      href: (isAdmin || isParent) ? '/dashboard/school-meetings' : '/dashboard/classes',
-      icon: (isAdmin || isParent) ? HiOutlineVideoCamera : HiOutlineAcademicCap,
-    },
-    {
-      id: 'live',
-      label: isTeacher ? 'کلاس زنده' : 'پخش زنده',
-      href: '/dashboard/classes/1/live',
-      icon: HiOutlineVideoCamera,
-      badge: 'LIVE',
-    },
-    {
-      id: 'planner',
-      label: 'برنامه‌ریزی',
-      href: '/dashboard/study-planner',
-      icon: HiOutlineChartBar,
-    },
-    {
-      id: 'messages',
-      label: 'پیام‌ها',
-      href: '/dashboard/messages',
-      icon: HiOutlineChatBubbleLeftRight,
-    },
-  ];
+  const getRoleTabs = () => {
+    if (role === 'admin') {
+      return [
+        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
+        { id: 'management', label: 'مدیریت', href: '/dashboard/management', icon: HiOutlineBuildingLibrary },
+        { id: 'finance', label: 'مالی', href: '/dashboard/finance', icon: HiOutlineBanknotes },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+      ];
+    }
+    if (role === 'financial_officer') {
+      return [
+        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
+        { id: 'finance', label: 'شهریه', href: '/dashboard/finance', icon: HiOutlineBanknotes },
+        { id: 'management', label: 'دانش‌آموزان', href: '/dashboard/management', icon: HiOutlineBuildingLibrary },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+      ];
+    }
+    if (role === 'counselor') {
+      return [
+        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
+        { id: 'discipline', label: 'پرونده‌ها', href: '/dashboard/discipline', icon: HiOutlineShieldCheck },
+        { id: 'planner', label: 'برنامه‌ریزی', href: '/dashboard/study-planner', icon: HiOutlineBookOpen },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+      ];
+    }
+    if (role === 'parent') {
+      return [
+        { id: 'home', label: 'پورتال', href: '/dashboard', icon: HiOutlineHome, exact: true },
+        { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card', icon: HiOutlineSparkles },
+        { id: 'finance', label: 'شهریه', href: '/dashboard/finance', icon: HiOutlineBanknotes },
+        { id: 'messages', label: 'ارتباط', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+      ];
+    }
+    // teacher & student
+    return [
+      { id: 'home', label: 'داشبورد', href: '/dashboard', icon: HiOutlineHome, exact: true },
+      { id: 'classes', label: 'کلاس‌ها', href: '/dashboard/classes', icon: HiOutlineAcademicCap },
+      { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card', icon: HiOutlineSparkles },
+      { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+    ];
+  };
+
+  const navLinks = getRoleTabs();
 
   return (
     <nav className={styles.bottomNav} aria-label="نوار ناوبری موبایل">
       {navLinks.map((item) => {
         const Icon = item.icon;
+        const normPath = pathname.replace(/\/$/, '');
+        const normHref = item.href.replace(/\/$/, '');
         const isActive = item.exact
-          ? pathname === item.href
-          : pathname?.startsWith(item.href);
+          ? normPath === normHref
+          : normPath === normHref || normPath.startsWith(normHref);
 
         return (
           <Link
@@ -74,7 +89,6 @@ export default function MobileBottomNav({ onOpenMenu }) {
             {isActive && <div className={styles.activeIndicator} />}
             <div className={styles.iconWrapper}>
               <Icon />
-              {item.badge && <span className={styles.liveBadge}>{item.badge}</span>}
             </div>
             <span className={styles.navLabel}>{item.label}</span>
           </Link>
@@ -92,7 +106,7 @@ export default function MobileBottomNav({ onOpenMenu }) {
         <div className={styles.iconWrapper}>
           <HiOutlineBars3 />
         </div>
-        <span className={styles.navLabel}>بیشتر...</span>
+        <span className={styles.navLabel}>منوی کامل</span>
       </button>
     </nav>
   );

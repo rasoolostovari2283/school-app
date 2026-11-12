@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import {
-  HiOutlineCheckCircle,
   HiOutlineArrowPath,
   HiOutlineShieldCheck,
   HiOutlineSparkles,
+  HiOutlineCog6Tooth,
 } from 'react-icons/hi2';
 import {
   getApiBaseUrl,
+  setApiBaseUrl,
   probeServer,
   resetToDefaultWifi,
 } from '@/lib/api';
@@ -17,30 +18,70 @@ import toast from 'react-hot-toast';
 export default function ServerConnectionBar({ onConnected }) {
   const [status, setStatus] = useState('checking'); // 'checking' | 'online' | 'offline'
   const [pingMs, setPingMs] = useState(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
 
   const checkCurrentServer = async (targetUrl, silent = true) => {
     const urlToTest = targetUrl || getApiBaseUrl();
     setStatus('checking');
     const t0 = Date.now();
-    const res = await probeServer(urlToTest, 3500);
+    const res = await probeServer(urlToTest, 4000);
     if (res && res.success) {
       setPingMs(Date.now() - t0);
       setStatus('online');
+      setCustomUrlInput(res.url);
       onConnected?.(res.url);
       if (!silent) {
         toast.success('اتصال امن به هسته مرکزی ادوکانکت برقرار است');
       }
       return true;
-    } else {
-      setStatus('offline');
-      return false;
     }
+
+    // If a stale custom URL was stored, try same-origin fallback automatically
+    if (typeof window !== 'undefined' && !targetUrl) {
+      const sameOrigin = `${window.location.origin}/api/v1`;
+      if (urlToTest !== sameOrigin) {
+        const fallbackRes = await probeServer(sameOrigin, 3500);
+        if (fallbackRes && fallbackRes.success) {
+          resetToDefaultWifi();
+          setPingMs(Date.now() - t0);
+          setStatus('online');
+          setCustomUrlInput(fallbackRes.url);
+          onConnected?.(fallbackRes.url);
+          return true;
+        }
+      }
+    }
+
+    setStatus('offline');
+    if (!silent) {
+      toast.error('عدم پاسخگویی سرور؛ لطفاً آدرس سرور را بررسی نمایید');
+    }
+    return false;
   };
 
   useEffect(() => {
-    resetToDefaultWifi();
-    checkCurrentServer(getApiBaseUrl(), true);
+    const activeUrl = getApiBaseUrl();
+    setCustomUrlInput(activeUrl);
+    checkCurrentServer(activeUrl, true);
   }, []);
+
+  const handleSaveCustomServer = async () => {
+    if (!customUrlInput || !customUrlInput.trim()) {
+      resetToDefaultWifi();
+      const defUrl = getApiBaseUrl();
+      setCustomUrlInput(defUrl);
+      await checkCurrentServer(defUrl, false);
+      setShowConfig(false);
+      return;
+    }
+    const normalized = setApiBaseUrl(customUrlInput.trim());
+    setCustomUrlInput(normalized);
+    const ok = await checkCurrentServer(normalized, false);
+    if (ok) {
+      setShowConfig(false);
+    }
+  };
 
   return (
     <div className="mb-4" dir="rtl">
@@ -78,7 +119,7 @@ export default function ServerConnectionBar({ onConnected }) {
               </>
             )}
             {status === 'checking' && 'در حال همگام‌سازی امن با سرور مرکزی...'}
-            {status === 'offline' && 'در حال برقراری ارتباط با سرویس مرکزی...'}
+            {status === 'offline' && 'عدم ارتباط با سرور (جهت تنظیم آدرس کلیک کنید)'}
           </span>
         </div>
 
@@ -87,6 +128,15 @@ export default function ServerConnectionBar({ onConnected }) {
             <HiOutlineSparkles className="w-3 h-3 text-indigo-500" />
             سیدا + شاپرک + هوش مصنوعی
           </span>
+          <button
+            type="button"
+            onClick={() => setShowConfig((prev) => !prev)}
+            className="flex items-center gap-1 px-2 py-1 rounded-xl font-bold bg-white/90 hover:bg-white text-slate-700 border border-slate-200/80 transition shadow-2xs"
+            title="تنظیم آدرس سرور"
+          >
+            <HiOutlineCog6Tooth className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline">سرور</span>
+          </button>
           <button
             type="button"
             onClick={() => checkCurrentServer(getApiBaseUrl(), false)}
@@ -98,6 +148,39 @@ export default function ServerConnectionBar({ onConnected }) {
           </button>
         </div>
       </div>
+
+      {(showConfig || status === 'offline') && (
+        <div className="mt-2 p-2.5 rounded-2xl bg-white/95 border border-slate-200 shadow-sm text-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input
+            type="text"
+            dir="ltr"
+            value={customUrlInput}
+            onChange={(e) => setCustomUrlInput(e.target.value)}
+            placeholder="https://your-server.trycloudflare.com or http://192.168.1.100:5000"
+            className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 text-slate-800 font-mono text-[11px] focus:outline-none focus:border-indigo-500"
+          />
+          <div className="flex items-center gap-1.5 justify-end">
+            <button
+              type="button"
+              onClick={handleSaveCustomServer}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition"
+            >
+              ذخیره و اتصال
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const defUrl = resetToDefaultWifi();
+                setCustomUrlInput(defUrl);
+                await checkCurrentServer(defUrl, false);
+              }}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition"
+            >
+              پیش‌فرض
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

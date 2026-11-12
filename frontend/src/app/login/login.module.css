@@ -1282,7 +1282,7 @@
 }
 
 /* ══════════════════════════════════════════════════════
-   Responsive Styles
+   Responsive Styles (Mobile & Tablet Touch Optimization)
    ══════════════════════════════════════════════════════ */
 @media (max-width: 960px) {
   .container {
@@ -1290,43 +1290,78 @@
   }
   .hero {
     min-height: auto;
-    padding: var(--space-8, 2rem) var(--space-4, 1rem);
+    padding: 18px 16px 14px;
     border-left: none;
     border-bottom: 1px solid var(--border-color);
   }
+  .heroContent {
+    gap: 8px;
+  }
+  .heroEmoji {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: 13px;
+    font-size: 1.6rem;
+  }
   .heroTitle {
-    font-size: 2.2rem;
+    font-size: 1.75rem;
+  }
+  .heroSubtitle {
+    font-size: 0.85rem;
+    line-height: 1.55;
   }
   .heroFeatures {
     display: none;
   }
   .heroStatsRow {
-    margin-top: 4px;
+    margin-top: 2px;
+    padding: 8px 12px;
   }
   .formSide {
-    padding: var(--space-4, 1rem);
+    padding: 14px 12px 32px;
   }
   .formWrapper {
-    padding: 24px 20px;
+    padding: 22px 18px;
+    border-radius: 22px;
   }
   .entryTabs {
     grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 6px;
+  }
+  .entryTabBtn {
+    min-height: 44px;
+    font-size: 0.8rem;
   }
   .roleChipsGrid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .roleChip {
+    min-height: 48px;
+  }
 }
 
 @media (max-width: 480px) {
+  .heroPillBadge {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+  }
   .heroTitle {
-    font-size: 1.85rem;
+    font-size: 1.55rem;
   }
   .heroStatsRow {
-    flex-direction: column;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
   }
   .heroStatDivider {
-    width: 60%;
-    height: 1px;
+    display: none;
+  }
+  .heroStatValue {
+    font-size: 0.95rem;
+  }
+  .heroStatLabel {
+    font-size: 0.66rem;
   }
 }

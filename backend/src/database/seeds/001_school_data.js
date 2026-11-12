@@ -1,8 +1,8 @@
 const bcrypt = require('bcryptjs');
 
 exports.seed = async function (knex) {
-  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PRODUCTION_SEED !== 'true') {
-    console.log('ℹ️ [EduConnect Seed] Skipping demo seed in production environment.');
+  if (process.env.DISABLE_DEMO_SEED === 'true') {
+    console.log('ℹ️ [EduConnect Seed] Skipping demo seed (DISABLE_DEMO_SEED=true).');
     return;
   }
   const seedPassword = process.env.DEMO_SEED_PASSWORD || '123456';

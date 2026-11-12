@@ -17,10 +17,11 @@ const registerSchema = Joi.object({
   locale: Joi.string().valid('fa', 'en').default('fa'),
   school_id: Joi.string().allow(null, ''),
   school_code: Joi.string().allow(null, ''),
-});
+}).unknown(true);
 
 const loginSchema = Joi.object({
   identifier: Joi.string().required(), // username, email or phone
+  email: Joi.string().allow(null, ''),
   // The password is never defaulted. A missing or blank password is rejected by
   // the service with 401, so an account can never be opened without a
   // credential (report finding F11). Only the presence of a password is
@@ -30,7 +31,9 @@ const loginSchema = Joi.object({
   school_code: Joi.string().allow(null, ''),
   captcha_id: Joi.string().allow(null, ''),
   captcha_answer: Joi.alternatives().try(Joi.string(), Joi.number()).allow(null, ''),
-});
+  captchaId: Joi.string().allow(null, ''),
+  captchaAnswer: Joi.alternatives().try(Joi.string(), Joi.number()).allow(null, ''),
+}).unknown(true);
 
 const quickEntrySchema = Joi.object({
   display_name: Joi.string().min(2).max(100).required(),
@@ -49,6 +52,6 @@ const updateProfileSchema = Joi.object({
   avatar_url: Joi.string().uri().allow(null, ''),
   locale: Joi.string().valid('fa', 'en'),
   settings: Joi.object(),
-});
+}).unknown(true);
 
 module.exports = { registerSchema, loginSchema, quickEntrySchema, updateProfileSchema };

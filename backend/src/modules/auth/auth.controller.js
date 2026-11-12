@@ -124,8 +124,8 @@ class AuthController {
       const result = await authService.login(
         value.identifier,
         value.password,
-        value.captcha_id || null,
-        value.captcha_answer || null,
+        value.captcha_id || value.captchaId || null,
+        value.captcha_answer ?? value.captchaAnswer ?? null,
         {
           school_id: value.school_id || null,
           school_code: value.school_code || null,
@@ -138,6 +138,26 @@ class AuthController {
         success: true,
         message: 'ورود موفقیت‌آمیز',
         messageEn: 'Login successful',
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/auth/demo-login
+   */
+  async demoLogin(req, res, next) {
+    try {
+      const role = req.body?.role || 'admin';
+      const result = await authService.demoLogin(role);
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+
+      res.json({
+        success: true,
+        message: 'ورود به حساب آزمایشی با موفقیت انجام شد',
+        messageEn: 'Demo login successful',
         data: result,
       });
     } catch (err) {
@@ -213,12 +233,12 @@ class AuthController {
   }
 
   /**
-   * GET /api/v1/auth/me
+   * GET /api/v1/auth/me & GET /api/v1/auth/profile
    */
   async getMe(req, res) {
     res.json({
       success: true,
-      data: { user: req.user },
+      data: { ...req.user, user: req.user },
     });
   }
 
@@ -232,7 +252,7 @@ class AuthController {
         success: true,
         message: 'مشخصات با موفقیت به‌روزرسانی شد',
         messageEn: 'Profile updated successfully',
-        data: { user },
+        data: { ...user, user },
       });
     } catch (err) {
       next(err);

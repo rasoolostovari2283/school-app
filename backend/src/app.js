@@ -103,11 +103,29 @@ const isAllowedOrigin = (origin) => {
   const normalizedOrigin = String(origin).trim().replace(/\/+$/, '');
   if (allowedList.includes(normalizedOrigin)) return true;
 
-  if (config.nodeEnv !== 'production') {
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalizedOrigin)) {
-      return true;
-    }
+  // Allow local development & Capacitor/Ionic mobile WebView origins (Android/iOS APK)
+  if (/^(capacitor|ionic|https?):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalizedOrigin)) {
+    return true;
   }
+
+  // Allow private LAN IPv4 addresses (for school intranet / Wi-Fi server deployments)
+  if (
+    /^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$/i.test(
+      normalizedOrigin
+    )
+  ) {
+    return true;
+  }
+
+  // Allow official cloud preview and tunnel endpoints used by EduConnect server deployments
+  if (
+    /^https:\/\/[a-z0-9.-]+\.(trycloudflare\.com|pinggy\.link|pinggy\.io|run\.app|ngrok-free\.app|ngrok\.io|loca\.lt)(:\d+)?$/i.test(
+      normalizedOrigin
+    )
+  ) {
+    return true;
+  }
+
   return false;
 };
 
@@ -546,10 +564,30 @@ app.use(errorHandler);
 
 // ── Start Server ──
 const PORT = config.port;
-server.listen(PORT, () => {
-  if (config.nodeEnv !== 'test') {
-    startScheduledMaintenance();
-    console.log(`
+
+async function ensureDatabaseReady() {
+  if (config.nodeEnv === 'test') return;
+  try {
+    if (db && db.migrate && typeof db.migrate.latest === 'function') {
+      await db.migrate.latest({
+        directory: path.join(__dirname, 'database', 'migrations'),
+      });
+    }
+    if (process.env.DISABLE_DEMO_SEED !== 'true' && db && db.seed && typeof db.seed.run === 'function') {
+      await db.seed.run({
+        directory: path.join(__dirname, 'database', 'seeds'),
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ [EduConnect] Auto-migration/seed check warning:', err.message);
+  }
+}
+
+ensureDatabaseReady().finally(() => {
+  server.listen(PORT, () => {
+    if (config.nodeEnv !== 'test') {
+      startScheduledMaintenance();
+      console.log(`
   ╔══════════════════════════════════════════════════════════════╗
   ║                                                              ║
   ║   🎓 EduConnect Enterprise API Server                        ║
@@ -562,7 +600,8 @@ server.listen(PORT, () => {
   ║                                                              ║
   ╚══════════════════════════════════════════════════════════════╝
   `);
-  }
+    }
+  });
 });
 
 if (config.nodeEnv !== 'test') {

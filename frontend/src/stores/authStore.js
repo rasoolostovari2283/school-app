@@ -76,6 +76,26 @@ export const useAuthStore = create((set, get) => ({
   isLoading: true,
   locale: 'fa',
 
+  setUser: (user) => {
+    if (typeof window !== 'undefined') {
+      if (user) {
+        localStorage.setItem('user_profile', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('user_profile');
+      }
+    }
+    set({ user, isAuthenticated: Boolean(user) });
+  },
+
+  fetchSchools: async () => {
+    try {
+      const { data } = await api.get('/auth/schools');
+      return data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
   initialize: async () => {
     try {
       if (typeof window === 'undefined') {
@@ -95,8 +115,11 @@ export const useAuthStore = create((set, get) => ({
         return;
       }
 
-      const { data } = await api.get('/auth/profile');
-      const profile = data.data;
+      const { data } = await api.get('/auth/me');
+      const profile = data?.data?.user || data?.data;
+      if (!profile || !profile.id) {
+        throw new Error('Invalid profile');
+      }
       localStorage.setItem('user_profile', JSON.stringify(profile));
       set({
         user: profile,
@@ -133,7 +156,7 @@ export const useAuthStore = create((set, get) => ({
       isAuthenticated: true,
       locale: user.locale || 'fa',
     });
-    return { user, school };
+    return { user, school, data: { user, school } };
   },
 
   quickEntry: async ({ display_name, phone, role, password, school_name, school_code, grades, subject }) => {
@@ -156,16 +179,15 @@ export const useAuthStore = create((set, get) => ({
       isAuthenticated: true,
       locale: user.locale || 'fa',
     });
-    return { user, isNew };
+    return { user, isNew, data: { user, isNew } };
   },
 
   login: async (identifier, password, captchaId = null, captchaAnswer = null, options = {}) => {
     const { data } = await api.post('/auth/login', {
       identifier,
-      email: identifier,
       password,
-      captchaId,
-      captchaAnswer,
+      captcha_id: captchaId || undefined,
+      captcha_answer: captchaAnswer ?? undefined,
       school_id: options.school_id || undefined,
       school_code: options.school_code || undefined,
     });
@@ -178,24 +200,48 @@ export const useAuthStore = create((set, get) => ({
       isAuthenticated: true,
       locale: user.locale || 'fa',
     });
-    return user;
+    return { ...user, user, data: { user } };
   },
 
-  parentLogin: async ({ student_identifier, student_code, parent_name, parent_phone, phone, relation, password, school_name, school_code, school_id }) => {
-    const resolvedCode = student_code || student_identifier;
-    const resolvedPhone = phone || parent_phone;
-    const { data } = await api.post('/auth/parent-login', {
-      student_code: resolvedCode,
-      student_identifier: resolvedCode,
-      parent_name,
-      phone: resolvedPhone,
-      parent_phone: resolvedPhone,
-      relation,
-      password,
-      school_name,
-      school_code,
-      school_id,
-    });
+  parentLogin: async (arg1, arg2, arg3) => {
+    let payload = {};
+    if (typeof arg1 === 'string') {
+      payload = {
+        student_code: arg1,
+        student_identifier: arg1,
+        parent_name: typeof arg2 === 'string' ? arg2 : undefined,
+        phone: typeof arg3 === 'string' ? arg3 : undefined,
+      };
+    } else if (arg1 && typeof arg1 === 'object') {
+      const {
+        student_identifier,
+        student_code,
+        parent_name,
+        parent_phone,
+        phone,
+        relation,
+        password,
+        school_name,
+        school_code,
+        school_id,
+      } = arg1;
+      const resolvedCode = student_code || student_identifier;
+      const resolvedPhone = phone || parent_phone;
+      payload = {
+        student_code: resolvedCode,
+        student_identifier: resolvedCode,
+        parent_name,
+        phone: resolvedPhone,
+        parent_phone: resolvedPhone,
+        relation,
+        password,
+        school_name,
+        school_code,
+        school_id,
+      };
+    }
+
+    const { data } = await api.post('/auth/parent-login', payload);
     const { user, student, accessToken, refreshToken } = data.data;
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
@@ -205,18 +251,24 @@ export const useAuthStore = create((set, get) => ({
       isAuthenticated: true,
       locale: user.locale || 'fa',
     });
-    return { user, student };
+    return { user, student, message: data.message, data: { user, student } };
   },
 
   demoLogin: async (role = 'admin') => {
     const account = DEMO_ACCOUNTS[role] || DEMO_ACCOUNTS.admin;
-    const { data } = await api.post('/auth/login', {
-      identifier: account.phone,
-      email: account.phone,
-      password: account.password,
-      school_code: account.school_code,
-    });
-    const { user, accessToken, refreshToken } = data.data;
+    let resData = null;
+    try {
+      const { data } = await api.post('/auth/demo-login', { role });
+      resData = data.data;
+    } catch {
+      const { data } = await api.post('/auth/login', {
+        identifier: account.phone,
+        password: account.password,
+        school_code: account.school_code,
+      });
+      resData = data.data;
+    }
+    const { user, accessToken, refreshToken } = resData;
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user_profile', JSON.stringify(user));
@@ -225,7 +277,7 @@ export const useAuthStore = create((set, get) => ({
       isAuthenticated: true,
       locale: user.locale || 'fa',
     });
-    return { user, redirect: account.redirect };
+    return { user, redirect: account.redirect, data: { user, redirect: account.redirect } };
   },
 
   register: async (userData) => {
@@ -235,7 +287,7 @@ export const useAuthStore = create((set, get) => ({
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user_profile', JSON.stringify(user));
     set({ user, isAuthenticated: true });
-    return user;
+    return { ...user, user, data: { user } };
   },
 
   logout: async () => {
@@ -266,16 +318,18 @@ export const useAuthStore = create((set, get) => ({
 
   updateProfile: async (updates) => {
     const { data } = await api.put('/auth/profile', updates);
-    localStorage.setItem('user_profile', JSON.stringify(data.data));
-    set({ user: data.data });
-    return data.data;
+    const profile = data?.data?.user || data?.data;
+    localStorage.setItem('user_profile', JSON.stringify(profile));
+    set({ user: profile });
+    return profile;
   },
 
   refreshProfile: async () => {
-    const { data } = await api.get('/auth/profile');
-    localStorage.setItem('user_profile', JSON.stringify(data.data));
-    set({ user: data.data });
-    return data.data;
+    const { data } = await api.get('/auth/me');
+    const profile = data?.data?.user || data?.data;
+    localStorage.setItem('user_profile', JSON.stringify(profile));
+    set({ user: profile });
+    return profile;
   },
 
   setLocale: (locale) => {

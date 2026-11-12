@@ -1033,6 +1033,67 @@ test('[ZeroTo100Scan] AI RBAC, anonymous feedback redaction, discipline role sep
   for (const t of studentDirRes.body.data.teachers) {
     assert.equal(t.phone, '', 'Teacher phone numbers must be empty for student callers on /messages/directory');
   }
+
+  // 7. End-to-End Mobile/Server Auth Flows: Demo Login, Quick Entry with Built-in School, and School Registration
+  const demoAdminRes = await post(baseUrl, '/api/v1/auth/demo-login', {
+    body: { role: 'admin' },
+  });
+  assert.equal(demoAdminRes.status, 200, 'POST /auth/demo-login for admin must succeed');
+  assert.equal(demoAdminRes.body.data.user.role, 'admin');
+  assert.ok(demoAdminRes.body.data.accessToken);
+
+  const demoLoginViaStandardEndpointRes = await post(baseUrl, '/api/v1/auth/login', {
+    body: {
+      identifier: '09121110001',
+      email: '09121110001',
+      password: '123456',
+      captchaId: null,
+      captchaAnswer: null,
+      school_code: 'SCH-1001',
+    },
+  });
+  assert.equal(demoLoginViaStandardEndpointRes.status, 200, 'POST /auth/login with frontend payload fields must succeed for demo admin');
+  assert.equal(demoLoginViaStandardEndpointRes.body.data.user.role, 'admin');
+
+  const quickEntryStudentRes = await post(baseUrl, '/api/v1/auth/quick-entry', {
+    body: {
+      display_name: 'کوروش بزرگ',
+      phone: '09309774466',
+      role: 'student',
+      school_name: 'دبیرستان فرزانگان ۱ (تهران)',
+      school_code: 'SCH-1002',
+    },
+  });
+  assert.equal(quickEntryStudentRes.status, 200, 'POST /auth/quick-entry with built-in school must succeed');
+  assert.equal(quickEntryStudentRes.body.data.isNew, true);
+  assert.equal(quickEntryStudentRes.body.data.user.role, 'student');
+  assert.equal(quickEntryStudentRes.body.data.user.school_id, 'sch-2');
+  assert.ok(quickEntryStudentRes.body.data.accessToken);
+
+  const registerSchoolRes = await post(baseUrl, '/api/v1/auth/register-school', {
+    body: {
+      school_name: 'شیراز',
+      school_level: 'متوسطه دوم (دبیرستان)',
+      city: 'شیراز',
+      admin_name: 'استواری',
+      admin_phone: '09306445577',
+      admin_password: '',
+    },
+  });
+  assert.equal(registerSchoolRes.status, 201, 'POST /auth/register-school must succeed');
+  assert.equal(registerSchoolRes.body.data.user.role, 'admin');
+  assert.ok(registerSchoolRes.body.data.school.school_code.startsWith('SCH-'));
+  assert.ok(registerSchoolRes.body.data.accessToken);
+
+  const newSchoolAdminLoginRes = await post(baseUrl, '/api/v1/auth/login', {
+    body: {
+      identifier: '09306445577',
+      password: '123456',
+    },
+  });
+  assert.equal(newSchoolAdminLoginRes.status, 200, 'Newly registered school admin must be able to log in with default password 123456');
+  assert.equal(newSchoolAdminLoginRes.body.data.user.role, 'admin');
 });
+
 
 

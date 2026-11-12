@@ -302,9 +302,10 @@ export default function LoginPage() {
         subject: smartForm.role === 'teacher' ? (smartTeacherSubject || '').trim() || undefined : undefined,
       });
 
-      const user = res.data.user;
+      const user = res?.data?.user || res?.user || res;
+      const isNew = res?.data?.isNew ?? res?.isNew ?? false;
       toast.success(
-        res.data.isNew
+        isNew
           ? `🎉 آیدی اختصاصی شما صادر شد: @${user.username} (مدرسه: ${user.school_name || finalSchoolName || 'ثبت شد'})`
           : `خوش آمدید! ورود با آیدی @${user.username} انجام شد 👋`,
         { duration: 5000 }
@@ -312,7 +313,7 @@ export default function LoginPage() {
 
       router.push(getPostLoginRedirect(user));
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ثبت‌نام یا ورود به سامانه');
+      toast.error(err?.response?.data?.message || 'خطا در ثبت‌نام یا ورود به سامانه');
     } finally {
       setIsLoading(false);
     }
@@ -329,11 +330,11 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const res = await login(accountForm.identifier.trim(), accountForm.password);
-      const user = res.data.user;
+      const user = res?.data?.user || res?.user || res;
       toast.success(`خوش آمدید ${user.display_name}! 👋`);
       router.push(getPostLoginRedirect(user));
     } catch (err) {
-      toast.error(err.response?.data?.message || 'آیدی یا رمز عبور اشتباه است');
+      toast.error(err?.response?.data?.message || 'آیدی یا رمز عبور اشتباه است');
     } finally {
       setIsLoading(false);
     }
@@ -352,11 +353,11 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const res = await parentLogin(code.trim(), name.trim());
-      toast.success(res.message || 'ورود موفقیت‌آمیز اولیا انجام شد! 👋');
+      const res = await parentLogin(code.trim(), name ? name.trim() : '');
+      toast.success(res?.message || 'ورود موفقیت‌آمیز اولیا انجام شد! 👋');
       router.push('/dashboard/');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'کد دانش‌آموزی در سامانه مدرسه یافت نشد');
+      toast.error(err?.response?.data?.message || 'کد دانش‌آموزی در سامانه مدرسه یافت نشد');
     } finally {
       setIsLoading(false);
     }
@@ -386,20 +387,23 @@ export default function LoginPage() {
         city: schoolForm.city.trim(),
         admin_name: schoolForm.admin_name.trim(),
         admin_phone: schoolForm.admin_phone.trim(),
-        admin_password: schoolForm.admin_password.trim() || 'admin123',
+        admin_password: schoolForm.admin_password.trim() || '123456',
       });
 
-      setRegisteredSchoolResult(res.school);
+      const schoolObj = res?.school || res?.data?.school;
+      setRegisteredSchoolResult(schoolObj);
       await loadSchools();
-      setSmartForm((prev) => ({
-        ...prev,
-        school_name: res.school.name,
-        school_code: res.school.school_code,
-      }));
+      if (schoolObj) {
+        setSmartForm((prev) => ({
+          ...prev,
+          school_name: schoolObj.name,
+          school_code: schoolObj.school_code,
+        }));
+      }
       setIsCustomSchoolSelected(false);
-      toast.success(`مدرسه «${res.school.name}» با موفقیت ثبت شد! کد اختصاصی: ${res.school.school_code} 🎉`, { duration: 6000 });
+      toast.success(`مدرسه «${schoolObj?.name || schoolForm.school_name}» با موفقیت ثبت شد! کد اختصاصی: ${schoolObj?.school_code || ''} 🎉`, { duration: 6000 });
     } catch (err) {
-      toast.error(err.response?.data?.message || 'خطا در ثبت‌نام مدرسه');
+      toast.error(err?.response?.data?.message || 'خطا در ثبت‌نام مدرسه');
     } finally {
       setIsLoading(false);
     }

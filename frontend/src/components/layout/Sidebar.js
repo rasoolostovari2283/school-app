@@ -24,79 +24,81 @@ import {
   HiOutlineBanknotes,
   HiOutlineShieldCheck,
   HiOutlineCpuChip,
+  HiOutlineXMark,
+  HiOutlineChevronLeft,
 } from 'react-icons/hi2';
 import styles from './Sidebar.module.css';
 
 const navByRole = {
   admin: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار مدیریتی', en: 'Dashboard' },
-    { href: '/dashboard/management', icon: HiOutlineBuildingLibrary, fa: 'اتوماسیون جامع مدرسه', en: 'School Management' },
-    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'عملیات هوشمند (سیدا و OCR)', en: 'Smart Operations' },
-    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'امور مالی و درگاه شاپرک', en: 'Finance & Shaparak' },
-    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'لیست کلاس‌ها و آمار', en: 'Class Rosters' },
-    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های درس', en: 'Classes' },
-    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه رسمی و دفتر نمره', en: 'Report Card' },
-    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'انضباطی و مشاوره', en: 'Discipline & Counseling' },
-    { href: '/dashboard/analytics', icon: HiOutlineChartBar, fa: 'تحلیل و آمار مدرسه', en: 'Analytics' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان و شوراها', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌های رسمی', en: 'Announcements' },
-    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌ها و پشتیبانی', en: 'Tickets' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار مدیریتی', en: 'Dashboard', group: 'مدیریت و عملیات' },
+    { href: '/dashboard/management', icon: HiOutlineBuildingLibrary, fa: 'اتوماسیون جامع مدرسه', en: 'School Management', group: 'مدیریت و عملیات' },
+    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'عملیات هوشمند (سیدا و OCR)', en: 'Smart Operations', group: 'مدیریت و عملیات', tag: 'هوشمند' },
+    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'امور مالی و درگاه شاپرک', en: 'Finance & Shaparak', group: 'مدیریت و عملیات' },
+    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'لیست کلاس‌ها و آمار', en: 'Class Rosters', group: 'آموزش و ارزشیابی' },
+    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های درس', en: 'Classes', group: 'آموزش و ارزشیابی' },
+    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه رسمی و دفتر نمره', en: 'Report Card', group: 'آموزش و ارزشیابی' },
+    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'انضباطی و مشاوره', en: 'Discipline & Counseling', group: 'آموزش و ارزشیابی' },
+    { href: '/dashboard/analytics', icon: HiOutlineChartBar, fa: 'تحلیل و آمار مدرسه', en: 'Analytics', group: 'آموزش و ارزشیابی' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان و شوراها', en: 'Messages', badgeKey: 'messages', group: 'ارتباطات و پشتیبانی' },
+    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌های رسمی', en: 'Announcements', group: 'ارتباطات و پشتیبانی' },
+    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌ها و پشتیبانی', en: 'Tickets', group: 'ارتباطات و پشتیبانی' },
   ],
   teacher: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'داشبورد دبیر', en: 'Dashboard' },
-    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'عملیات هوشمند (سیدا و OCR)', en: 'Smart Operations' },
-    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'لیست کلاسی و حضور و غیاب', en: 'Class Rosters' },
-    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های من', en: 'My Classes' },
-    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'دفتر نمره و کارنامه', en: 'Gradebook & Report Card' },
-    { href: '/dashboard/assignments', icon: HiOutlineDocumentText, fa: 'تکالیف کلاسی', en: 'Assignments' },
-    { href: '/dashboard/quizzes', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌ها و بانک سوال', en: 'Quizzes' },
-    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی تحصیلی', en: 'Study Planner' },
-    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'موارد انضباطی و تشویقی', en: 'Discipline' },
-    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی', en: 'Weekly Schedule' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان مدرسه', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌ها', en: 'Announcements' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'داشبورد دبیر', en: 'Dashboard', group: 'میز کار آموزشی' },
+    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'عملیات هوشمند (سیدا و OCR)', en: 'Smart Operations', group: 'میز کار آموزشی', tag: 'هوشمند' },
+    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'لیست کلاسی و حضور و غیاب', en: 'Class Rosters', group: 'میز کار آموزشی' },
+    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های من', en: 'My Classes', group: 'میز کار آموزشی' },
+    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'دفتر نمره و کارنامه', en: 'Gradebook & Report Card', group: 'سنجش و تکالیف' },
+    { href: '/dashboard/assignments', icon: HiOutlineDocumentText, fa: 'تکالیف کلاسی', en: 'Assignments', group: 'سنجش و تکالیف' },
+    { href: '/dashboard/quizzes', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌ها و بانک سوال', en: 'Quizzes', group: 'سنجش و تکالیف' },
+    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی تحصیلی', en: 'Study Planner', group: 'سنجش و تکالیف' },
+    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'موارد انضباطی و تشویقی', en: 'Discipline', group: 'برنامه و ارتباطات' },
+    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی', en: 'Weekly Schedule', group: 'برنامه و ارتباطات' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان مدرسه', en: 'Messages', badgeKey: 'messages', group: 'برنامه و ارتباطات' },
+    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌ها', en: 'Announcements', group: 'برنامه و ارتباطات' },
   ],
   counselor: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار مشاور', en: 'Counselor Desk' },
-    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'پرونده مشاوره و انضباطی', en: 'Counseling & Discipline' },
-    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی و کنکور', en: 'Study Planner' },
-    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'پایش کارنامه و تراز', en: 'Academic Progress' },
-    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'فهرست دانش‌آموزان', en: 'Student Roster' },
-    { href: '/dashboard/analytics', icon: HiOutlineChartBar, fa: 'تحلیل پیشرفت تحصیلی', en: 'Analytics' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'ارتباط با اولیا و دانش‌آموز', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌های مشاوره', en: 'Counseling Tickets' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار مشاور', en: 'Counselor Desk', group: 'هدایت تحصیلی' },
+    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'پرونده مشاوره و انضباطی', en: 'Counseling & Discipline', group: 'هدایت تحصیلی' },
+    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی و کنکور', en: 'Study Planner', group: 'هدایت تحصیلی', tag: 'ویژه' },
+    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'پایش کارنامه و تراز', en: 'Academic Progress', group: 'هدایت تحصیلی' },
+    { href: '/dashboard/class-rosters', icon: HiOutlineUserGroup, fa: 'فهرست دانش‌آموزان', en: 'Student Roster', group: 'تحلیل و ارتباط' },
+    { href: '/dashboard/analytics', icon: HiOutlineChartBar, fa: 'تحلیل پیشرفت تحصیلی', en: 'Analytics', group: 'تحلیل و ارتباط' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'ارتباط با اولیا و دانش‌آموز', en: 'Messages', badgeKey: 'messages', group: 'تحلیل و ارتباط' },
+    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌های مشاوره', en: 'Counseling Tickets', group: 'تحلیل و ارتباط' },
   ],
   financial_officer: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار امور مالی', en: 'Finance Desk' },
-    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'دفتر کل شهریه و شاپرک', en: 'Tuition & Shaparak' },
-    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'ابزارهای شبا و سیدا', en: 'Sheba & Sida Tools' },
-    { href: '/dashboard/management', icon: HiOutlineBuildingLibrary, fa: 'فهرست دانش‌آموزان و اولیا', en: 'Student Directory' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان مالی', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌های امور شهریه', en: 'Finance Tickets' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار امور مالی', en: 'Finance Desk', group: 'حسابداری و شهریه' },
+    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'دفتر کل شهریه و شاپرک', en: 'Tuition & Shaparak', group: 'حسابداری و شهریه', tag: 'شاپرک' },
+    { href: '/dashboard/smart-operations', icon: HiOutlineCpuChip, fa: 'ابزارهای شبا و سیدا', en: 'Sheba & Sida Tools', group: 'حسابداری و شهریه' },
+    { href: '/dashboard/management', icon: HiOutlineBuildingLibrary, fa: 'فهرست دانش‌آموزان و اولیا', en: 'Student Directory', group: 'پشتیبانی مالی' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان مالی', en: 'Messages', badgeKey: 'messages', group: 'پشتیبانی مالی' },
+    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت‌های امور شهریه', en: 'Finance Tickets', group: 'پشتیبانی مالی' },
   ],
   student: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار دانش‌آموز', en: 'Dashboard' },
-    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های من', en: 'My Classes' },
-    { href: '/dashboard/courses', icon: HiOutlineBuildingLibrary, fa: 'انتخاب واحد و دروس', en: 'Course Enrollment' },
-    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی تحصیلی', en: 'Study Planner' },
-    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی و امتحانات', en: 'Weekly Schedule' },
-    { href: '/dashboard/assignments', icon: HiOutlineDocumentText, fa: 'تکالیف من', en: 'My Assignments' },
-    { href: '/dashboard/quizzes', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌های آنلاین', en: 'Quizzes' },
-    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه رسمی نمرات', en: 'Report Card' },
-    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'شهریه و پرداخت شاپرک', en: 'Tuition & Payment' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان کلاسی', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت و پشتیبانی', en: 'Support Tickets' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'میز کار دانش‌آموز', en: 'Dashboard', group: 'تحصیل و کلاس' },
+    { href: '/dashboard/classes', icon: HiOutlineAcademicCap, fa: 'کلاس‌های من', en: 'My Classes', group: 'تحصیل و کلاس' },
+    { href: '/dashboard/courses', icon: HiOutlineBuildingLibrary, fa: 'انتخاب واحد و دروس', en: 'Course Enrollment', group: 'تحصیل و کلاس' },
+    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی تحصیلی', en: 'Study Planner', group: 'تحصیل و کلاس', tag: 'هدفمند' },
+    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی و امتحانات', en: 'Weekly Schedule', group: 'سنجش و کارنامه' },
+    { href: '/dashboard/assignments', icon: HiOutlineDocumentText, fa: 'تکالیف من', en: 'My Assignments', group: 'سنجش و کارنامه' },
+    { href: '/dashboard/quizzes', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌های آنلاین', en: 'Quizzes', group: 'سنجش و کارنامه' },
+    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه رسمی نمرات', en: 'Report Card', group: 'سنجش و کارنامه' },
+    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'شهریه و پرداخت شاپرک', en: 'Tuition & Payment', group: 'ارتباطات و امور مالی' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌رسان کلاسی', en: 'Messages', badgeKey: 'messages', group: 'ارتباطات و امور مالی' },
+    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'تیکت و پشتیبانی', en: 'Support Tickets', group: 'ارتباطات و امور مالی' },
   ],
   parent: [
-    { href: '/dashboard', icon: HiOutlineHome, fa: 'پورتال اولیا', en: 'Parent Portal' },
-    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه و نمرات فرزند', en: 'Child Report Card' },
-    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'امور شهریه و پرداخت آنلاین', en: 'Tuition & Shaparak' },
-    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'پرونده انضباطی و مشاوره', en: 'Discipline & Counseling' },
-    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'پایش برنامه‌ریزی فرزند', en: 'Study Progress' },
-    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی فرزند', en: 'Weekly Schedule' },
-    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'ارتباط مستقیم با مدرسه', en: 'Messages', badgeKey: 'messages' },
-    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌های مدرسه', en: 'Announcements' },
-    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'درخواست و تیکت به مدرسه', en: 'School Tickets' },
+    { href: '/dashboard', icon: HiOutlineHome, fa: 'پورتال اولیا', en: 'Parent Portal', group: 'پایش تحصیلی فرزند' },
+    { href: '/dashboard/report-card', icon: HiOutlineSparkles, fa: 'کارنامه و نمرات فرزند', en: 'Child Report Card', group: 'پایش تحصیلی فرزند' },
+    { href: '/dashboard/finance', icon: HiOutlineBanknotes, fa: 'امور شهریه و پرداخت آنلاین', en: 'Tuition & Shaparak', group: 'پایش تحصیلی فرزند', tag: 'شاپرک' },
+    { href: '/dashboard/discipline', icon: HiOutlineShieldCheck, fa: 'پرونده انضباطی و مشاوره', en: 'Discipline & Counseling', group: 'پایش تحصیلی فرزند' },
+    { href: '/dashboard/study-planner', icon: HiOutlineBookOpen, fa: 'پایش برنامه‌ریزی فرزند', en: 'Study Progress', group: 'برنامه و ارتباط با مدرسه' },
+    { href: '/dashboard/schedule', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی فرزند', en: 'Weekly Schedule', group: 'برنامه و ارتباط با مدرسه' },
+    { href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight, fa: 'ارتباط مستقیم با مدرسه', en: 'Messages', badgeKey: 'messages', group: 'برنامه و ارتباط با مدرسه' },
+    { href: '/dashboard/announcements', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌های مدرسه', en: 'Announcements', group: 'برنامه و ارتباط با مدرسه' },
+    { href: '/dashboard/tickets', icon: HiOutlineLifebuoy, fa: 'درخواست و تیکت به مدرسه', en: 'School Tickets', group: 'برنامه و ارتباط با مدرسه' },
   ],
 };
 
@@ -104,9 +106,9 @@ const ROLE_LABELS = {
   admin: { fa: 'مدیر و ستاد مدرسه', en: 'School Admin', badgeClass: styles.badgeAdmin },
   manager: { fa: 'مدیر مجتمع آموزشی', en: 'School Manager', badgeClass: styles.badgeAdmin },
   teacher: { fa: 'دبیر و کادر آموزشی', en: 'Teacher', badgeClass: styles.badgeTeacher },
-  counselor: { fa: 'مشاور ارشد تحصیلی', en: 'Academic Counselor', badgeClass: styles.badgeTeacher },
-  financial_officer: { fa: 'مسئول امور مالی و شهریه', en: 'Financial Officer', badgeClass: styles.badgeAdmin },
-  accountant: { fa: 'حسابدار مدرسه', en: 'Accountant', badgeClass: styles.badgeAdmin },
+  counselor: { fa: 'مشاور ارشد تحصیلی', en: 'Academic Counselor', badgeClass: styles.badgeCounselor },
+  financial_officer: { fa: 'مسئول امور مالی و شهریه', en: 'Financial Officer', badgeClass: styles.badgeFinance },
+  accountant: { fa: 'حسابدار مدرسه', en: 'Accountant', badgeClass: styles.badgeFinance },
   student: { fa: 'دانش‌آموز', en: 'Student', badgeClass: styles.badgeStudent },
   parent: { fa: 'ولی دانش‌آموز', en: 'Parent', badgeClass: styles.badgeParent },
 };
@@ -141,9 +143,22 @@ export default function Sidebar({ isOpen, onClose }) {
     };
   }, [user, pathname]);
 
-  const normalizedRole = user?.role === 'manager' ? 'admin' : user?.role === 'accountant' ? 'financial_officer' : (user?.role || 'student');
+  const normalizedRole =
+    user?.role === 'manager'
+      ? 'admin'
+      : user?.role === 'accountant'
+      ? 'financial_officer'
+      : user?.role || 'student';
   const items = navByRole[normalizedRole] || navByRole.student;
   const roleMeta = ROLE_LABELS[user?.role] || ROLE_LABELS.student;
+
+  // Group items by their section header
+  const groupedItems = items.reduce((acc, item) => {
+    const groupName = item.group || 'منوی اصلی';
+    if (!acc[groupName]) acc[groupName] = [];
+    acc[groupName].push(item);
+    return acc;
+  }, {});
 
   const handleLogout = async () => {
     await logout();
@@ -156,29 +171,60 @@ export default function Sidebar({ isOpen, onClose }) {
 
   return (
     <>
-      {isOpen && <div className={styles.overlay} onClick={onClose} />}
+      {isOpen && (
+        <div
+          className={styles.overlay}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      <aside className={`${styles.sidebar} ${isOpen ? styles.open : ''}`}>
-        <div className={styles.brand}>
-          <div className={styles.brandIcon}>🎓</div>
-          <div>
-            <div className={styles.brandName}>EduConnect</div>
-            <div className={styles.brandSub}>{t('پلتفرم هوشمند مدارس ایران', 'Smart School Platform')}</div>
-          </div>
+      <aside
+        className={`${styles.sidebar} ${isOpen ? styles.open : ''}`}
+        aria-label="منوی اصلی سامانه"
+      >
+        {/* Top Brand Row + Mobile Close Button */}
+        <div className={styles.brandRow}>
+          <Link href="/dashboard" className={styles.brand} onClick={onClose}>
+            <div className={styles.brandIcon}>🎓</div>
+            <div className={styles.brandTextWrap}>
+              <div className={styles.brandName}>EduConnect</div>
+              <div className={styles.brandSub}>
+                {t('پلتفرم هوشمند مدارس ایران', 'Smart School Platform')}
+              </div>
+            </div>
+          </Link>
+
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={onClose}
+            aria-label="بستن منو"
+            title="بستن منو"
+          >
+            <HiOutlineXMark />
+          </button>
         </div>
 
+        {/* User Profile Card */}
         {user && (
-          <div className={styles.userCard}>
+          <Link
+            href="/dashboard/settings"
+            className={styles.userCard}
+            onClick={onClose}
+            title="مشاهده و ویرایش تنظیمات حساب کاربری"
+          >
             <div className={styles.avatar}>
               {avatarSrc ? (
                 <img
                   src={avatarSrc}
                   alt={user.display_name}
-                  style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                  className={styles.avatarImg}
                 />
               ) : (
-                user.display_name?.charAt(0)
+                user.display_name?.charAt(0) || 'ک'
               )}
+              <span className={styles.onlineDot} />
             </div>
             <div className={styles.userInfo}>
               <div className={styles.userName}>{user.display_name}</div>
@@ -186,64 +232,74 @@ export default function Sidebar({ isOpen, onClose }) {
                 {t(roleMeta.fa, roleMeta.en)}
               </span>
             </div>
-          </div>
+            <HiOutlineChevronLeft className={styles.userChevron} />
+          </Link>
         )}
 
+        {/* Grouped Navigation Links */}
         <nav className={styles.nav}>
-          {items.map((item) => {
-            const Icon = item.icon;
-            const normPath = pathname?.replace(/\/$/, '') || '';
-            const normHref = item.href.replace(/\/$/, '');
-            const isActive =
-              normPath === normHref ||
-              (normHref !== '/dashboard' && normPath.startsWith(normHref));
-            const badgeValue = item.badgeKey === 'messages' ? unreadMessagesCount : 0;
+          {Object.entries(groupedItems).map(([groupTitle, groupLinks]) => (
+            <div key={groupTitle} className={styles.navGroup}>
+              <div className={styles.navGroupLabel}>{groupTitle}</div>
+              {groupLinks.map((item) => {
+                const Icon = item.icon;
+                const normPath = pathname?.replace(/\/$/, '') || '';
+                const normHref = item.href.replace(/\/$/, '');
+                const isActive =
+                  normPath === normHref ||
+                  (normHref !== '/dashboard' && normPath.startsWith(normHref));
+                const badgeValue = item.badgeKey === 'messages' ? unreadMessagesCount : 0;
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`${styles.navItem} ${isActive ? styles.active : ''}`}
-                onClick={() => {
-                  if (item.badgeKey === 'messages') setUnreadMessagesCount(0);
-                  onClose?.();
-                }}
-              >
-                <Icon className={styles.navIcon} />
-                <span style={{ flex: 1 }}>{t(item.fa, item.en)}</span>
-                {badgeValue > 0 && (
-                  <span
-                    style={{
-                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                      color: '#fff',
-                      fontSize: '0.68rem',
-                      fontWeight: 800,
-                      minWidth: '20px',
-                      height: '20px',
-                      padding: '0 6px',
-                      borderRadius: '999px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0 2px 8px rgba(239, 68, 68, 0.45)',
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`${styles.navItem} ${isActive ? styles.active : ''}`}
+                    onClick={() => {
+                      if (item.badgeKey === 'messages') setUnreadMessagesCount(0);
+                      onClose?.();
                     }}
                   >
-                    {badgeValue > 99 ? '99+' : badgeValue.toLocaleString('fa-IR')}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                    <div className={styles.navIconWrap}>
+                      <Icon className={styles.navIcon} />
+                    </div>
+                    <span className={styles.navLabelText}>{t(item.fa, item.en)}</span>
+                    {item.tag && !badgeValue && (
+                      <span className={styles.featureTag}>{item.tag}</span>
+                    )}
+                    {badgeValue > 0 && (
+                      <span className={styles.unreadBadge}>
+                        {badgeValue > 99 ? '99+' : badgeValue.toLocaleString('fa-IR')}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
+        {/* Bottom Actions Footer */}
         <div className={styles.footer}>
-          <Link href="/dashboard/settings" className={styles.navItem} onClick={onClose}>
-            <HiOutlineCog6Tooth className={styles.navIcon} />
-            <span>{t('تنظیمات حساب', 'Settings')}</span>
+          <Link
+            href="/dashboard/settings"
+            className={`${styles.navItem} ${pathname?.includes('/settings') ? styles.active : ''}`}
+            onClick={onClose}
+          >
+            <div className={styles.navIconWrap}>
+              <HiOutlineCog6Tooth className={styles.navIcon} />
+            </div>
+            <span className={styles.navLabelText}>{t('تنظیمات حساب و پروفایل', 'Account Settings')}</span>
           </Link>
-          <button className={`${styles.navItem} ${styles.logoutBtn}`} onClick={handleLogout}>
-            <HiOutlineArrowRightOnRectangle className={styles.navIcon} />
-            <span>{t('خروج از حساب', 'Logout')}</span>
+          <button
+            type="button"
+            className={`${styles.navItem} ${styles.logoutBtn}`}
+            onClick={handleLogout}
+          >
+            <div className={styles.navIconWrap}>
+              <HiOutlineArrowRightOnRectangle className={styles.navIcon} />
+            </div>
+            <span className={styles.navLabelText}>{t('خروج امن از سامانه', 'Sign Out')}</span>
           </button>
         </div>
       </aside>

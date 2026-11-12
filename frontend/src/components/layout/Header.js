@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import api from '@/lib/api';
 import Link from 'next/link';
@@ -17,11 +17,31 @@ import {
   HiOutlineBars3,
   HiOutlineArrowUturnRight,
   HiOutlineArrowRight,
+  HiOutlineChevronLeft,
 } from 'react-icons/hi2';
 import styles from './Header.module.css';
 import toast from 'react-hot-toast';
 
-export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
+const QUICK_NAV_ITEMS = [
+  { href: '/dashboard', title: 'میز کار هوشمند (داشبورد)', keywords: 'داشبورد میز کار خانه اصلی dashboard', icon: '🏠' },
+  { href: '/dashboard/management', title: 'اتوماسیون جامع و مدیریت مدرسه', keywords: 'مدیریت ستاد دانش آموز دبیر کلاس ثبت نام', icon: '🏛️' },
+  { href: '/dashboard/smart-operations', title: 'عملیات هوشمند (سیدا، شبا و اسکن OCR)', keywords: 'سیدا sida ocr اسکن کاغذ شبا مهاجرت داده', icon: '🤖' },
+  { href: '/dashboard/finance', title: 'امور مالی، شهریه و درگاه شاپرک', keywords: 'مالی شهریه شاپرک فیش قسط بانک حسابداری', icon: '💳' },
+  { href: '/dashboard/class-rosters', title: 'لیست‌های کلاسی و حضور و غیاب', keywords: 'لیست کلاس حضور غیاب آمار دانش آموزان', icon: '📋' },
+  { href: '/dashboard/classes', title: 'کلاس‌های درس و جلسات آنلاین', keywords: 'کلاس درس ویدیو لایو جلسه', icon: '🎓' },
+  { href: '/dashboard/report-card', title: 'کارنامه رسمی و دفتر نمره', keywords: 'کارنامه نمره معدل تراز مستمر پایانی', icon: '📊' },
+  { href: '/dashboard/assignments', title: 'تکالیف و تمرین‌های کلاسی', keywords: 'تکلیف تمرین مشق پروژه تحویل', icon: '📝' },
+  { href: '/dashboard/quizzes', title: 'آزمون‌های آنلاین و بانک سوال', keywords: 'آزمون کوییز تست امتحان سوال', icon: '🧪' },
+  { href: '/dashboard/study-planner', title: 'دفتر برنامه‌ریزی تحصیلی و کنکور', keywords: 'برنامه ریزی مطالعه کنکور هدف ساعت', icon: '📅' },
+  { href: '/dashboard/discipline', title: 'پرونده انضباطی و هدایت تحصیلی', keywords: 'انضباطی مشاوره تاخیر تشویقی غیبت', icon: '🛡️' },
+  { href: '/dashboard/schedule', title: 'برنامه هفتگی و تقویم آموزشی', keywords: 'برنامه هفتگی زنگ ساعت تقویم', icon: '🕒' },
+  { href: '/dashboard/messages', title: 'پیام‌رسان و گفتگوی مستقیم', keywords: 'پیام چت گفتگو اولیا دبیر شورا', icon: '💬' },
+  { href: '/dashboard/announcements', title: 'اطلاعیه‌ها و بخشنامه‌های مدرسه', keywords: 'اطلاعیه بخشنامه خبر اعلان', icon: '📢' },
+  { href: '/dashboard/tickets', title: 'پشتیبانی و تیکت‌های مدرسه', keywords: 'تیکت پشتیبانی درخواست پیگیری', icon: '🎫' },
+  { href: '/dashboard/settings', title: 'تنظیمات حساب و پروفایل کاربری', keywords: 'تنظیمات پروفایل رمز عبور آواتار', icon: '⚙️' },
+];
+
+export default function Header({ onToggleMobileMenu }) {
   const router = useRouter();
   const pathname = usePathname() || '';
   const { user } = useAuthStore();
@@ -74,7 +94,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
       } else {
         router.push('/dashboard');
       }
-    } catch (e) {
+    } catch {
       router.push('/dashboard');
     }
   };
@@ -88,18 +108,32 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
   const [currentDate, setCurrentDate] = useState('');
   const [showAiModal, setShowAiModal] = useState(false);
 
+  // Command Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef(null);
+  const searchWrapRef = useRef(null);
+
   // AI prompt state
   const [aiTopic, setAiTopic] = useState('');
   const [aiType, setAiType] = useState('quiz');
   const [aiResult, setAiResult] = useState('');
   const [generatingAi, setGeneratingAi] = useState(false);
 
+  const filteredNavItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return QUICK_NAV_ITEMS.slice(0, 6);
+    return QUICK_NAV_ITEMS.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.keywords.toLowerCase().includes(q)
+    ).slice(0, 7);
+  }, [searchQuery]);
+
   useEffect(() => {
-    // Check initial theme
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
     setCurrentTheme(theme);
 
-    // Update Persian Date & Clock
     const updateDateTime = () => {
       const now = new Date();
       setCurrentDate(
@@ -120,6 +154,29 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
     updateDateTime();
     const timer = setInterval(updateDateTime, 30000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+        searchInputRef.current?.focus();
+      } else if (e.key === 'Escape') {
+        setSearchOpen(false);
+      }
+    };
+    const handleClickOutside = (e) => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) {
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -146,7 +203,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
     useAuthStore.setState({ user: updatedUser });
     try {
       localStorage.setItem('cached_user', JSON.stringify(updatedUser));
-    } catch (e) {}
+    } catch {}
 
     const roleNames = {
       admin: 'مدیریت مجتمع',
@@ -193,11 +250,29 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
     }
   };
 
+  const handleSelectNavResult = (href) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    router.push(href);
+  };
+
   return (
     <>
       <header className={styles.header}>
-        {/* Left: Back Button (on subpages) OR Hamburger & Search Bar */}
+        {/* Left: Back Button (on subpages) + Hamburger + Live Command Search */}
         <div className={styles.leftSection}>
+          {onToggleMobileMenu && (
+            <button
+              type="button"
+              className={styles.hamburgerBtn}
+              onClick={onToggleMobileMenu}
+              aria-label="منوی ناوبری"
+              title="باز و بستن منوی اصلی"
+            >
+              <HiOutlineBars3 />
+            </button>
+          )}
+
           {isSubPage && (
             <div className={styles.backNavContainer}>
               <button
@@ -217,43 +292,98 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
             </div>
           )}
 
-          {onToggleMobileMenu && (
-            <button
-              className={styles.hamburgerBtn}
-              onClick={onToggleMobileMenu}
-              aria-label="منوی ناوبری"
-              title="باز و بستن منوی سایت"
-            >
-              <HiOutlineBars3 style={{ strokeWidth: 2 }} />
-            </button>
-          )}
+          {/* Command Search Box */}
+          <div className={styles.searchContainer} ref={searchWrapRef}>
+            <div className={styles.searchBar} onClick={() => setSearchOpen(true)}>
+              <HiOutlineMagnifyingGlass className={styles.searchIcon} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                className={styles.searchInput}
+                value={searchQuery}
+                onFocus={() => setSearchOpen(true)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setSearchOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && filteredNavItems.length > 0) {
+                    handleSelectNavResult(filteredNavItems[0].href);
+                  }
+                }}
+                placeholder="جستجوی سریع بخش‌ها، سیدا، شهریه، کارنامه..."
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className={styles.searchClearBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
+                  aria-label="پاک کردن جستجو"
+                >
+                  <HiOutlineXMark />
+                </button>
+              ) : (
+                <span className={styles.searchKbd}>Ctrl+K</span>
+              )}
+            </div>
 
-          <div className={styles.searchBar}>
-            <HiOutlineMagnifyingGlass style={{ color: 'var(--text-tertiary)', fontSize: '1.125rem' }} />
-            <input
-              type="text"
-              className={styles.searchInput}
-              placeholder="جستجوی سریع کلاس‌ها، تکالیف یا دانش‌آموزان..."
-            />
-            <span className={styles.searchKbd}>Ctrl + K</span>
+            {searchOpen && (
+              <div className={styles.searchDropdown}>
+                <div className={styles.searchDropdownHeader}>
+                  <span>دسترسی سریع به ماژول‌های سامانه</span>
+                  <span className={styles.searchDropdownHint}>Enter برای ورود</span>
+                </div>
+                {filteredNavItems.length > 0 ? (
+                  <div className={styles.searchDropdownList}>
+                    {filteredNavItems.map((item) => (
+                      <button
+                        key={item.href}
+                        type="button"
+                        className={styles.searchResultItem}
+                        onClick={() => handleSelectNavResult(item.href)}
+                      >
+                        <span className={styles.searchResultIcon}>{item.icon}</span>
+                        <span className={styles.searchResultTitle}>{item.title}</span>
+                        <HiOutlineChevronLeft className={styles.searchResultArrow} />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.searchEmptyState}>
+                    موردی با عبارت «{searchQuery}» یافت نشد
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right: Actions, AI Button, Date, Theme, Profile */}
         <div className={styles.rightSection}>
           {/* AI Assistant Button */}
-          <button className={styles.aiBtn} onClick={() => setShowAiModal(true)} title="دستیار هوشمند آموزشی">
+          <button
+            type="button"
+            className={styles.aiBtn}
+            onClick={() => setShowAiModal(true)}
+            title="دستیار هوشمند آموزشی"
+          >
             <HiOutlineSparkles style={{ fontSize: '1.125rem' }} />
-            <span className={styles.aiBtnText}>EduConnect AI</span>
+            <span className={styles.aiBtnText}>دستیار هوشمند</span>
           </button>
 
           {/* Persian Date Widget */}
           <div className={styles.dateWidget}>
-            <HiOutlineCalendar style={{ color: 'var(--primary-400)' }} />
+            <HiOutlineCalendar style={{ color: 'var(--primary-500)' }} />
             <span>{currentDate || 'امروز'}</span>
             <span>•</span>
             <HiOutlineClock style={{ color: '#06b6d4' }} />
-            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{currentTime}</span>
+            <span className="tabular-nums" style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+              {currentTime}
+            </span>
           </div>
 
           {/* Panel Switcher - ONLY for Principal/Admin to view Teacher panel */}
@@ -296,12 +426,18 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
           )}
 
           {/* Theme Toggle */}
-          <button className={styles.iconBtn} onClick={toggleTheme} title="تغییر حالت شب و روز">
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={toggleTheme}
+            title="تغییر حالت شب و روز"
+            aria-label="تغییر حالت شب و روز"
+          >
             {currentTheme === 'dark' ? <HiOutlineSun style={{ color: '#f59e0b' }} /> : <HiOutlineMoon />}
           </button>
 
           {/* Notifications */}
-          <Link href="/dashboard/notifications" className={styles.iconBtn} title="اعلان‌ها">
+          <Link href="/dashboard/notifications" className={styles.iconBtn} title="اعلان‌ها" aria-label="اعلان‌ها">
             <HiOutlineBell />
             <span className={styles.badgeDot}></span>
           </Link>
@@ -335,7 +471,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.65)',
+            background: 'rgba(15, 23, 42, 0.65)',
             backdropFilter: 'blur(6px)',
             display: 'flex',
             alignItems: 'center',
@@ -359,29 +495,31 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div
                   style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '12px',
                     background: 'linear-gradient(135deg, #a855f7, #6366f1)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'white',
+                    fontSize: '1.15rem',
                   }}
                 >
                   <HiOutlineSparkles />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 800 }}>دستیار هوش مصنوعی ادوکانکت</h3>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 800 }}>دستیار هوشمند آموزشی ادوکانکت</h3>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                     تولید خودکار سوالات آزمون، متن اطلاعیه و تکالیف هوشمند
                   </span>
                 </div>
               </div>
               <button
+                type="button"
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
                 onClick={() => setShowAiModal(false)}
               >
@@ -433,6 +571,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
               </div>
 
               <button
+                type="button"
                 className="btn btn-primary"
                 onClick={handleGenerateAi}
                 disabled={generatingAi}
@@ -455,6 +594,7 @@ export default function Header({ onToggleMobileMenu, isMobileMenuOpen }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#c084fc' }}>پاسخ هوش مصنوعی:</span>
                     <button
+                      type="button"
                       className="btn btn-secondary btn-sm"
                       onClick={handleCopyAiResult}
                       title="کپی در حافظه"
