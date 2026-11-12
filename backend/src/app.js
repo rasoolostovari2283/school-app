@@ -74,6 +74,7 @@ app.use(compression({
 }));
 
 app.use(helmet({
+  contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   frameguard: false,
@@ -557,6 +558,37 @@ app.use('/api/v1/tickets', ticketRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/announcements', announcementRoutes);
 app.use('/api/v1/school', schoolRoutes);
+
+// ── Serve Built Web Frontend (Zero-Rebuild Live Web / PWA Hosting) ──
+const publicWebDir = path.join(__dirname, '..', 'public');
+if (fs.existsSync(publicWebDir)) {
+  app.use(express.static(publicWebDir, { extensions: ['html'] }));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/socket.io/')) {
+      return next();
+    }
+    const cleanPath = req.path.replace(/^\/+|\/+$/g, '');
+    const candidateIndex = cleanPath
+      ? path.join(publicWebDir, cleanPath, 'index.html')
+      : path.join(publicWebDir, 'index.html');
+    if (fs.existsSync(candidateIndex)) {
+      return res.sendFile(candidateIndex);
+    }
+    if (cleanPath.startsWith('dashboard/classes/') && cleanPath.endsWith('/live')) {
+      const liveFallback = path.join(publicWebDir, 'dashboard', 'classes', '1', 'live', 'index.html');
+      if (fs.existsSync(liveFallback)) return res.sendFile(liveFallback);
+    }
+    if (cleanPath.startsWith('dashboard/classes/')) {
+      const clsFallback = path.join(publicWebDir, 'dashboard', 'classes', '1', 'index.html');
+      if (fs.existsSync(clsFallback)) return res.sendFile(clsFallback);
+    }
+    const rootIndex = path.join(publicWebDir, 'index.html');
+    if (fs.existsSync(rootIndex)) {
+      return res.sendFile(rootIndex);
+    }
+    return next();
+  });
+}
 
 // ── Error Handling ──
 app.use(notFoundHandler);

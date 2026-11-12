@@ -58,3 +58,6 @@ Thumbs.db
 
 # Android APK binary releases (kept locally and on server, excluded from git history)
 *.apk
+
+# Built frontend served by Express (generated on build/deploy)
+backend/public/
