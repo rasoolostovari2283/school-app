@@ -3,6 +3,7 @@ const isExport = process.env.NEXT_EXPORT === 'true' || !process.env.BACKEND_INTE
 
 const nextConfig = {
   reactStrictMode: true,
+  trailingSlash: true,
   skipTrailingSlashRedirect: true,
   trailingSlash: true,
   images: {

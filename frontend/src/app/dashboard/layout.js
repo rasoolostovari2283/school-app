@@ -94,11 +94,11 @@ export default function DashboardLayout({ children }) {
             const stack = navStackRef.current;
             if (stack.length > 1) {
               stack.pop(); // remove current page
-              const prevPath = stack[stack.length - 1] || '/dashboard';
-              router.push(prevPath);
+              const prevPath = stack[stack.length - 1] || '/dashboard/';
+              router.push(prevPath.endsWith('/') ? prevPath : `${prevPath}/`);
             } else {
               // Fallback to main dashboard if stack is shallow
-              router.push('/dashboard');
+              router.push('/dashboard/');
             }
             return;
           }
@@ -272,7 +272,12 @@ export default function DashboardLayout({ children }) {
           {children}
         </main>
       </div>
-      {!isLiveRoom && <MobileBottomNav onOpenMenu={() => setIsMobileMenuOpen(true)} />}
+      {!isLiveRoom && (
+        <MobileBottomNav
+          onOpenMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+          onCloseMenu={() => setIsMobileMenuOpen(false)}
+        />
+      )}
     </div>
   );
 }

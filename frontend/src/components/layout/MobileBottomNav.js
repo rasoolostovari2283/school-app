@@ -15,7 +15,7 @@ import {
 } from 'react-icons/hi2';
 import styles from './MobileBottomNav.module.css';
 
-export default function MobileBottomNav({ onOpenMenu }) {
+export default function MobileBottomNav({ onOpenMenu, onCloseMenu }) {
   const pathname = usePathname() || '';
   const { user } = useAuthStore();
   const role =
@@ -28,42 +28,42 @@ export default function MobileBottomNav({ onOpenMenu }) {
   const getRoleTabs = () => {
     if (role === 'admin') {
       return [
-        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
-        { id: 'management', label: 'مدیریت', href: '/dashboard/management', icon: HiOutlineBuildingLibrary },
-        { id: 'finance', label: 'مالی', href: '/dashboard/finance', icon: HiOutlineBanknotes },
-        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+        { id: 'home', label: 'میز کار', href: '/dashboard/', icon: HiOutlineHome, exact: true },
+        { id: 'management', label: 'مدیریت', href: '/dashboard/management/', icon: HiOutlineBuildingLibrary },
+        { id: 'finance', label: 'مالی', href: '/dashboard/finance/', icon: HiOutlineBanknotes },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight },
       ];
     }
     if (role === 'financial_officer') {
       return [
-        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
-        { id: 'finance', label: 'شهریه', href: '/dashboard/finance', icon: HiOutlineBanknotes },
-        { id: 'management', label: 'دانش‌آموزان', href: '/dashboard/management', icon: HiOutlineBuildingLibrary },
-        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+        { id: 'home', label: 'میز کار', href: '/dashboard/', icon: HiOutlineHome, exact: true },
+        { id: 'finance', label: 'شهریه', href: '/dashboard/finance/', icon: HiOutlineBanknotes },
+        { id: 'management', label: 'دانش‌آموزان', href: '/dashboard/management/', icon: HiOutlineBuildingLibrary },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight },
       ];
     }
     if (role === 'counselor') {
       return [
-        { id: 'home', label: 'میز کار', href: '/dashboard', icon: HiOutlineHome, exact: true },
-        { id: 'discipline', label: 'پرونده‌ها', href: '/dashboard/discipline', icon: HiOutlineShieldCheck },
-        { id: 'planner', label: 'برنامه‌ریزی', href: '/dashboard/study-planner', icon: HiOutlineBookOpen },
-        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+        { id: 'home', label: 'میز کار', href: '/dashboard/', icon: HiOutlineHome, exact: true },
+        { id: 'discipline', label: 'پرونده‌ها', href: '/dashboard/discipline/', icon: HiOutlineShieldCheck },
+        { id: 'planner', label: 'برنامه‌ریزی', href: '/dashboard/study-planner/', icon: HiOutlineBookOpen },
+        { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight },
       ];
     }
     if (role === 'parent') {
       return [
-        { id: 'home', label: 'پورتال', href: '/dashboard', icon: HiOutlineHome, exact: true },
-        { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card', icon: HiOutlineSparkles },
-        { id: 'finance', label: 'شهریه', href: '/dashboard/finance', icon: HiOutlineBanknotes },
-        { id: 'messages', label: 'ارتباط', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+        { id: 'home', label: 'پورتال', href: '/dashboard/', icon: HiOutlineHome, exact: true },
+        { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card/', icon: HiOutlineSparkles },
+        { id: 'finance', label: 'شهریه', href: '/dashboard/finance/', icon: HiOutlineBanknotes },
+        { id: 'messages', label: 'ارتباط', href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight },
       ];
     }
     // teacher & student
     return [
-      { id: 'home', label: 'داشبورد', href: '/dashboard', icon: HiOutlineHome, exact: true },
-      { id: 'classes', label: 'کلاس‌ها', href: '/dashboard/classes', icon: HiOutlineAcademicCap },
-      { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card', icon: HiOutlineSparkles },
-      { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages', icon: HiOutlineChatBubbleLeftRight },
+      { id: 'home', label: 'داشبورد', href: '/dashboard/', icon: HiOutlineHome, exact: true },
+      { id: 'classes', label: 'کلاس‌ها', href: '/dashboard/classes/', icon: HiOutlineAcademicCap },
+      { id: 'grades', label: 'کارنامه', href: '/dashboard/report-card/', icon: HiOutlineSparkles },
+      { id: 'messages', label: 'پیام‌ها', href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight },
     ];
   };
 
@@ -73,8 +73,8 @@ export default function MobileBottomNav({ onOpenMenu }) {
     <nav className={styles.bottomNav} aria-label="نوار ناوبری موبایل">
       {navLinks.map((item) => {
         const Icon = item.icon;
-        const normPath = pathname.replace(/\/$/, '');
-        const normHref = item.href.replace(/\/$/, '');
+        const normPath = pathname.replace(/\/+$/, '');
+        const normHref = item.href.replace(/\/+$/, '');
         const isActive = item.exact
           ? normPath === normHref
           : normPath === normHref || normPath.startsWith(normHref);
@@ -84,6 +84,7 @@ export default function MobileBottomNav({ onOpenMenu }) {
             key={item.id}
             href={item.href}
             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+            onClick={() => onCloseMenu?.()}
             title={item.label}
           >
             {isActive && <div className={styles.activeIndicator} />}

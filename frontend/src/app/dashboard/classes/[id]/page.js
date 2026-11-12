@@ -35,7 +35,9 @@ export default function ClassDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
-  const classId = params.id;
+  const queryClassId =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('classId') : null;
+  const classId = queryClassId || params.id;
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isTeacher = user?.role === 'teacher' || isAdmin;
 

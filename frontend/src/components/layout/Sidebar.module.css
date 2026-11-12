@@ -42,10 +42,15 @@
     height: 100vh !important;
     height: 100dvh !important;
     z-index: 1250 !important;
+    background: #ffffff !important;
     transform: translateX(108%) !important;
     box-shadow: -20px 0 50px rgba(15, 23, 42, 0.45) !important;
     border-left: 1px solid var(--border-color) !important;
     padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  [data-theme='dark'] .sidebar {
+    background: #0d1424 !important;
   }
 
   .open,
