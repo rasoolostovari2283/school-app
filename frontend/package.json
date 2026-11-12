@@ -9,8 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/android": "8.5.3",
     "@capacitor/app": "^8.1.2",
-    "@capacitor/core": "^8.6.0",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
     "jspdf": "^2.5.2",
