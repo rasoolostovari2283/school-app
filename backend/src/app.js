@@ -569,11 +569,21 @@ app.use('/api/v1/school', schoolRoutes);
 // ── Serve Built Web Frontend (Zero-Rebuild Live Web / PWA Hosting) ──
 const publicWebDir = path.join(__dirname, '..', 'public');
 if (fs.existsSync(publicWebDir)) {
-  app.use(express.static(publicWebDir, { extensions: ['html'] }));
+  const noCacheHtml = (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  };
+  app.use(express.static(publicWebDir, { extensions: ['html'], setHeaders: noCacheHtml }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/socket.io/')) {
       return next();
     }
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     const cleanPath = req.path.replace(/^\/+|\/+$/g, '');
     const candidateIndex = cleanPath
       ? path.join(publicWebDir, cleanPath, 'index.html')
