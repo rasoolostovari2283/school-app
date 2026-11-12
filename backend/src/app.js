@@ -264,7 +264,14 @@ const syncStatusHandler = (_req, res) => {
   });
 };
 
-app.get('/', healthHandler);
+app.get('/', (req, res, next) => {
+  const indexHtml = path.join(__dirname, '..', 'public', 'index.html');
+  const acceptsHtml = typeof req.headers.accept === 'string' && req.headers.accept.includes('text/html');
+  if (acceptsHtml && fs.existsSync(indexHtml)) {
+    return res.sendFile(indexHtml);
+  }
+  return healthHandler(req, res, next);
+});
 app.get('/api', healthHandler);
 app.get('/api/health', healthHandler);
 app.get('/api/v1', healthHandler);

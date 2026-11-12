@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     cleartext: true,
-    allowNavigation: ['localhost', '127.0.0.1', '*.trycloudflare.com', 'early-expiration-excited-shoes.trycloudflare.com'],
+    allowNavigation: ['localhost', '127.0.0.1', '*.trycloudflare.com', 'suffered-dec-furnished-guarantees.trycloudflare.com'],
   },
 };
 
