@@ -3074,6 +3074,10 @@ function OfficialReportCardPaperSheet({ reportData }) {
                         <HiOutlineCheckCircle />
                         <span>قبول</span>
                       </span>
+                    ) : finalScore == null || item.status === 'نامشخص' ? (
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                        در انتظار نمره
+                      </span>
                     ) : (
                       <span className={styles.statusFailBadge}>
                         <HiOutlineExclamationCircle />

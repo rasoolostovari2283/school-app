@@ -15,6 +15,8 @@ export function parseWordXmlBlocks(xmlString) {
 
   const blocks = [];
 
+  const PAGE_BREAK_TOKEN = '\u000C';
+
   const extractParagraphText = (pNode) => {
     const parts = [];
     const walk = (node) => {
@@ -26,7 +28,12 @@ export function parseWordXmlBlocks(xmlString) {
           parts.push(child.textContent || '');
         } else if (local === 'tab') {
           parts.push('    ');
-        } else if (local === 'br' || local === 'cr') {
+        } else if (local === 'lastRenderedPageBreak') {
+          parts.push(PAGE_BREAK_TOKEN);
+        } else if (local === 'br') {
+          const brType = (child.getAttribute?.('w:type') || child.getAttribute?.('type') || '').toLowerCase();
+          parts.push(brType === 'page' ? PAGE_BREAK_TOKEN : '\n');
+        } else if (local === 'cr') {
           parts.push('\n');
         } else {
           walk(child);
@@ -42,11 +49,13 @@ export function parseWordXmlBlocks(xmlString) {
     const local = node.localName || node.nodeName || '';
 
     if (local === 'p') {
-      const rawText = extractParagraphText(node).trim();
-      if (!rawText) {
-        blocks.push({ type: 'spacer', text: '' });
-        continue;
+      const pPr = node.getElementsByTagNameNS('*', 'pPr')[0];
+      if (pPr && pPr.getElementsByTagNameNS('*', 'pageBreakBefore').length > 0 && blocks.length > 0) {
+        blocks.push({ type: 'page-break', text: '' });
       }
+
+      const rawFull = extractParagraphText(node);
+      const segments = rawFull.split(PAGE_BREAK_TOKEN);
       const pStyle = node.getElementsByTagNameNS('*', 'pStyle')[0];
       const styleVal = (pStyle?.getAttribute('w:val') || pStyle?.getAttribute('val') || '').toLowerCase();
       const hasBold = node.getElementsByTagNameNS('*', 'b').length > 0;
@@ -56,12 +65,24 @@ export function parseWordXmlBlocks(xmlString) {
         styleVal.includes('subtitle');
       const level = styleVal.includes('1') || styleVal.includes('title') ? 1 : isHeading ? 2 : 0;
 
-      blocks.push({
-        type: isHeading ? 'heading' : 'paragraph',
-        level,
-        bold: isHeading || hasBold,
-        text: rawText,
-        rtl: PERSIAN_OR_ARABIC_REGEX.test(rawText),
+      segments.forEach((seg, segIdx) => {
+        if (segIdx > 0) {
+          blocks.push({ type: 'page-break', text: '' });
+        }
+        const trimmed = seg.trim();
+        if (!trimmed) {
+          if (segments.length === 1) {
+            blocks.push({ type: 'spacer', text: '' });
+          }
+          return;
+        }
+        blocks.push({
+          type: isHeading ? 'heading' : 'paragraph',
+          level,
+          bold: isHeading || hasBold,
+          text: trimmed,
+          rtl: PERSIAN_OR_ARABIC_REGEX.test(trimmed),
+        });
       });
     } else if (local === 'tbl') {
       const rows = node.getElementsByTagNameNS('*', 'tr');
@@ -189,6 +210,13 @@ export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') 
   let currentY = MARGIN_TOP;
 
   for (const block of blocks) {
+    if (block.type === 'page-break') {
+      if (pages[pages.length - 1].length > 0) {
+        pages.push([]);
+        currentY = MARGIN_TOP;
+      }
+      continue;
+    }
     if (block.type === 'spacer') {
       currentY += 18;
       continue;
