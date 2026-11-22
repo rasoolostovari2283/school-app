@@ -87,13 +87,33 @@ export const useAuthStore = create((set, get) => ({
     set({ user, isAuthenticated: Boolean(user) });
   },
 
-  fetchSchools: async () => {
+  fetchSchools: async (query = '') => {
     try {
-      const { data } = await api.get('/auth/schools');
+      const params = query && String(query).trim() ? { q: String(query).trim() } : undefined;
+      const { data } = await api.get('/auth/schools', { params });
       return data?.data || [];
     } catch {
       return [];
     }
+  },
+
+  findSchoolByUsername: async (username) => {
+    const clean = String(username || '').trim().replace(/^@/, '');
+    if (!clean) {
+      throw new Error('نام کاربری مدرسه را وارد کنید');
+    }
+    const { data } = await api.get(`/auth/schools/by-username/${encodeURIComponent(clean)}`);
+    return data?.data;
+  },
+
+  findStudentByUsername: async (username, schoolId = null) => {
+    const clean = String(username || '').trim().replace(/^@/, '');
+    if (!clean) {
+      throw new Error('نام کاربری دانش‌آموز را وارد کنید');
+    }
+    const params = schoolId ? { school_id: schoolId } : undefined;
+    const { data } = await api.get(`/auth/students/by-username/${encodeURIComponent(clean)}`, { params });
+    return data?.data;
   },
 
   initialize: async () => {
@@ -163,10 +183,19 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  registerSchool: async ({ school_name, school_level, city, admin_name, admin_phone, admin_password }) => {
+  registerSchool: async ({
+    school_name,
+    school_level,
+    majors = [],
+    city,
+    admin_name,
+    admin_phone,
+    admin_password,
+  }) => {
     const { data } = await api.post('/auth/register-school', {
       school_name,
       school_level,
+      majors,
       city,
       admin_name,
       admin_phone,
@@ -184,6 +213,54 @@ export const useAuthStore = create((set, get) => ({
       locale: user.locale || 'fa',
     });
     return { user, school, data: { user, school } };
+  },
+
+  registerStudent: async (payload) => {
+    const { data } = await api.post('/auth/register-student', payload);
+    const { user, student, school, accessToken, refreshToken } = data.data;
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('user_profile', JSON.stringify(user));
+
+    set({
+      user,
+      isAuthenticated: true,
+      isLoading: false,
+      locale: user.locale || 'fa',
+    });
+    return { user, student, school, data: { user, student, school } };
+  },
+
+  registerTeacher: async (payload) => {
+    const { data } = await api.post('/auth/register-teacher', payload);
+    const { user, teacher, school, accessToken, refreshToken } = data.data;
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('user_profile', JSON.stringify(user));
+
+    set({
+      user,
+      isAuthenticated: true,
+      isLoading: false,
+      locale: user.locale || 'fa',
+    });
+    return { user, teacher, school, data: { user, teacher, school } };
+  },
+
+  registerParent: async (payload) => {
+    const { data } = await api.post('/auth/register-parent', payload);
+    const { user, parent, student, school, accessToken, refreshToken } = data.data;
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.setItem('user_profile', JSON.stringify(user));
+
+    set({
+      user,
+      isAuthenticated: true,
+      isLoading: false,
+      locale: user.locale || 'fa',
+    });
+    return { user, parent, student, school, data: { user, parent, student, school } };
   },
 
   quickEntry: async ({ display_name, phone, role, password, school_name, school_code, grades, subject }) => {

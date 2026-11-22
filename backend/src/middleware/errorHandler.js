@@ -62,6 +62,8 @@ const errorHandler = (err, req, res, next) => {
     success: false,
     message: safeMessage,
     messageEn: err.messageEn || 'Internal server error',
+    ...(err.errorField && { errorField: err.errorField }),
+    ...(err.errorCode && { errorCode: err.errorCode }),
     ...(config.nodeEnv === 'development' && { stack: err.stack }),
   });
 };

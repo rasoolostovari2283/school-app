@@ -29,6 +29,7 @@ import {
   HiOutlineUserPlus,
   HiOutlineIdentification,
 } from 'react-icons/hi2';
+import CreateClassGradebookModal from '../../../components/gradebook/CreateClassGradebookModal';
 import styles from './report-card.module.css';
 
 export default function ReportCardPage() {
@@ -69,15 +70,8 @@ export default function ReportCardPage() {
   const [selectedChildId, setSelectedChildId] = useState(null);
 
   // ── Teacher State ──
-  const [classes, setClasses] = useState([
-    {
-      id: 'cls-gradebook-default',
-      name: 'دفتر نمرات کلاسی من',
-      subject: 'دروس تخصصی',
-      grade: 'پایه دهم',
-    },
-  ]);
-  const [selectedClassId, setSelectedClassId] = useState('cls-gradebook-default');
+  const [classes, setClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [gradebookData, setGradebookData] = useState(null);
   const [loadingTeacher, setLoadingTeacher] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -264,93 +258,32 @@ export default function ReportCardPage() {
     }
   }, [mounted, authLoading, user?.id, user?.role, selectedChildId]);
 
-  // Load Teacher Classes from Class Rosters, Management Classes, and Backend
-  const loadTeacherClasses = async () => {
+  // Load Teacher Classes strictly from Backend Database
+  const loadTeacherClasses = async (preferredClassId = null) => {
     try {
       setLoadingTeacher(true);
+      const res = await api.get('/classes');
+      const dbClasses = Array.isArray(res.data?.data?.classes) ? res.data.data.classes : [];
+      setClasses(dbClasses);
 
-      const userSettings = (() => {
-        try {
-          return typeof user?.settings === 'string' ? JSON.parse(user.settings) : (user?.settings || {});
-        } catch (e) {
-          return {};
-        }
-      })();
-
-      const teacherGrades = Array.isArray(userSettings?.taught_grades)
-        ? userSettings.taught_grades
-        : (Array.isArray(user?.taught_grades) ? user.taught_grades : []);
-      const teacherSubject = userSettings?.subject || user?.job_title || user?.department || 'دروس عمومی';
-      const schoolCode = user?.school_code || userSettings?.school_code || '402100';
-
-      // 1. Fetch from API if available
-      let apiList = [];
-      try {
-        const res = await api.get('/classes');
-        apiList = res.data?.data?.classes || [];
-      } catch (err) {
-        console.warn('API get classes failed for gradebook, checking roster classes:', err.message);
+      if (dbClasses.length === 0) {
+        setSelectedClassId('');
+        setGradebookData(null);
+        return;
       }
 
-      // 2. Rely strictly on Backend API classes list
-      const combined = [...apiList];
-
-      // Filter or prioritize classes matching teacher's assigned grades and subject
-      let relevantClasses = [...combined];
-      if (teacherGrades.length > 0) {
-        const gradeMatched = combined.filter((c) => {
-          const cGrade = (c.grade || c.department || c.name || '').toLowerCase();
-          return teacherGrades.some((tg) => cGrade.includes(tg.toLowerCase()) || tg.toLowerCase().includes(cGrade));
-        });
-        if (gradeMatched.length > 0) {
-          relevantClasses = gradeMatched;
-        }
-      }
-
-      // If no relevant classes exist, auto-create classes based on teacher's taught grades or provide default gradebook
-      if (relevantClasses.length === 0) {
-        const gradesToGenerate = teacherGrades.length > 0 ? teacherGrades : ['پایه دهم', 'پایه یازدهم'];
-        const autoClasses = gradesToGenerate.map((grd, idx) => ({
-          id: `roster-cls-${idx + 101}`,
-          name: `کلاس ${idx + 101} - ${grd}`,
-          subject: teacherSubject || 'دروس تخصصی',
-          grade: grd,
-          join_code: `CLS${idx + 101}`,
-          teacher_id: user?.id,
-          teacher_name: user?.display_name || user?.name || 'دبیر گرامی',
-        }));
-
-        autoClasses.unshift({
-          id: 'cls-gradebook-default',
-          name: 'دفتر نمرات کلاسی من',
-          subject: teacherSubject || 'دروس تخصصی',
-          grade: 'پایه دهم',
-          teacher_id: user?.id,
-          teacher_name: user?.display_name || user?.name || 'دبیر گرامی',
-        });
-
-        relevantClasses = autoClasses;
-      }
-
-      setClasses(relevantClasses);
-
-      const targetId = (selectedClassId && relevantClasses.some((c) => String(c.id) === String(selectedClassId)))
-        ? selectedClassId
-        : relevantClasses[0].id;
+      const candidate = preferredClassId || selectedClassId;
+      const targetId = candidate && dbClasses.some((c) => String(c.id) === String(candidate))
+        ? candidate
+        : dbClasses[0].id;
 
       setSelectedClassId(targetId);
-      await fetchClassGradebook(targetId, relevantClasses);
+      await fetchClassGradebook(targetId, dbClasses);
     } catch (err) {
       console.warn('Error fetching classes for report-card:', err);
-      const fallbackCls = {
-        id: selectedClassId || 'cls-gradebook-default',
-        name: 'دفتر نمرات کلاسی من',
-        subject: 'دروس تخصصی',
-        grade: 'پایه دهم',
-      };
-      setClasses([fallbackCls]);
-      setSelectedClassId(fallbackCls.id);
-      await fetchClassGradebook(fallbackCls.id, [fallbackCls]);
+      setClasses([]);
+      setSelectedClassId('');
+      setGradebookData(null);
     } finally {
       setLoadingTeacher(false);
     }
@@ -1603,28 +1536,36 @@ export default function ReportCardPage() {
               </div>
 
               <div className={styles.toolbarActions}>
-                <div className={styles.classSelectWrapper}>
-                  <span style={{ fontSize: '0.813rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                    دفتر نمرات / کلاس:
+                <div className={styles.classSelectWrapper} data-testid="gradebook-class-box">
+                  <span
+                    style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontWeight: 800, whiteSpace: 'nowrap' }}
+                    data-testid="gradebook-class-box-label"
+                  >
+                    دفتر نمرات کلاس
                   </span>
                   <select
                     className={styles.classSelect}
-                    value={selectedClassId || 'cls-gradebook-default'}
+                    value={selectedClassId || ''}
+                    aria-label="دفتر نمرات کلاس"
+                    data-testid="gradebook-class-select"
                     onChange={(e) => {
                       if (e.target.value === '__add_new__') {
                         setShowCreateClassModal(true);
-                      } else {
+                      } else if (e.target.value) {
                         setSelectedClassId(e.target.value);
                       }
                     }}
                   >
-                    {(classes.length > 0 ? classes : [{ id: 'cls-gradebook-default', name: 'دفتر نمرات کلاسی من', grade: 'پایه دهم' }]).map((cls) => (
+                    {classes.length === 0 && (
+                      <option value="">-- انتخاب کلاس از دیتابیس --</option>
+                    )}
+                    {classes.map((cls) => (
                       <option key={cls.id} value={cls.id}>
-                        {cls.name} {cls.subject ? `— ${cls.subject}` : ''} ({cls.grade || 'پایه دهم'})
+                        {cls.name} {cls.subject ? `— ${cls.subject}` : ''} ({cls.grade || 'عمومی'})
                       </option>
                     ))}
                     <option value="__add_new__" style={{ color: '#4f46e5', fontWeight: 800 }}>
-                      ➕ + ایجاد و ثبت کلاس جدید...
+                      ➕ ایجاد و ثبت کلاس جدید
                     </option>
                   </select>
                 </div>
@@ -1633,7 +1574,8 @@ export default function ReportCardPage() {
                   type="button"
                   onClick={() => setShowCreateClassModal(true)}
                   className="btn btn-secondary btn-sm"
-                  title="افزودن کلاس جدید به این بخش جهت نمره‌دهی و کارنامه"
+                  data-testid="open-create-class-gradebook-btn"
+                  title="ایجاد کلاس جدید و ورود دستی دانش‌آموزان و نمرات"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1644,7 +1586,7 @@ export default function ReportCardPage() {
                   }}
                 >
                   <HiOutlinePlus style={{ fontSize: '1.1rem' }} />
-                  <span>افزودن کلاس جدید</span>
+                  <span>ایجاد و ثبت کلاس جدید</span>
                 </button>
 
                 <Link
@@ -2237,87 +2179,19 @@ export default function ReportCardPage() {
           </div>
         )}
 
-        {/* ── Modal: Create New Class ── */}
-        {showCreateClassModal && (
-          <div className={styles.modalOverlay} onClick={() => setShowCreateClassModal(false)}>
-            <div className={styles.modalContent} style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <HiOutlineBuildingOffice2 style={{ fontSize: '1.3rem', color: '#6366f1' }} />
-                  <h3 style={{ margin: 0, fontWeight: 800 }}>ایجاد و ثبت کلاس جدید</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateClassModal(false)}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
-                >
-                  <HiOutlineXMark />
-                </button>
-              </div>
-
-              <div className={styles.modalBody}>
-                <p style={{ margin: '0 0 16px 0', fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  مشخصات کلاس درسی را وارد نمایید. این کلاس بلافاصله به منوی کلاس‌ها اضافه شده و دفتر نمرات آن فعال می‌گردد.
-                </p>
-
-                <form onSubmit={handleCreateNewClass} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_name">نام کلاس *</label>
-                    <input
-                      id="cls_name"
-                      className="input"
-                      type="text"
-                      placeholder="مثلاً: کلاس ۱۰۱ - ریاضی، کلاس دهم تجربی الف"
-                      value={newClassName}
-                      onChange={(e) => setNewClassName(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_grade">پایه تحصیلی *</label>
-                    <select
-                      id="cls_grade"
-                      className="input"
-                      value={newClassGrade}
-                      onChange={(e) => setNewClassGrade(e.target.value)}
-                    >
-                      <option value="پایه هفتم">پایه هفتم</option>
-                      <option value="پایه هشتم">پایه هشتم</option>
-                      <option value="پایه نهم">پایه نهم</option>
-                      <option value="پایه دهم">پایه دهم</option>
-                      <option value="پایه یازدهم">پایه یازدهم</option>
-                      <option value="پایه دوازدهم">پایه دوازدهم</option>
-                      <option value="عمومی">عمومی / آزاد</option>
-                    </select>
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_subject">عنوان درس / رشته (اختیاری)</label>
-                    <input
-                      id="cls_subject"
-                      className="input"
-                      type="text"
-                      placeholder="مثلاً: ریاضیات تخصصی، فیزیک، زیست‌شناسی"
-                      value={newClassSubject}
-                      onChange={(e) => setNewClassSubject(e.target.value)}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreateClassModal(false)}>
-                      انصراف
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={isCreatingClass}>
-                      {isCreatingClass ? 'در حال ثبت...' : 'ثبت و ایجاد کلاس'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* ── Modal: Create New Class + Manual Student Autocomplete & Scores ── */}
+        <CreateClassGradebookModal
+          isOpen={showCreateClassModal}
+          onClose={() => setShowCreateClassModal(false)}
+          onCreated={async (createdData) => {
+            const newClass = createdData?.class;
+            if (newClass?.id) {
+              await loadTeacherClasses(newClass.id);
+            } else {
+              await loadTeacherClasses();
+            }
+          }}
+        />
 
         {/* ── Modal: Add Evaluation Category ── */}
         {showCatModal && (

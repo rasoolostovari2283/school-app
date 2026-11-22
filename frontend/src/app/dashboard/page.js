@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
 import useClassStore from '../../stores/classStore';
 import api from '../../lib/api';
@@ -31,6 +32,7 @@ import SchoolWebsiteModal from '../../components/school/SchoolWebsiteModal';
 import styles from './dashboard.module.css';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, setUser } = useAuthStore();
   const { classes, fetchClasses, isLoading } = useClassStore();
   const [notifications, setNotifications] = useState({ unread_count: 0 });
@@ -57,18 +59,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user && user.role === 'student') {
-      const st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      let st = {};
+      try {
+        st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      } catch (_e) {
+        st = {};
+      }
       if (!st?.is_onboarded) {
-        setShowStudentSetup(true);
+        router.replace('/dashboard/select-teachers/');
+        return;
       }
     }
     if (user && user.role === 'teacher') {
-      const st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      let st = {};
+      try {
+        st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      } catch (_e) {
+        st = {};
+      }
       if (!st?.is_teacher_onboarded) {
         setShowTeacherSetup(true);
       }
     }
-  }, [user]);
+  }, [user, router]);
 
   // Parent specific state
   const [children, setChildren] = useState([]);
@@ -821,32 +834,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <button
-            type="button"
+          <Link
+            href="/dashboard/select-teachers/"
             className="btn btn-secondary btn-sm"
-            onClick={() => setShowStudentSetup(true)}
-            style={{ fontWeight: 700 }}
+            style={{ fontWeight: 700, textDecoration: 'none' }}
           >
             <span>انتخاب و ویرایش معلمان من ✏️</span>
-          </button>
+          </Link>
         </div>
-      )}
-
-      {/* ── Student Onboarding & Teachers Selection Modal ── */}
-      {isStudent && (
-        <StudentSetupModal
-          isOpen={showStudentSetup}
-          onClose={() => setShowStudentSetup(false)}
-          onSuccess={(updatedUser) => {
-            setUser(updatedUser);
-            fetchClasses();
-          }}
-          initialData={{
-            school_name: userSettings?.school_name,
-            grade: userSettings?.grade || user?.department,
-            selected_teacher_ids: userSettings?.selected_teacher_ids,
-          }}
-        />
       )}
 
       {/* ── Teacher School & Classes Connection Banner ── */}

@@ -40,7 +40,9 @@ export default function ManagementDashboardPage() {
   const [schoolData, setSchoolData] = useState({
     name: 'مجتمع آموزشی هوشمند علامه حلی',
     code: 'SCH-4821',
+    username: '',
     level: 'دوره دوم متوسطه',
+    majors: [],
     city: 'تهران',
     principal: 'دکتر تقوی',
     website: '',
@@ -100,17 +102,28 @@ export default function ManagementDashboardPage() {
 
   // Load School Identity and Seed / Stored Data
   useEffect(() => {
+    let parsedUserSettings = {};
+    try {
+      parsedUserSettings = typeof user?.settings === 'string'
+        ? JSON.parse(user.settings || '{}')
+        : (user?.settings || {});
+    } catch (_e) {}
+
     // Determine active school info
-    let currentSchoolCode = user?.school_code || 'SCH-4821';
-    let currentSchoolName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-    let principalName = user?.display_name || user?.name || 'دکتر تقوی';
-    let schoolLevel = user?.school_level || 'دوره دوم متوسطه';
-    let schoolCity = user?.city || 'تهران';
+    let currentSchoolCode = user?.school_code || parsedUserSettings.school_code || 'SCH-4821';
+    let currentSchoolName = user?.school_name || parsedUserSettings.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
+    let currentSchoolUsername = parsedUserSettings.school_username || user?.username || '';
+    let principalName = parsedUserSettings.principal || user?.display_name || user?.name || 'دکتر تقوی';
+    let schoolLevel = user?.school_level || parsedUserSettings.school_level || 'دوره دوم متوسطه';
+    let schoolMajors = Array.isArray(parsedUserSettings.majors) ? parsedUserSettings.majors : [];
+    let schoolCity = user?.city || parsedUserSettings.city || 'تهران';
 
     setSchoolData({
       name: currentSchoolName,
       code: currentSchoolCode,
+      username: currentSchoolUsername,
       level: schoolLevel,
+      majors: schoolMajors,
       city: schoolCity,
       principal: principalName,
     });
@@ -135,9 +148,11 @@ export default function ManagementDashboardPage() {
           ...prev,
           name: dbInfo.name || prev.name,
           code: dbInfo.code || prev.code,
+          username: dbInfo.username || prev.username,
           level: dbInfo.level || prev.level,
+          majors: Array.isArray(dbInfo.majors) ? dbInfo.majors : prev.majors,
           city: dbInfo.city || prev.city,
-          principal: dbInfo.principal || prev.principal,
+          principal: dbInfo.principal_name || dbInfo.principal || prev.principal,
           website: dbInfo.website || prev.website,
         }));
       }
@@ -497,8 +512,50 @@ export default function ManagementDashboardPage() {
             {schoolData.name}
           </h1>
           <p className={styles.headerSubtitle}>
-            سامانه فرماندهی و نظارت مدرسه | مدیر مجتمع: {schoolData.principal} | مقطع: {schoolData.level} | شهر: {schoolData.city}
+            سامانه فرماندهی و نظارت مدرسه | مدیر مدرسه: {schoolData.principal} | مقطع: {schoolData.level} | شهر: {schoolData.city}
+            {schoolData.username && (
+              <>
+                {' | آیدی مدرسه: '}
+                <bdi
+                  dir="ltr"
+                  style={{
+                    display: 'inline-block',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontWeight: 800,
+                    color: '#4f46e5',
+                    background: 'rgba(79, 70, 229, 0.08)',
+                    padding: '1px 7px',
+                    borderRadius: '6px',
+                  }}
+                >
+                  @{schoolData.username}
+                </bdi>
+              </>
+            )}
           </p>
+          {Array.isArray(schoolData.majors) && schoolData.majors.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                رشته‌های ارائه‌دهنده:
+              </span>
+              {schoolData.majors.map((major) => (
+                <span
+                  key={major}
+                  style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    padding: '2px 9px',
+                    borderRadius: '8px',
+                    background: 'rgba(79, 70, 229, 0.1)',
+                    color: '#4f46e5',
+                    border: '1px solid rgba(79, 70, 229, 0.22)',
+                  }}
+                >
+                  {major}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className={styles.headerActions}>

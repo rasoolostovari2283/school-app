@@ -76,13 +76,27 @@ router.get('/info', async (req, res, next) => {
       });
     }
 
-    let principalName = req.user?.display_name;
-    try {
-      const adminUser = await db('users')
-        .where({ school_id: school.id, role: 'admin' })
-        .first();
-      if (adminUser) principalName = adminUser.display_name;
-    } catch (e) {}
+    let principalName = school.principal_name || req.user?.display_name;
+    if (!school.principal_name) {
+      try {
+        const adminUser = await db('users')
+          .where({ school_id: school.id, role: 'admin' })
+          .first();
+        if (adminUser) principalName = adminUser.display_name;
+      } catch (e) {}
+    }
+
+    let parsedMajors = [];
+    if (Array.isArray(school.majors)) {
+      parsedMajors = school.majors;
+    } else if (typeof school.majors === 'string' && school.majors.trim()) {
+      try {
+        const parsed = JSON.parse(school.majors);
+        if (Array.isArray(parsed)) parsedMajors = parsed;
+      } catch (_e) {}
+    }
+
+    const isAdminViewer = ['admin', 'manager'].includes(req.user?.role);
 
     res.json({
       success: true,
@@ -90,10 +104,14 @@ router.get('/info', async (req, res, next) => {
         id: school.id,
         name: school.name,
         code: school.code,
+        username: school.username || null,
         level: school.level || 'دوره دوم متوسطه',
+        majors: parsedMajors,
         city: school.city || 'تهران',
         province: school.province || 'تهران',
         principal: principalName,
+        principal_name: principalName,
+        ...(isAdminViewer ? { principal_phone: school.principal_phone || null } : {}),
         website: school.website || '',
       },
     });

@@ -42,12 +42,24 @@ export default function AutoUpdateChecker() {
 
       if (res?.data?.success && res.data.build) {
         const remoteBuild = res.data.build;
-        const savedBuild = localStorage.getItem('educonnect_active_build') || APP_PACKAGE_BUILD;
+        const savedBuild = localStorage.getItem('educonnect_active_build');
+        const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+        const isAuthRoute = /^\/(login|register|register-school)(\/|$)/.test(pathname);
+
+        if (!savedBuild) {
+          localStorage.setItem('educonnect_active_build', remoteBuild);
+          if (manual) {
+            toast.success(`سامانه کاملاً به‌روز است (${remoteBuild.substring(0, 7)}) ✅`);
+          }
+          return;
+        }
 
         if (remoteBuild !== savedBuild) {
           setRemoteInfo(res.data);
-          setUpdateAvailable(true);
-          setDismissed(false);
+          if (manual || !isAuthRoute) {
+            setUpdateAvailable(true);
+            setDismissed(false);
+          }
           if (manual) {
             toast.success(`نسخه جدید (${remoteBuild.substring(0, 7)}) یافت شد! 🚀`);
           }
@@ -113,12 +125,10 @@ export default function AutoUpdateChecker() {
   return (
     <div style={{
       position: 'fixed',
-      bottom: '80px',
+      bottom: '16px',
       left: '16px',
-      right: '16px',
-      zIndex: 99999,
-      maxWidth: '440px',
-      margin: '0 auto',
+      zIndex: 9999,
+      width: 'min(360px, calc(100vw - 32px))',
       background: 'rgba(23, 23, 35, 0.98)',
       backdropFilter: 'blur(16px)',
       WebkitBackdropFilter: 'blur(16px)',

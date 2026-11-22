@@ -102,7 +102,58 @@ class AuthController {
       setAuthCookies(res, result.accessToken, result.refreshToken);
       res.status(201).json({
         success: true,
-        message: `مدرسه «${result.school.name}» با موفقیت ثبت شد! کد اختصاصی مدرسه: ${result.school.school_code}`,
+        message: `مدرسه «${result.school.name}» با موفقیت ثبت شد! نام کاربری اختصاصی شما: @${result.school.username} | کد مدرسه: ${result.school.school_code}`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/auth/register-student
+   */
+  async registerStudent(req, res, next) {
+    try {
+      const result = await authService.registerStudent(req.body || {});
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+      res.status(201).json({
+        success: true,
+        message: `ثبت‌نام شما با موفقیت انجام شد! نام کاربری انحصاری شما: @${result.user.username}`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/auth/register-teacher
+   */
+  async registerTeacher(req, res, next) {
+    try {
+      const result = await authService.registerTeacher(req.body || {});
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+      res.status(201).json({
+        success: true,
+        message: `ثبت‌نام معلم زیرشاخه مدرسه «${result.school.name}» با موفقیت انجام شد! آیدی اختصاصی شما: @${result.user.username}`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/auth/register-parent
+   */
+  async registerParent(req, res, next) {
+    try {
+      const result = await authService.registerParent(req.body || {});
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+      res.status(201).json({
+        success: true,
+        message: `ثبت‌نام اولیای «${result.student.full_name}» با موفقیت انجام شد! آیدی اختصاصی شما: @${result.user.username}`,
         data: result,
       });
     } catch (err) {
@@ -264,7 +315,7 @@ class AuthController {
    */
   async getStudentSetupOptions(req, res, next) {
     try {
-      const options = await authService.getStudentSetupOptions();
+      const options = await authService.getStudentSetupOptions(req.user);
       res.json({
         success: true,
         data: options,
@@ -279,16 +330,22 @@ class AuthController {
    */
   async saveStudentSetup(req, res, next) {
     try {
-      const { school_name, grade, teacher_ids } = req.body;
-      const user = await authService.saveStudentSetup(req.user.id, {
+      const { school_name, grade, major, education_level, teacher_ids } = req.body || {};
+      const result = await authService.saveStudentSetup(req.user.id, {
         school_name,
         grade,
+        major,
+        education_level,
         teacher_ids,
       });
       res.json({
         success: true,
-        message: 'مشخصات مدرسه، پایه تحصیلی و معلمان منتخب با موفقیت ثبت شد 🎉',
-        data: { user },
+        message: 'معلمان انتخاب‌شده ثبت شدند و شما در لیست کلاسی آن‌ها قرار گرفتید',
+        data: {
+          user: result.user,
+          linked_teachers: result.linked_teachers,
+          enrolled_classes: result.enrolled_classes,
+        },
       });
     } catch (err) {
       next(err);
@@ -434,10 +491,45 @@ class AuthController {
    */
   async getPublicSchoolsList(req, res, next) {
     try {
-      const schools = await authService.getPublicSchoolsList();
+      const q = req.query?.q || req.query?.search || '';
+      const schools = await authService.getPublicSchoolsList(q);
       res.json({
         success: true,
         data: schools,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/auth/schools/by-username/:username
+   * Lookup a registered school in the database by its unique username
+   */
+  async getSchoolByUsername(req, res, next) {
+    try {
+      const school = await authService.getSchoolByUsername(req.params.username);
+      res.json({
+        success: true,
+        data: school,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/auth/students/by-username/:username
+   * Lookup a registered student in the database by their exclusive username (optionally scoped to school_id)
+   */
+  async getStudentByUsername(req, res, next) {
+    try {
+      const student = await authService.getStudentByUsername(req.params.username, {
+        school_id: req.query?.school_id || null,
+      });
+      res.json({
+        success: true,
+        data: student,
       });
     } catch (err) {
       next(err);

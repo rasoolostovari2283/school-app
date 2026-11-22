@@ -9,17 +9,39 @@ const {
   forbiddenError,
   notFoundError,
 } = require('../../middleware/auth');
+const {
+  normalizeGroupHandle,
+  extractGroupJoinToken,
+  sanitizeMessageAttachments,
+  getMessagePreviewLabel,
+} = require('../../utils/studentTeacherHelper');
+
+const ROLE_LABELS_FA = {
+  admin: 'مدیر مدرسه',
+  manager: 'مدیر مدرسه',
+  teacher: 'معلم',
+  counselor: 'مشاور تحصیلی',
+  financial_officer: 'مسئول امور مالی',
+  accountant: 'حسابدار مدرسه',
+  student: 'دانش‌آموز',
+  parent: 'اولیا',
+};
 
 class MessageService {
   normalizeTeacherRecord(row) {
+    const role = row.role || 'teacher';
+    const isPrincipal = role === 'admin' || role === 'manager';
     return {
       id: row.id,
-      display_name: row.display_name || row.name || 'دبیر',
-      role: row.role || 'teacher',
-      subject: row.department || row.job_title || 'عمومی',
+      display_name: row.display_name || row.name || (isPrincipal ? 'مدیر مدرسه' : 'معلم'),
+      role,
+      role_label: ROLE_LABELS_FA[role] || 'کادر مدرسه',
+      is_principal: isPrincipal,
+      subject: row.job_title || row.department || (isPrincipal ? 'مدیریت مدرسه' : 'معلم مدرسه'),
       email: row.email || '',
       phone: row.phone || '',
       username: row.username || '',
+      avatar_url: row.avatar_url || null,
       grade_level: '',
     };
   }
@@ -30,7 +52,9 @@ class MessageService {
       throw notFoundError('گروه یافت نشد');
     }
 
-    if (group.created_by) {
+    if (group.school_id) {
+      assertSameSchool(user, group, 'دسترسی به گروه مدرسه دیگر مجاز نیست');
+    } else if (group.created_by) {
       const creator = await db('users').where({ id: group.created_by }).first();
       if (creator) {
         assertSameSchool(user, creator, 'دسترسی به گروه مدرسه دیگر مجاز نیست');
@@ -91,14 +115,29 @@ class MessageService {
         r.username = await ensureUserHasUsername(r.id);
       }
     }
-    const teachers = teacherRows.map((r) => {
-      const normalized = this.normalizeTeacherRecord(r);
-      if (!isStaffCaller) {
-        normalized.phone = '';
-        normalized.email = '';
-      }
-      return normalized;
-    });
+    const teachers = teacherRows
+      .map((r) => {
+        const normalized = this.normalizeTeacherRecord(r);
+        if (!isStaffCaller) {
+          normalized.phone = '';
+          normalized.email = '';
+        }
+        return normalized;
+      })
+      .sort((a, b) => {
+        // Principal(s) always appear first, then teachers, then other staff
+        const rank = (role) => {
+          if (role === 'admin' || role === 'manager') return 0;
+          if (role === 'teacher') return 1;
+          return 2;
+        };
+        const rDiff = rank(a.role) - rank(b.role);
+        if (rDiff !== 0) return rDiff;
+        return String(a.display_name || '').localeCompare(String(b.display_name || ''), 'fa');
+      });
+
+    // Default school contacts list: principal(s) + all teachers of the school
+    const defaultContacts = teachers.filter((m) => ['admin', 'manager', 'teacher'].includes(m.role));
 
     const classRows = await db('classes')
       .leftJoin('users as t', 't.id', 'classes.teacher_id')
@@ -108,6 +147,7 @@ class MessageService {
         'classes.name',
         'classes.join_code as class_code',
         'classes.grade as grade_level',
+        'classes.major',
         'classes.subject',
         'classes.teacher_id',
         't.display_name as teacher_name'
@@ -116,7 +156,7 @@ class MessageService {
     const allStudents = await db('users')
       .where({ role: 'student', school_id: schoolId })
       .whereNot('id', userId)
-      .select('id', 'display_name', 'email', 'phone', 'username', 'student_code', 'avatar_url')
+      .select('id', 'display_name', 'email', 'phone', 'username', 'student_code', 'avatar_url', 'department')
       .orderBy('display_name', 'asc');
 
     for (const s of allStudents) {
@@ -149,12 +189,14 @@ class MessageService {
         id: s.id,
         display_name: s.display_name || 'دانش‌آموز',
         role: 'student',
-        grade_level: firstClass?.grade_level || 'عمومی',
-        class_name: firstClass?.class_name || `پایه ${firstClass?.grade_level || 'عمومی'}`,
+        role_label: 'دانش‌آموز',
+        grade_level: firstClass?.grade_level || s.department || 'عمومی',
+        class_name: firstClass?.class_name || `پایه ${firstClass?.grade_level || s.department || 'عمومی'}`,
         class_id: firstClass?.class_id || null,
         student_code: isStaffCaller ? (s.student_code || '') : '',
         phone: isStaffCaller ? (s.phone || '') : '',
         username: s.username || '',
+        avatar_url: s.avatar_url || null,
       };
     });
 
@@ -172,6 +214,8 @@ class MessageService {
 
     const parentRows = rawParentRows.map((p) => ({
       ...p,
+      role: 'parent',
+      role_label: 'اولیا',
       email: isStaffCaller ? (p.email || '') : '',
       phone: isStaffCaller ? (p.phone || '') : '',
       student_code: isStaffCaller ? (p.student_code || '') : '',
@@ -188,6 +232,7 @@ class MessageService {
 
     return {
       all,
+      default_contacts: defaultContacts,
       staff: teachers,
       teachers,
       students,
@@ -198,6 +243,7 @@ class MessageService {
       stats: {
         totalStudents: students.length,
         totalStaff: teachers.length,
+        totalDefaultContacts: defaultContacts.length,
         totalParents: parentRows.length,
         totalClasses: classRows.length,
       },
@@ -206,25 +252,47 @@ class MessageService {
 
   async searchUserByIdentifier(query, currentUser) {
     if (!query || !String(query).trim() || !currentUser?.school_id) return [];
-    const clean = String(query).trim().replace(/^@/, '').toLowerCase();
+    const clean = String(query).trim().replace(/^@+/, '').toLowerCase();
+    const isStaffCaller = ['admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'].includes(currentUser.role);
 
     const rows = await db('users')
       .where({ school_id: currentUser.school_id })
       .where(function () {
         this.whereRaw('LOWER(username) LIKE ?', [`%${clean}%`])
           .orWhereRaw('LOWER(display_name) LIKE ?', [`%${clean}%`])
-          .orWhere('phone', 'like', `%${clean}%`)
           .orWhere('student_code', 'like', `%${clean}%`);
+        if (isStaffCaller) {
+          this.orWhere('phone', 'like', `%${clean}%`);
+        }
       })
-      .select('id', 'display_name', 'username', 'role', 'department', 'phone', 'student_code', 'avatar_url')
-      .limit(20);
+      .select('id', 'display_name', 'username', 'role', 'department', 'job_title', 'phone', 'student_code', 'avatar_url')
+      .limit(25);
 
     for (const r of rows) {
       if (!r.username) {
         r.username = await ensureUserHasUsername(r.id);
       }
     }
-    return rows;
+
+    return rows
+      .map((r) => ({
+        id: r.id,
+        display_name: r.display_name,
+        username: r.username || '',
+        role: r.role,
+        role_label: ROLE_LABELS_FA[r.role] || 'کاربر',
+        is_principal: r.role === 'admin' || r.role === 'manager',
+        department: r.department || '',
+        job_title: r.job_title || '',
+        avatar_url: r.avatar_url || null,
+        phone: isStaffCaller ? (r.phone || '') : '',
+        student_code: isStaffCaller ? (r.student_code || '') : '',
+      }))
+      .sort((a, b) => {
+        const aExact = (a.username || '').toLowerCase() === clean ? 0 : (a.username || '').toLowerCase().startsWith(clean) ? 1 : 2;
+        const bExact = (b.username || '').toLowerCase() === clean ? 0 : (b.username || '').toLowerCase().startsWith(clean) ? 1 : 2;
+        return aExact - bExact;
+      });
   }
 
   async ensureUserExists(uIdOrObj, schoolId = null) {
@@ -272,7 +340,7 @@ class MessageService {
     return { allowed: true, delayed_for_quiet_hours: false };
   }
 
-  async send(senderOrId, { receiver_id, receiver_username, class_id, content, attachments }) {
+  async send(senderOrId, { receiver_id, receiver_username, class_id, content, attachments }, io = null) {
     const sender = typeof senderOrId === 'object' && senderOrId !== null
       ? senderOrId
       : await db('users').where({ id: senderOrId }).first();
@@ -281,8 +349,11 @@ class MessageService {
       throw notFoundError('فرستنده یافت نشد');
     }
 
-    if (!content || !String(content).trim()) {
-      const err = new Error('متن پیام نمی‌تواند خالی باشد');
+    const safeAttachments = sanitizeMessageAttachments(attachments);
+    const trimmedContent = String(content || '').trim();
+
+    if (!trimmedContent && safeAttachments.length === 0) {
+      const err = new Error('متن پیام یا فایل پیوست نمی‌تواند خالی باشد');
       err.statusCode = 400;
       throw err;
     }
@@ -293,7 +364,7 @@ class MessageService {
 
     let finalReceiverId = receiver_id || null;
     if (!finalReceiverId && receiver_username) {
-      const clean = String(receiver_username).trim().replace(/^@/, '').toLowerCase();
+      const clean = String(receiver_username).trim().replace(/^@+/, '').toLowerCase();
       const targetUser = await db('users')
         .where({ school_id: sender.school_id })
         .whereRaw('LOWER(username) = ?', [clean])
@@ -322,13 +393,15 @@ class MessageService {
       sender_id: sender.id,
       receiver_id: finalReceiverId || null,
       class_id: class_id || null,
-      content: String(content).trim(),
-      attachments: JSON.stringify(attachments || []),
+      content: trimmedContent,
+      attachments: JSON.stringify(safeAttachments),
       is_broadcast: false,
       is_read: false,
       is_edited: false,
       sent_at: timestamp,
     });
+
+    const previewBody = getMessagePreviewLabel(trimmedContent, safeAttachments).slice(0, 120);
 
     if (finalReceiverId && finalReceiverId !== sender.id) {
       try {
@@ -336,7 +409,7 @@ class MessageService {
           id: generateId(),
           user_id: finalReceiverId,
           title: `💬 پیام جدید از ${sender?.display_name || 'کاربر'}`,
-          body: String(content).trim().slice(0, 120),
+          body: previewBody,
           type: 'message',
           data: JSON.stringify({ sender_id: sender.id, message_id: id }),
           is_read: false,
@@ -346,13 +419,22 @@ class MessageService {
     }
 
     const msg = await db('messages').where({ id }).first();
-    return {
+    const enrichedMsg = {
       ...msg,
       sender_name: sender?.display_name || 'کاربر',
       sender_role: sender?.role || 'student',
       sender_username: sender?.username || '',
       quiet_hours_delayed: qhCheck.delayed_for_quiet_hours || false,
     };
+
+    if (io && finalReceiverId) {
+      try {
+        io.to(`user:${finalReceiverId}`).emit('message:new', enrichedMsg);
+        io.to(`user:${sender.id}`).emit('message:new', enrichedMsg);
+      } catch (_e) {}
+    }
+
+    return enrichedMsg;
   }
 
   async editMessage(userId, messageId, newContent) {
@@ -476,25 +558,33 @@ class MessageService {
       });
     }
 
-    if (conversations.length < 3 && schoolId) {
+    // Always include ALL teachers and school principal(s) of the same school as default contacts
+    if (schoolId) {
       const existingIds = new Set(conversations.map((c) => c.user.id));
       existingIds.add(userId);
+      const isStaffCaller = ['admin', 'manager', 'teacher', 'counselor', 'financial_officer', 'accountant'].includes(currentUser.role);
 
-      const otherStaff = await db('users')
+      const defaultSchoolStaff = await db('users')
         .where({ school_id: schoolId })
-        .whereIn('role', ['teacher', 'counselor', 'financial_officer', 'accountant', 'admin', 'manager'])
+        .whereIn('role', ['admin', 'manager', 'teacher'])
         .whereNotIn('id', Array.from(existingIds))
-        .select('id', 'display_name', 'avatar_url', 'role', 'department', 'username', 'phone')
-        .limit(8);
+        .select('id', 'display_name', 'avatar_url', 'role', 'department', 'job_title', 'username', 'phone')
+        .orderBy('display_name', 'asc');
 
-      for (const staff of otherStaff) {
+      for (const staff of defaultSchoolStaff) {
         if (!staff.username) {
           staff.username = await ensureUserHasUsername(staff.id);
         }
         conversations.push({
-          user: staff,
+          user: {
+            ...staff,
+            phone: isStaffCaller ? (staff.phone || '') : '',
+            role_label: ROLE_LABELS_FA[staff.role] || 'کادر مدرسه',
+            is_principal: staff.role === 'admin' || staff.role === 'manager',
+          },
           last_message: null,
           unread_count: 0,
+          is_default_contact: true,
         });
       }
     }
@@ -502,7 +592,14 @@ class MessageService {
     return conversations.sort((a, b) => {
       const timeA = a.last_message?.sent_at || a.last_message?.created_at || '';
       const timeB = b.last_message?.sent_at || b.last_message?.created_at || '';
-      return timeB.localeCompare(timeA);
+      if (timeA || timeB) {
+        return timeB.localeCompare(timeA);
+      }
+      // Among default contacts with no messages yet, place principal(s) first then teachers alphabetically
+      const rankA = (a.user?.role === 'admin' || a.user?.role === 'manager') ? 0 : 1;
+      const rankB = (b.user?.role === 'admin' || b.user?.role === 'manager') ? 0 : 1;
+      if (rankA !== rankB) return rankA - rankB;
+      return String(a.user?.display_name || '').localeCompare(String(b.user?.display_name || ''), 'fa');
     });
   }
 
@@ -613,7 +710,78 @@ class MessageService {
     return enriched;
   }
 
-  async createGroup(user, { name, description, avatar_url, category, member_ids }) {
+  async ensureUniqueGroupHandle(requestedHandle, groupName) {
+    const suffix = uuidv4().replace(/-/g, '').slice(0, 4).toLowerCase();
+    let base = normalizeGroupHandle(requestedHandle, groupName, suffix);
+    let candidate = base;
+    for (let i = 0; i < 20; i++) {
+      const existing = await db('message_groups')
+        .whereRaw('LOWER(group_handle) = ?', [candidate.toLowerCase()])
+        .first();
+      if (!existing) return candidate;
+      const rand = uuidv4().replace(/-/g, '').slice(0, 4).toLowerCase();
+      candidate = `${base.slice(0, 34)}_${rand}`;
+    }
+    return `grp_${Date.now().toString(36)}`;
+  }
+
+  async searchGroups(query, currentUser) {
+    if (!currentUser?.school_id) return [];
+
+    const raw = String(query || '').trim();
+    const token = extractGroupJoinToken(raw);
+    const cleanLower = (token.handle || raw.replace(/^@+/, '').toLowerCase()).trim();
+    const cleanUpper = (token.code || cleanLower.toUpperCase()).trim();
+
+    let dbQuery = db('message_groups as mg')
+      .leftJoin('users as creator', 'creator.id', 'mg.created_by')
+      .where(function () {
+        this.where('mg.school_id', currentUser.school_id)
+          .orWhere('creator.school_id', currentUser.school_id);
+      })
+      .select('mg.*', 'creator.display_name as creator_name');
+
+    if (cleanLower) {
+      dbQuery = dbQuery.andWhere(function () {
+        this.whereRaw('LOWER(mg.group_handle) LIKE ?', [`%${cleanLower}%`])
+          .orWhereRaw('UPPER(mg.invite_code) LIKE ?', [`%${cleanUpper}%`])
+          .orWhereRaw('LOWER(mg.name) LIKE ?', [`%${cleanLower}%`])
+          .orWhereRaw('LOWER(mg.description) LIKE ?', [`%${cleanLower}%`]);
+      });
+    }
+
+    const groups = await dbQuery.orderBy('mg.created_at', 'desc').limit(25);
+    if (groups.length === 0) return [];
+
+    const groupIds = groups.map((g) => g.id);
+    const myMemberships = await db('message_group_members')
+      .where({ user_id: currentUser.id })
+      .whereIn('group_id', groupIds)
+      .pluck('group_id');
+    const mySet = new Set(myMemberships);
+
+    const counts = await db('message_group_members')
+      .whereIn('group_id', groupIds)
+      .groupBy('group_id')
+      .select('group_id')
+      .count('id as cnt');
+    const countMap = new Map(counts.map((c) => [c.group_id, Number(c.cnt || 0)]));
+
+    return groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      description: g.description || '',
+      category: g.category || 'general',
+      group_handle: g.group_handle || '',
+      invite_code: g.invite_code || '',
+      creator_name: g.creator_name || '',
+      members_count: Math.max(countMap.get(g.id) || 1, 1),
+      is_member: mySet.has(g.id) || g.created_by === currentUser.id,
+      created_at: g.created_at,
+    }));
+  }
+
+  async createGroup(user, { name, description, avatar_url, category, group_handle, member_ids, member_identifiers }) {
     if (!name || !String(name).trim()) {
       const err = new Error('نام گروه الزامی است');
       err.statusCode = 400;
@@ -622,15 +790,20 @@ class MessageService {
 
     const id = generateId();
     const timestamp = now();
+    const inviteCode = this.generateInviteCode();
+    const finalHandle = await this.ensureUniqueGroupHandle(group_handle, name);
 
     const validMemberIds = [];
-    if (Array.isArray(member_ids) && member_ids.length > 0) {
-      for (const mId of member_ids) {
-        if (mId && mId !== user.id) {
-          const validMemberId = await this.ensureUserExists(mId, user.school_id);
-          if (validMemberId && !validMemberIds.includes(validMemberId)) {
-            validMemberIds.push(validMemberId);
-          }
+    const candidateIdentifiers = [
+      ...(Array.isArray(member_ids) ? member_ids : []),
+      ...(Array.isArray(member_identifiers) ? member_identifiers : []),
+    ];
+
+    for (const candidate of candidateIdentifiers) {
+      if (candidate && candidate !== user.id) {
+        const validMemberId = await this.ensureUserExists(candidate, user.school_id);
+        if (validMemberId && validMemberId !== user.id && !validMemberIds.includes(validMemberId)) {
+          validMemberIds.push(validMemberId);
         }
       }
     }
@@ -638,9 +811,12 @@ class MessageService {
     await db.transaction(async (trx) => {
       await trx('message_groups').insert({
         id,
+        school_id: user.school_id || null,
         name: String(name).trim(),
         description: description || '',
         category: category || 'general',
+        group_handle: finalHandle,
+        invite_code: inviteCode,
         avatar_url: avatar_url || null,
         created_by: user.id,
         created_at: timestamp,
@@ -665,7 +841,11 @@ class MessageService {
       }
     });
 
-    return db('message_groups').where({ id }).first();
+    const created = await db('message_groups').where({ id }).first();
+    return {
+      ...created,
+      members_count: validMemberIds.length + 1,
+    };
   }
 
   async getGroupMembers(groupId, currentUser) {
@@ -767,39 +947,50 @@ class MessageService {
   async getGroupInviteLink(groupId, currentUser) {
     const group = await this.assertGroupAccess(currentUser, groupId);
 
+    const updates = {};
     if (!group.invite_code) {
-      const code = this.generateInviteCode();
-      try {
-        await db('message_groups').where({ id: groupId }).update({ invite_code: code });
-      } catch (_e) { /* ignore */ }
-      group.invite_code = code;
+      updates.invite_code = this.generateInviteCode();
+      group.invite_code = updates.invite_code;
+    }
+    if (!group.group_handle) {
+      updates.group_handle = await this.ensureUniqueGroupHandle('', group.name);
+      group.group_handle = updates.group_handle;
+    }
+    if (!group.school_id && currentUser?.school_id) {
+      updates.school_id = currentUser.school_id;
+    }
+    if (Object.keys(updates).length > 0) {
+      await db('message_groups').where({ id: groupId }).update(updates);
     }
 
     return {
       group_id: group.id,
       group_name: group.name,
+      group_handle: group.group_handle,
       invite_code: group.invite_code,
-      invite_link: `https://educonnect.ir/join/${group.invite_code}`,
+      invite_link: `/dashboard/messages/?joinGroup=${encodeURIComponent(group.invite_code)}`,
     };
   }
 
   async joinGroupByLinkOrCode(user, codeOrLink) {
     if (!codeOrLink || !String(codeOrLink).trim()) {
-      const err = new Error('کد دعوت یا لینک گروه الزامی است');
+      const err = new Error('آیدی گروه، کد دعوت یا لینک گروه الزامی است');
       err.statusCode = 400;
       throw err;
     }
 
-    const raw = String(codeOrLink).trim();
-    const code = raw.includes('/join/') ? raw.split('/join/').pop().trim() : raw;
+    const token = extractGroupJoinToken(codeOrLink);
 
     const group = await db('message_groups')
-      .where({ invite_code: code.toUpperCase() })
-      .orWhere({ id: code })
+      .where(function () {
+        if (token.code) this.whereRaw('UPPER(invite_code) = ?', [token.code]);
+        if (token.handle) this.orWhereRaw('LOWER(group_handle) = ?', [token.handle]);
+        if (token.raw) this.orWhere({ id: token.raw });
+      })
       .first();
 
     if (!group) {
-      throw notFoundError('گروهی با این لینک یا کد دعوت یافت نشد');
+      throw notFoundError('گروهی با این آیدی، کد دعوت یا لینک یافت نشد');
     }
 
     await this.assertGroupAccess(user, group.id, { requireMember: false });
@@ -819,7 +1010,7 @@ class MessageService {
       });
     }
 
-    return { joined: true, group };
+    return { joined: true, already_member: Boolean(exists), group };
   }
 
   async deleteGroup(groupId, user) {
@@ -844,6 +1035,7 @@ class MessageService {
       .select(
         'gm.*',
         'u.display_name as sender_name',
+        'u.username as sender_username',
         'u.role as sender_role'
       )
       .orderBy('gm.sent_at', 'asc')
@@ -852,11 +1044,14 @@ class MessageService {
     return { group, messages };
   }
 
-  async sendGroupMessage(user, groupId, { content, attachments }) {
-    const group = await this.assertGroupAccess(user, groupId);
+  async sendGroupMessage(user, groupId, { content, attachments }, io = null) {
+    await this.assertGroupAccess(user, groupId);
 
-    if (!content || !String(content).trim()) {
-      const err = new Error('متن پیام نمی‌تواند خالی باشد');
+    const safeAttachments = sanitizeMessageAttachments(attachments);
+    const trimmedContent = String(content || '').trim();
+
+    if (!trimmedContent && safeAttachments.length === 0) {
+      const err = new Error('متن پیام یا فایل پیوست نمی‌تواند خالی باشد');
       err.statusCode = 400;
       throw err;
     }
@@ -867,18 +1062,27 @@ class MessageService {
       id,
       group_id: groupId,
       sender_id: user.id,
-      content: String(content).trim(),
-      attachments: JSON.stringify(attachments || []),
+      content: trimmedContent,
+      attachments: JSON.stringify(safeAttachments),
       is_edited: false,
       sent_at: timestamp,
     });
 
     const msg = await db('message_group_messages').where({ id }).first();
-    return {
+    const enrichedMsg = {
       ...msg,
       sender_name: user.display_name || 'کاربر',
+      sender_username: user.username || '',
       sender_role: user.role || 'student',
     };
+
+    if (io) {
+      try {
+        io.to(`group:${groupId}`).emit('group:message:new', enrichedMsg);
+      } catch (_e) {}
+    }
+
+    return enrichedMsg;
   }
 
   async editGroupMessage(userOrId, groupId, messageId, newContent) {

@@ -1,5 +1,6 @@
 'use client';
 import { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
 import toast, { Toaster, ToastBar } from 'react-hot-toast';
@@ -143,8 +144,8 @@ export default function LoginPage() {
   // Demo Selection Modal State
   const [showDemoModal, setShowDemoModal] = useState(false);
 
-  // Tabs: 'smart' (نام و تلفن با تولید آیدی) | 'login' (ورود با آیدی یا شماره) | 'parent' (ورود اولیا با کد) | 'school' (ثبت‌نام مدرسه جدید)
-  const [activeTab, setActiveTab] = useState('smart');
+  // Tabs: 'login' (ورود با نام کاربری) | 'parent' (ورود اولیا با کد)
+  const [activeTab, setActiveTab] = useState('login');
   const [isLoading, setIsLoading] = useState(false);
 
   // Available Schools List for Login Selection
@@ -183,6 +184,40 @@ export default function LoginPage() {
   useEffect(() => {
     loadSchools();
   }, []);
+
+  const [schoolSearchResults, setSchoolSearchResults] = useState([]);
+  const [schoolSearchQuery, setSchoolSearchQuery] = useState('');
+
+  useEffect(() => {
+    const q = schoolSearchQuery.trim();
+    if (!q) {
+      setSchoolSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const remote = await fetchSchools(q);
+        if (Array.isArray(remote)) {
+          setSchoolSearchResults(remote.slice(0, 6));
+          if (remote.length > 0) {
+            setAvailableSchools((prev) => {
+              const seen = new Set(prev.map((s) => s.id || s.name));
+              const merged = [...prev];
+              remote.forEach((s) => {
+                const key = s.id || s.name;
+                if (!seen.has(key)) {
+                  merged.unshift(s);
+                  seen.add(key);
+                }
+              });
+              return merged;
+            });
+          }
+        }
+      } catch (_e) {}
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [schoolSearchQuery, fetchSchools]);
 
   // School Registration State
   const [schoolForm, setSchoolForm] = useState({
@@ -238,6 +273,7 @@ export default function LoginPage() {
     password: '',
   });
   const [showAccountPassword, setShowAccountPassword] = useState(false);
+  const [loginError, setLoginError] = useState({ field: null, message: '' });
 
   // Parent Code State
   const [parentStudentCode, setParentStudentCode] = useState('');
@@ -257,7 +293,11 @@ export default function LoginPage() {
 
   const getPostLoginRedirect = (user) => {
     if (!user) return '/dashboard/';
-    if (user.role === 'admin') return '/dashboard/management/';
+    if (['admin', 'school_admin', 'principal', 'manager', 'headmaster', 'owner'].includes(user.role)) {
+      return '/dashboard/management/';
+    }
+    if (user.role === 'counselor') return '/dashboard/discipline/';
+    if (['financial_officer', 'accountant'].includes(user.role)) return '/dashboard/finance/';
     if (user.role === 'parent') return '/dashboard/';
 
     let settings = {};
@@ -267,6 +307,10 @@ export default function LoginPage() {
       } catch (e) {
         settings = {};
       }
+    }
+
+    if (user.role === 'student' && !settings.is_onboarded) {
+      return '/dashboard/select-teachers/';
     }
 
     if (user.role === 'teacher' && !settings.is_teacher_onboarded) {
@@ -319,22 +363,52 @@ export default function LoginPage() {
     }
   };
 
-  // Submit Standard Account Login
+  // Submit Standard Account Login (checks username & password against DB with exact error attribution)
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
-    if (!accountForm.identifier.trim()) {
-      toast.error('لطفاً آیدی اختصاصی، شماره تلفن یا ایمیل خود را وارد نمایید');
+    setLoginError({ field: null, message: '' });
+
+    const cleanIdentifier = accountForm.identifier.trim();
+    const cleanPassword = accountForm.password;
+
+    if (!cleanIdentifier) {
+      const msg = 'لطفاً نام کاربری خود را وارد نمایید';
+      setLoginError({ field: 'username', message: msg });
+      toast.error(msg);
+      return;
+    }
+    if (!cleanPassword || !cleanPassword.trim()) {
+      const msg = 'لطفاً رمز عبور خود را وارد نمایید';
+      setLoginError({ field: 'password', message: msg });
+      toast.error(msg);
       return;
     }
 
     setIsLoading(true);
     try {
-      const res = await login(accountForm.identifier.trim(), accountForm.password);
+      const res = await login(cleanIdentifier, cleanPassword);
       const user = res?.data?.user || res?.user || res;
+      setLoginError({ field: null, message: '' });
       toast.success(`خوش آمدید ${user.display_name}! 👋`);
       router.push(getPostLoginRedirect(user));
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'آیدی یا رمز عبور اشتباه است');
+      const serverData = err?.response?.data || {};
+      const errField = serverData.errorField || (
+        String(serverData.message || '').includes('رمز عبور')
+          ? 'password'
+          : String(serverData.message || '').includes('نام کاربری') || String(serverData.message || '').includes('یافت نشد')
+          ? 'username'
+          : 'general'
+      );
+      const errMsg =
+        serverData.message ||
+        (errField === 'username'
+          ? 'نام کاربری واردشده اشتباه است و در دیتابیس یافت نشد'
+          : errField === 'password'
+          ? 'رمز عبور واردشده اشتباه است'
+          : 'خطا در بررسی اطلاعات ورود');
+      setLoginError({ field: errField, message: errMsg });
+      toast.error(errMsg);
     } finally {
       setIsLoading(false);
     }
@@ -660,26 +734,34 @@ export default function LoginPage() {
               <span>پرتال جامع کاربران، اولیا و کادر آموزشی</span>
             </div>
             <h2>ورود به سامانه مدرسه</h2>
-            <p>مشخصات خود را وارد کنید تا آیدی اختصاصی شما صادر گردد</p>
+            <p>با نام کاربری انحصاری خود وارد شوید یا برای ثبت‌نام و ثبت مدرسه اقدام کنید</p>
           </div>
 
           {/* Navigation Tabs */}
           <div className={styles.entryTabs}>
             <button
               type="button"
-              className={`${styles.entryTabBtn} ${styles.tabBtnSmart} ${activeTab === 'smart' ? styles.entryTabBtnActive : ''}`}
-              onClick={() => setActiveTab('smart')}
-            >
-              <HiOutlineSparkles style={{ fontSize: '1.2rem' }} />
-              <span>ثبت‌نام و صدور آیدی</span>
-            </button>
-            <button
-              type="button"
               className={`${styles.entryTabBtn} ${styles.tabBtnLogin} ${activeTab === 'login' ? styles.entryTabBtnActive : ''}`}
               onClick={() => setActiveTab('login')}
             >
               <HiOutlineIdentification style={{ fontSize: '1.2rem' }} />
-              <span>ورود با آیدی / شماره</span>
+              <span>ورود با نام کاربری</span>
+            </button>
+            <button
+              type="button"
+              className={`${styles.entryTabBtn} ${styles.tabBtnSmart}`}
+              onClick={() => router.push('/register/')}
+            >
+              <HiOutlineSparkles style={{ fontSize: '1.2rem' }} />
+              <span>ثبت نام</span>
+            </button>
+            <button
+              type="button"
+              className={`${styles.entryTabBtn} ${styles.tabBtnSchool}`}
+              onClick={() => router.push('/register-school/')}
+            >
+              <HiOutlineBuildingOffice2 style={{ fontSize: '1.2rem' }} />
+              <span>ثبت مدرسه</span>
             </button>
             <button
               type="button"
@@ -688,14 +770,6 @@ export default function LoginPage() {
             >
               <HiOutlineUserGroup style={{ fontSize: '1.2rem' }} />
               <span>ورود اولیا</span>
-            </button>
-            <button
-              type="button"
-              className={`${styles.entryTabBtn} ${styles.tabBtnSchool} ${activeTab === 'school' ? styles.entryTabBtnActive : ''}`}
-              onClick={() => setActiveTab('school')}
-            >
-              <HiOutlineBuildingOffice2 style={{ fontSize: '1.2rem' }} />
-              <span>ثبت مدرسه جدید</span>
             </button>
           </div>
 
@@ -785,11 +859,11 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* ── School Selection for Student & Teacher ── */}
+              {/* ── School Selection & Search by @username, Name, City or Code ── */}
               <div className={styles.inputGroup}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <label className={styles.inputLabel} htmlFor="smart_school_input">
-                    🏛️ نام مدرسه {smartForm.role === 'teacher' ? 'اصلی محل تدریس دبیر' : 'تحصیلی شما'} (هم قابل تایپ، هم انتخاب از لیست): *
+                    🏛️ جستجو و انتخاب مدرسه (با نام مدرسه، شهر، کد یا @نام‌کاربری مدرسه): *
                   </label>
                   {smartForm.school_name && (
                     <span style={{ fontSize: '0.74rem', color: '#10b981', fontWeight: 700 }}>
@@ -798,26 +872,29 @@ export default function LoginPage() {
                   )}
                 </div>
 
-                {/* Direct Text Input with Datalist Autocomplete */}
+                {/* Direct Search & Text Input with Datalist Autocomplete */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     id="smart_school_input"
                     type="text"
                     list="available-schools-datalist"
                     className="input"
-                    placeholder="نام کامل مدرسه خود را تایپ فرمایید یا از گزینه‌های زیر انتخاب نمایید..."
+                    placeholder="نام مدرسه، @نام‌کاربری مدرسه (آیدی)، شهر یا کد مدرسه را تایپ کنید..."
                     value={smartForm.school_name}
                     onChange={(e) => {
                       const val = e.target.value;
                       const cleanVal = val.trim();
-                      const found = availableSchools.find((s) => 
+                      const strippedAt = cleanVal.replace(/^@/, '').toLowerCase();
+                      setSchoolSearchQuery(cleanVal);
+                      const found = availableSchools.find((s) =>
                         s.name.toLowerCase() === cleanVal.toLowerCase() ||
+                        (s.username && s.username.toLowerCase() === strippedAt) ||
                         (s.code && s.code.toLowerCase() === cleanVal.toLowerCase()) ||
                         (s.id && s.id.toLowerCase() === cleanVal.toLowerCase())
                       );
                       setSmartForm({
                         ...smartForm,
-                        school_name: found ? found.name : val,
+                        school_name: found && !cleanVal.startsWith('@') ? found.name : val,
                         school_code: found ? (found.code || '') : (cleanVal.toUpperCase().startsWith('SCH-') ? cleanVal.toUpperCase() : smartForm.school_code),
                       });
                       setCustomSchoolName(val);
@@ -832,6 +909,8 @@ export default function LoginPage() {
                       onClick={() => {
                         setSmartForm({ ...smartForm, school_name: '', school_code: '' });
                         setCustomSchoolName('');
+                        setSchoolSearchQuery('');
+                        setSchoolSearchResults([]);
                       }}
                       style={{ fontSize: '0.75rem', padding: '8px 10px', whiteSpace: 'nowrap' }}
                       title="پاک کردن متن"
@@ -841,11 +920,101 @@ export default function LoginPage() {
                   )}
                 </div>
 
+                {/* Live filtered search suggestions when searching by @username, name, code, or city */}
+                {smartForm.school_name.trim() &&
+                  (!availableSchools.some((s) => s.name === smartForm.school_name) || smartForm.school_name.trim().startsWith('@')) && (() => {
+                    const q = smartForm.school_name.trim().toLowerCase();
+                    const qNoAt = q.replace(/^@/, '');
+                    const localMatches = availableSchools.filter(
+                      (s) =>
+                        (s.username && (s.username.toLowerCase().includes(qNoAt) || `@${s.username.toLowerCase()}`.includes(q))) ||
+                        s.name.toLowerCase().includes(q) ||
+                        (s.code && s.code.toLowerCase().includes(q)) ||
+                        (s.city && s.city.toLowerCase().includes(q))
+                    );
+                    const combinedMap = new Map();
+                    [...schoolSearchResults, ...localMatches].forEach((s) => {
+                      combinedMap.set(s.id || s.name, s);
+                    });
+                    const matches = Array.from(combinedMap.values()).slice(0, 6);
+                    if (matches.length === 0) return null;
+                    return (
+                      <div
+                        data-testid="school-search-results"
+                        style={{
+                          marginTop: '6px',
+                          borderRadius: '12px',
+                          border: '1px solid var(--border-color, #e2e8f0)',
+                          background: 'var(--bg-card, #ffffff)',
+                          overflow: 'hidden',
+                          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
+                        }}
+                      >
+                        {matches.map((sch) => (
+                          <button
+                            key={sch.id || sch.name}
+                            type="button"
+                            onClick={() => {
+                              setSmartForm({
+                                ...smartForm,
+                                school_name: sch.name,
+                                school_code: sch.code || '',
+                              });
+                              setCustomSchoolName(sch.name);
+                              setSchoolSearchQuery('');
+                              setSchoolSearchResults([]);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'right',
+                              padding: '10px 12px',
+                              background: 'transparent',
+                              border: 'none',
+                              borderBottom: '1px solid var(--border-color, #f1f5f9)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '8px',
+                              color: 'var(--text-primary, #0f172a)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '0.84rem' }}>{sch.name}</span>
+                              <span style={{ fontSize: '0.73rem', color: 'var(--text-secondary, #64748b)' }}>
+                                {sch.city || 'تهران'} • {sch.level || 'متوسطه دوم'}
+                                {Array.isArray(sch.majors) && sch.majors.length > 0 ? ` • ${sch.majors.join('، ')}` : ''}
+                              </span>
+                            </div>
+                            {sch.username ? (
+                              <bdi
+                                dir="ltr"
+                                style={{
+                                  fontSize: '0.76rem',
+                                  fontWeight: 800,
+                                  color: '#4f46e5',
+                                  background: 'rgba(79, 70, 229, 0.1)',
+                                  padding: '3px 8px',
+                                  borderRadius: '8px',
+                                  fontFamily: 'monospace',
+                                }}
+                              >
+                                @{sch.username}
+                              </bdi>
+                            ) : (
+                              <span style={{ fontSize: '0.73rem', color: 'var(--text-tertiary)' }}>{sch.code}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                 {/* Datalist for autocomplete */}
                 <datalist id="available-schools-datalist">
                   {availableSchools.map((sch) => (
                     <option key={sch.id || sch.name} value={sch.name}>
-                      {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''}
+                      {sch.name} {sch.username ? `(@${sch.username})` : ''} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.city ? `(${sch.city})` : ''}
                     </option>
                   ))}
                 </datalist>
@@ -874,12 +1043,33 @@ export default function LoginPage() {
                     <option value="">-- برای انتخاب از مدارس ثبت‌شده و نمونه کلیک کنید --</option>
                     {availableSchools.map((sch) => (
                       <option key={sch.id || sch.name} value={sch.name}>
-                        🏛️ {sch.name} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
+                        🏛️ {sch.name} {sch.username ? `(@${sch.username})` : ''} {sch.code ? `[کد: ${sch.code}]` : ''} {sch.is_registered ? '✨ (مدرسه ثبت‌شده)' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
+                {/* Direct CTA to Register a New School */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                    مدیر مدرسه هستید و مدرسه شما هنوز ثبت نشده است؟
+                  </span>
+                  <Link
+                    href="/register-school/"
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 800,
+                      color: '#4f46e5',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <HiOutlineBuildingOffice2 />
+                    <span>ثبت مدرسه جدید</span>
+                  </Link>
+                </div>
               </div>
 
               {/* ── Teacher Subject Selection & Typing (درس و تخصص آموزشی دبیر) ── */}
@@ -1250,38 +1440,92 @@ export default function LoginPage() {
             </form>
           )}
 
-          {/* ── TAB 2: Standard Login with Existing ID or Phone ── */}
+          {/* ── TAB: Login with Exclusive Username & Password ── */}
           {activeTab === 'login' && (
-            <form onSubmit={handleAccountSubmit} className={styles.form}>
+            <form onSubmit={handleAccountSubmit} className={styles.form} data-testid="username-login-form" noValidate>
+              {loginError.message && (
+                <div
+                  role="alert"
+                  data-testid="login-error-alert"
+                  data-error-field={loginError.field || 'general'}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    background: 'rgba(239, 68, 68, 0.09)',
+                    border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                    color: '#dc2626',
+                    fontSize: '0.84rem',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span aria-hidden="true">⚠️</span>
+                  <span>{loginError.message}</span>
+                </div>
+              )}
+
               <div className={styles.inputGroup}>
                 <label className={styles.inputLabel} htmlFor="account_identifier">
-                  آیدی اختصاصی یا شماره تلفن همراه *
+                  نام کاربری (آیدی) *
                 </label>
                 <input
                   id="account_identifier"
+                  name="username"
                   className="input"
                   type="text"
-                  placeholder="مثلاً: @ali_kiani یا 09121110001 یا ایمیل"
+                  placeholder="@ali_kiani  |  09121110001"
                   value={accountForm.identifier}
-                  onChange={(e) => setAccountForm({ ...accountForm, identifier: e.target.value })}
-                  required
+                  aria-invalid={loginError.field === 'username'}
+                  style={
+                    loginError.field === 'username'
+                      ? { borderColor: '#ef4444', boxShadow: '0 0 0 3px rgba(239, 68, 68, 0.14)' }
+                      : undefined
+                  }
+                  onChange={(e) => {
+                    setAccountForm({ ...accountForm, identifier: e.target.value });
+                    if (loginError.field === 'username' || loginError.field === 'general') {
+                      setLoginError({ field: null, message: '' });
+                    }
+                  }}
+                  autoFocus
                   dir="ltr"
                 />
+                {loginError.field === 'username' && (
+                  <span
+                    data-testid="username-error-text"
+                    style={{ fontSize: '0.78rem', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}
+                  >
+                    {loginError.message}
+                  </span>
+                )}
               </div>
 
               <div className={styles.inputGroup}>
                 <label className={styles.inputLabel} htmlFor="account_password">
-                  کلمه عبور *
+                  رمز عبور *
                 </label>
                 <div className={styles.passwordWrapper}>
                   <input
                     id="account_password"
+                    name="password"
                     className={`input ${styles.passwordInput}`}
                     type={showAccountPassword ? 'text' : 'password'}
                     placeholder="رمز عبور خود را وارد کنید"
                     value={accountForm.password}
-                    onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
-                    required
+                    aria-invalid={loginError.field === 'password'}
+                    style={
+                      loginError.field === 'password'
+                        ? { borderColor: '#ef4444', boxShadow: '0 0 0 3px rgba(239, 68, 68, 0.14)' }
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      setAccountForm({ ...accountForm, password: e.target.value });
+                      if (loginError.field === 'password' || loginError.field === 'general') {
+                        setLoginError({ field: null, message: '' });
+                      }
+                    }}
                     dir="ltr"
                   />
                   <button
@@ -1294,6 +1538,14 @@ export default function LoginPage() {
                     {showAccountPassword ? <HiOutlineEyeSlash /> : <HiOutlineEye />}
                   </button>
                 </div>
+                {loginError.field === 'password' && (
+                  <span
+                    data-testid="password-error-text"
+                    style={{ fontSize: '0.78rem', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}
+                  >
+                    {loginError.message}
+                  </span>
+                )}
               </div>
 
               <button
@@ -1301,14 +1553,56 @@ export default function LoginPage() {
                 className={`btn btn-primary ${styles.submitBtn}`}
                 disabled={isLoading}
                 style={{
-                  background: 'linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #0284c7 100%)',
                   fontWeight: 800,
                   fontSize: '1rem',
                   padding: '14px',
                 }}
               >
-                {isLoading ? 'در حال بررسی اطلاعات...' : 'ورود به حساب کاربری 🔑'}
+                {isLoading ? 'در حال بررسی نام کاربری و رمز عبور در دیتابیس...' : 'ورود با نام کاربری به پنل شخصی 🔑'}
               </button>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  paddingTop: '10px',
+                  borderTop: '1px solid var(--border-color, #e2e8f0)',
+                  fontSize: '0.82rem',
+                }}
+              >
+                <Link
+                  href="/register/"
+                  style={{
+                    color: '#4f46e5',
+                    fontWeight: 800,
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <HiOutlineSparkles />
+                  <span>حساب ندارید؟ ثبت نام (دانش‌آموز / معلم / اولیا)</span>
+                </Link>
+                <Link
+                  href="/register-school/"
+                  style={{
+                    color: '#0284c7',
+                    fontWeight: 800,
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <HiOutlineBuildingOffice2 />
+                  <span>ثبت مدرسه جدید</span>
+                </Link>
+              </div>
             </form>
           )}
 

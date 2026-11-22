@@ -3,7 +3,8 @@ const messageService = require('./message.service');
 class MessageController {
   async send(req, res, next) {
     try {
-      const msg = await messageService.send(req.user, req.body);
+      const io = req.app?.get?.('io') || null;
+      const msg = await messageService.send(req.user, req.body, io);
       res.status(201).json({ success: true, message: 'پیام ارسال شد', data: { message: msg } });
     } catch (err) { next(err); }
   }
@@ -70,6 +71,14 @@ class MessageController {
     } catch (err) { next(err); }
   }
 
+  async searchGroups(req, res, next) {
+    try {
+      const q = req.query.q || req.query.query || req.query.handle || '';
+      const groups = await messageService.searchGroups(q, req.user);
+      res.json({ success: true, data: { groups } });
+    } catch (err) { next(err); }
+  }
+
   async createGroup(req, res, next) {
     try {
       const group = await messageService.createGroup(req.user, req.body);
@@ -129,14 +138,28 @@ class MessageController {
 
   async joinGroupByInvite(req, res, next) {
     try {
-      const result = await messageService.joinGroupByLinkOrCode(req.user, req.body.invite_code || req.body.code);
+      const token =
+        req.body.invite_code ||
+        req.body.code ||
+        req.body.group_handle ||
+        req.body.handle ||
+        req.body.link ||
+        req.body.identifier;
+      const result = await messageService.joinGroupByLinkOrCode(req.user, token);
       res.json({ success: true, message: 'شما عضو گروه شدید', data: result });
     } catch (err) { next(err); }
   }
 
   async joinGroupByLinkOrCode(req, res, next) {
     try {
-      const result = await messageService.joinGroupByLinkOrCode(req.user, req.body.invite_code || req.body.code || req.body.link);
+      const token =
+        req.body.invite_code ||
+        req.body.code ||
+        req.body.group_handle ||
+        req.body.handle ||
+        req.body.link ||
+        req.body.identifier;
+      const result = await messageService.joinGroupByLinkOrCode(req.user, token);
       res.json({ success: true, message: 'شما عضو گروه شدید', data: result });
     } catch (err) { next(err); }
   }
@@ -164,7 +187,8 @@ class MessageController {
 
   async sendGroupMessage(req, res, next) {
     try {
-      const msg = await messageService.sendGroupMessage(req.user, req.params.groupId, req.body);
+      const io = req.app?.get?.('io') || null;
+      const msg = await messageService.sendGroupMessage(req.user, req.params.groupId, req.body, io);
       res.status(201).json({ success: true, message: 'پیام در گروه ارسال شد', data: { message: msg } });
     } catch (err) { next(err); }
   }

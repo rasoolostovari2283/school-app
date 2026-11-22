@@ -132,6 +132,7 @@ export default function VideosPage() {
   };
 
   const AUDIENCE_OPTIONS = [
+    { id: 'teacher_students', label: 'دانش‌آموزان زیرمجموعه من', desc: 'نمایش برای شما و دانش‌آموزان کلاس‌هایتان', icon: '🎯', color: '#8b5cf6' },
     { id: 'all', label: 'هر سه گروه (عمومی)', desc: 'معلمان، دانش‌آموزان و اولیا', icon: '👥', color: '#6366f1' },
     { id: 'teachers', label: 'ویژه معلمان', desc: 'فقط دبیران و کادر آموزشی', icon: '👨‍🏫', color: '#10b981' },
     { id: 'students', label: 'ویژه دانش‌آموزان', desc: 'فقط دانش‌آموزان مدرسه', icon: '🎓', color: '#06b6d4' },
@@ -140,6 +141,8 @@ export default function VideosPage() {
 
   const getAudienceInfo = (aud) => {
     switch (aud) {
+      case 'teacher_students':
+        return { label: 'دانش‌آموزان من', icon: '🎯', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.14)' };
       case 'teachers':
         return { label: 'ویژه معلمان', icon: '👨‍🏫', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' };
       case 'students':
@@ -205,14 +208,8 @@ export default function VideosPage() {
     },
   ];
 
-  // Fetch folders from backend + localStorage
+  // Fetch folders strictly from backend DB (scoped to user & their teachers)
   const fetchFolders = async () => {
-    let localFolders = [];
-    try {
-      const saved = localStorage.getItem('educonnect_video_folders');
-      if (saved) localFolders = JSON.parse(saved);
-    } catch (e) {}
-
     let folderList = [];
     try {
       const res = await api.get('/videos/folders');
@@ -223,12 +220,6 @@ export default function VideosPage() {
       console.warn('Could not fetch custom folders from backend:', e);
     }
 
-    localFolders.forEach((lf) => {
-      if (!folderList.some((f) => f.name === lf.name)) {
-        folderList.push(lf);
-      }
-    });
-
     if (!folderList.some((f) => f.name === 'عمومی')) {
       folderList.unshift({ name: 'عمومی', color: '#6366f1', count: 0 });
     }
@@ -237,74 +228,21 @@ export default function VideosPage() {
     }
 
     setFolders(folderList);
-    try {
-      localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
-    } catch (e) {}
   };
 
-  // Fetch videos from backend & merge whiteboard recorded sessions
+  // Fetch videos strictly from backend DB (properly scoped to teacher & subordinate students)
   const fetchVideos = async () => {
     try {
       setLoading(true);
-      let list = [];
-      try {
-        const res = await api.get('/videos');
-        if (res.data?.success && res.data.data?.videos?.length > 0) {
-          list = res.data.data.videos;
-        } else {
-          list = [...defaultMedia];
-        }
-      } catch {
-        list = [...defaultMedia];
+      const res = await api.get('/videos');
+      if (res.data?.success && Array.isArray(res.data.data?.videos)) {
+        setVideos(res.data.data.videos);
+      } else {
+        setVideos([]);
       }
-
-      // Merge recorded sessions from the whiteboard studio (namespaced for this user)
-      try {
-        const userKey = user?.id ? `educonnect_recorded_sessions_${user.id}` : null;
-        const localSessionsRaw =
-          (userKey ? localStorage.getItem(userKey) : null) ||
-          (user?.role === 'teacher' ? localStorage.getItem('educonnect_recorded_sessions') : null);
-        if (localSessionsRaw) {
-          const localSessions = JSON.parse(localSessionsRaw);
-          if (Array.isArray(localSessions)) {
-            localSessions.forEach((sess) => {
-              const existing = list.find(
-                (v) => v.id === sess.id || (v.title === sess.title && v.duration_seconds === sess.duration)
-              );
-              if (existing) {
-                if (sess.pdf_url && !existing.pdf_url) {
-                  existing.pdf_url = sess.pdf_url;
-                  existing.pdf_name = sess.pdf_name || 'جزوه_درس.pdf';
-                }
-              } else if (sess.videoUrl || sess.file_url) {
-                list.unshift({
-                  id: sess.id || `wb-${Date.now()}`,
-                  title: sess.title || 'تدریس تخته هوشمند',
-                  description: `ویدیو ضبط شده از تخته هوشمند (${sess.date || 'امروز'})`,
-                  class_name: sess.classTitle || 'کلاس عمومی',
-                  folder_name: sess.folder_name || 'تخته هوشمند',
-                  teacher_name: user?.display_name || 'دبیر محترم',
-                  file_url: sess.videoUrl || sess.file_url,
-                  video_url: sess.videoUrl || sess.file_url,
-                  thumbnail_url: null,
-                  pdf_url: sess.pdf_url || null,
-                  pdf_name: sess.pdf_name || null,
-                  mimetype: 'video/webm',
-                  duration_seconds: sess.duration || 0,
-                  views_count: 1,
-                  category: 'تخته هوشمند',
-                  created_at: sess.date || 'امروز',
-                  is_whiteboard_recording: true,
-                });
-              }
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('Error reading local whiteboard sessions:', err);
-      }
-
-      setVideos(list);
+    } catch (err) {
+      console.warn('Could not fetch videos from backend:', err);
+      setVideos([]);
     } finally {
       setLoading(false);
     }
@@ -313,7 +251,7 @@ export default function VideosPage() {
   useEffect(() => {
     fetchVideos();
     fetchFolders();
-  }, []);
+  }, [user?.id]);
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -627,19 +565,13 @@ export default function VideosPage() {
 
   const getMediaUrl = (url) => {
     if (!url) return '';
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url;
-    let baseHost = 'http://localhost:5000';
-    if (typeof window !== 'undefined') {
-      const customUrl = localStorage.getItem('server_api_url') || localStorage.getItem('educonnect_server_url');
-      if (customUrl) {
-        baseHost = customUrl.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
-      } else if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        baseHost = `${window.location.protocol}//${window.location.hostname}:5000`;
-      } else {
-        baseHost = process.env.NEXT_PUBLIC_API_HOST || 'http://localhost:5000';
-      }
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) {
+      return url;
     }
-    return `${baseHost}${url.startsWith('/') ? '' : '/'}${url}`;
+    if (url.startsWith('/uploads/') || url.startsWith('/api/')) {
+      return url;
+    }
+    return `/${url.replace(/^\/+/, '')}`;
   };
 
   // Helper to persist attached PDF in local whiteboard recordings cache

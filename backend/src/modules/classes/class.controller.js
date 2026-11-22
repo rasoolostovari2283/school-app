@@ -285,6 +285,41 @@ class ClassController {
     }
   }
 
+  async searchSchoolStudents(req, res, next) {
+    try {
+      const result = await classService.searchSchoolStudentsForClass(
+        req.params.id,
+        req.user,
+        req.query.q || ''
+      );
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async addRegisteredStudentsToRoster(req, res, next) {
+    try {
+      const result = await classService.addRegisteredStudentsToRoster(
+        req.params.id,
+        req.user,
+        req.body || {}
+      );
+      res.status(201).json({
+        success: true,
+        message: result.added_students.length > 0
+          ? `${result.added_students.length} دانش‌آموز در لیست کلاسی ثبت و در دیتابیس ذخیره شد`
+          : 'این دانش‌آموزان قبلاً در لیست این کلاس ثبت شده‌اند و گروه کلاسی به‌روزرسانی شد',
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async addStudentToClass(req, res, next) {
     try {
       const student = await classService.addStudentToClass(req.params.id, req.user, req.body);

@@ -1,4414 +1,1269 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import useAuthStore from '../../../stores/authStore';
 import {
-  HiPlus,
-  HiOutlinePencil,
-  HiOutlinePaintBrush,
-  HiOutlineArrowUturnLeft,
-  HiOutlineArrowUturnRight,
-  HiOutlineTrash,
-  HiOutlineArrowDownTray,
-  HiOutlineCloudArrowUp,
-  HiOutlinePlay,
-  HiOutlinePause,
-  HiOutlineStop,
-  HiOutlineVideoCamera,
-  HiOutlineCheck,
-  HiOutlineXMark,
-  HiOutlineSquares2X2,
-  HiOutlineSparkles,
-  HiOutlineMicrophone,
-  HiOutlineEye,
-  HiOutlineClock,
-  HiOutlineCalendar,
-  HiOutlineAcademicCap,
-  HiOutlineDocumentText,
   HiOutlineChevronRight,
   HiOutlineChevronLeft,
-  HiOutlineMagnifyingGlassPlus,
-  HiOutlineMagnifyingGlassMinus,
-  HiOutlineArrowsPointingOut,
-  HiOutlinePhoto,
-  HiOutlineFilm,
+  HiOutlineXMark,
+  HiOutlinePlay,
+  HiOutlinePause,
   HiOutlineSpeakerWave,
   HiOutlineSpeakerXMark,
-  HiOutlineArrowsRightLeft,
-  HiOutlineFolder,
-  HiOutlineFolderPlus,
-  HiOutlineShare,
-  HiOutlinePaperAirplane,
-  HiOutlineMagnifyingGlass,
-  HiOutlineBars3,
-  HiOutlineChevronDown,
+  HiOutlinePlus,
+  HiOutlineTrash,
+  HiOutlineDocumentText,
+  HiOutlineSquares2X2,
 } from 'react-icons/hi2';
-import { LuEraser } from 'react-icons/lu';
-import { FaFilePdf, FaFilePowerpoint } from 'react-icons/fa6';
+import useAuthStore from '../../../stores/authStore';
 import { loadPptxPresentation } from '../../../lib/pptxRenderer';
-import api from '../../../lib/api';
+import { loadWordDocument } from '../../../lib/docxRenderer';
+import BoardEntryPicker from '../../../components/smartboard/BoardEntryPicker';
+import SmartboardToolbar from '../../../components/smartboard/SmartboardToolbar';
+import SmartboardRecorderBar from '../../../components/smartboard/SmartboardRecorderBar';
+import RecordingActionModal from '../../../components/smartboard/RecordingActionModal';
 import styles from './record.module.css';
 
-// Pre-defined color palette
-const PALETTE_COLORS = [
-  { name: 'مشکی', value: '#1e293b' },
-  { name: 'سرمه‌ای', value: '#2563eb' },
-  { name: 'قرمز', value: '#ef4444' },
-  { name: 'سبز', value: '#10b981' },
-  { name: 'طلایی / زرد', value: '#f59e0b' },
-  { name: 'بنفش', value: '#8b5cf6' },
-  { name: 'سفید', value: '#ffffff' },
-];
+const MAIN_CANVAS_W = 1440;
+const MAIN_CANVAS_H = 900;
+const NOTE_CANVAS_W = 900;
+const NOTE_CANVAS_H = 1100;
+const REC_CANVAS_W = 1280;
+const REC_CANVAS_H = 720;
 
-const BRUSH_SIZES = [
-  { label: 'نازک', size: 2, dotSize: 4 },
-  { label: 'متوسط', size: 5, dotSize: 7 },
-  { label: 'ضخیم', size: 10, dotSize: 11 },
-  { label: 'خیلی ضخیم', size: 18, dotSize: 16 },
-];
-
-export default function ClassRecordStudioPage() {
-  // ── States for Setup & Studio ──
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [isStudioOpen, setIsStudioOpen] = useState(false);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [previewVideoUrl, setPreviewVideoUrl] = useState(null);
-
-  // New Project Form
-  const [projectName, setProjectName] = useState('');
-  const [selectedClassId, setSelectedClassId] = useState('');
-  const [boardType, setBoardType] = useState('white'); // 'white' | 'grid' | 'blackboard'
-  const [recordAudio, setRecordAudio] = useState(true);
-  const [classesList, setClassesList] = useState([]);
-  const [targetAudience, setTargetAudience] = useState('all'); // 'all' | 'teachers' | 'students' | 'parents'
-
-  const AUDIENCE_OPTIONS = [
-    { id: 'all', label: 'هر سه گروه (عمومی)', desc: 'معلمان، دانش‌آموزان و اولیا', icon: '👥', color: '#6366f1' },
-    { id: 'teachers', label: 'ویژه معلمان', desc: 'فقط دبیران و کادر آموزشی', icon: '👨‍🏫', color: '#10b981' },
-    { id: 'students', label: 'ویژه دانش‌آموزان', desc: 'فقط دانش‌آموزان کلاس‌ها', icon: '🎓', color: '#06b6d4' },
-    { id: 'parents', label: 'ویژه اولیا', desc: 'فقط اولیا و خانواده‌ها', icon: '👨‍👩‍👧', color: '#f59e0b' },
-  ];
-
-  const getAudienceInfo = (aud) => {
-    switch (aud) {
-      case 'teachers':
-        return { label: 'ویژه معلمان', icon: '👨‍🏫', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' };
-      case 'students':
-        return { label: 'ویژه دانش‌آموزان', icon: '🎓', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)' };
-      case 'parents':
-        return { label: 'ویژه اولیا', icon: '👨‍👩‍👧', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' };
-      case 'all':
-      default:
-        return { label: 'هر سه گروه (عمومی)', icon: '👥', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.12)' };
+// Robust loader for local Mozilla PDF.js (/pdf.js + /pdf.worker.min.js)
+async function getPdfJs() {
+  if (typeof window === 'undefined') return null;
+  const existing = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+  if (existing) {
+    if (!existing.GlobalWorkerOptions?.workerSrc) {
+      existing.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
     }
-  };
+    return existing;
+  }
 
-  // Whiteboard Tool States
-  const [tool, setTool] = useState('pen'); // 'pen' | 'highlighter' | 'eraser' | 'line' | 'arrow' | 'rect' | 'circle'
-  const [currentColor, setCurrentColor] = useState('#1e293b');
-  const [brushSize, setBrushSize] = useState(5);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  return new Promise((resolve, reject) => {
+    let script = document.querySelector('script[data-pdfjs="true"]');
+    if (!script) {
+      script = document.createElement('script');
+      script.setAttribute('data-pdfjs', 'true');
+      script.src = '/pdf.js';
+      document.head.appendChild(script);
+    }
 
-  // Recording States
+    const findLib = () => {
+      const lib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
+      if (lib) {
+        lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+        return lib;
+      }
+      return null;
+    };
+
+    const immediate = findLib();
+    if (immediate) return resolve(immediate);
+
+    script.addEventListener('load', () => {
+      const lib = findLib();
+      if (lib) return resolve(lib);
+      setTimeout(() => {
+        const retry = findLib();
+        if (retry) resolve(retry);
+        else reject(new Error('کتابخانه PDF بارگذاری نشد'));
+      }, 150);
+    });
+    script.addEventListener('error', () => reject(new Error('خطا در بارگذاری ابزار نمایش PDF')));
+  });
+}
+
+function drawBoardBackground(ctx, width, height, type) {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  if (type !== 'grid') return;
+
+  const step = 32;
+  ctx.save();
+  ctx.lineWidth = 1;
+
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.beginPath();
+  for (let x = step; x < width; x += step) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, height);
+  }
+  for (let y = step; y < height; y += step) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(width, y + 0.5);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.beginPath();
+  for (let x = step * 5; x < width; x += step * 5) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, height);
+  }
+  for (let y = step * 5; y < height; y += step * 5) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(width, y + 0.5);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawContained(ctx, source, srcW, srcH, boxX, boxY, boxW, boxH) {
+  if (!source || !srcW || !srcH) return;
+  const scale = Math.min(boxW / srcW, boxH / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  const offsetX = boxX + (boxW - drawW) / 2;
+  const offsetY = boxY + (boxH - drawH) / 2;
+  ctx.drawImage(source, offsetX, offsetY, drawW, drawH);
+}
+
+function loadImageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function restoreCanvasFromDataUrl(canvas, dataUrl) {
+  if (!canvas) return Promise.resolve();
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!dataUrl) return Promise.resolve();
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = dataUrl;
+  });
+}
+
+export default function SmartBoardPage() {
+  const { user } = useAuthStore();
+
+  // Entry & session state
+  const [hasEnteredBoard, setHasEnteredBoard] = useState(false);
+  const [sessionTitle, setSessionTitle] = useState('جلسه تخته هوشمند');
+  const [boardType, setBoardType] = useState('white'); // 'white' | 'grid'
+
+  // Drawing tool state
+  const [tool, setTool] = useState('pen'); // 'pen' | 'eraser'
+  const [penColor, setPenColor] = useState('#0f172a');
+  const [penSize, setPenSize] = useState(5);
+  const [eraserSize, setEraserSize] = useState(24);
+  const [activePane, setActivePane] = useState('main'); // 'main' | 'notes'
+
+  // Whiteboard multi-page state (used when no document is loaded)
+  const [boardPage, setBoardPage] = useState(1);
+  const [boardTotalPages, setBoardTotalPages] = useState(1);
+  const boardSnapshotsRef = useRef({}); // { [pageNum]: dataUrl }
+
+  // Side-by-side white note board state
+  const [isSplitNotesOpen, setIsSplitNotesOpen] = useState(false);
+  const [notePage, setNotePage] = useState(1);
+  const [noteTotalPages, setNoteTotalPages] = useState(1);
+  const noteSnapshotsRef = useRef({}); // { [pageNum]: dataUrl }
+
+  // Uploaded file / media state
+  const [activeMedia, setActiveMedia] = useState(null);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoMuted, setVideoMuted] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+
+  // Document engine refs
+  const pdfDocRef = useRef(null);
+  const wordDocRef = useRef(null);
+  const pptxDocRef = useRef(null);
+  const imageElRef = useRef(null);
+  const docAnnotationsRef = useRef({}); // { [`${mediaId}_p${pageNum}`]: dataUrl }
+
+  // Canvas & media element refs
+  const docRenderCanvasRef = useRef(null);
+  const mainDrawCanvasRef = useRef(null);
+  const notesDrawCanvasRef = useRef(null);
+  const videoElRef = useRef(null);
+
+  // Drawing pointer refs
+  const drawingPaneRef = useRef(null); // null | 'main' | 'notes'
+  const lastPointRef = useRef(null);
+
+  // Undo / Redo history per pane
+  const mainHistoryRef = useRef({ undo: [], redo: [] });
+  const notesHistoryRef = useRef({ undo: [], redo: [] });
+
+  // Hidden file inputs
+  const pdfInputRef = useRef(null);
+  const wordInputRef = useRef(null);
+  const pptxInputRef = useRef(null);
+  const videoInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+  // Export state
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Recording state
   const [recStatus, setRecStatus] = useState('idle'); // 'idle' | 'recording' | 'paused'
   const [recSeconds, setRecSeconds] = useState(0);
+  const [micEnabled, setMicEnabled] = useState(true);
   const [recordedBlob, setRecordedBlob] = useState(null);
-  const [recordedVideoUrl, setRecordedVideoUrl] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [showRecordingModal, setShowRecordingModal] = useState(false);
 
-  // Gallery of previous sessions
-  const [recordedSessions, setRecordedSessions] = useState([]);
-
-  // Move Session to Folder State (پوشه‌بندی و انتقال ویدیوهای ضبط شده)
-  const [movingSession, setMovingSession] = useState(null);
-  const [targetFolder, setTargetFolder] = useState('تخته هوشمند');
-  const [isCreatingNewFolder, setIsCreatingNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [availableFolders, setAvailableFolders] = useState([
-    { name: 'عمومی', color: '#6366f1' },
-    { name: 'تخته هوشمند', color: '#8b5cf6' },
-    { name: 'حسابان ۲', color: '#10b981' },
-    { name: 'فیزیک پیشرفته', color: '#f59e0b' },
-    { name: 'شیمی یازدهم', color: '#ec4899' },
-  ]);
-
-  // Save Modal Destination Folder State (پوشه ذخیره‌سازی ویدیو در بخش ویدیوها و رسانه‌ها)
-  const [saveTargetFolder, setSaveTargetFolder] = useState('تخته هوشمند');
-  const [isSaveCreatingFolder, setIsSaveCreatingFolder] = useState(false);
-  const [saveNewFolderName, setSaveNewFolderName] = useState('');
-
-  const { user } = useAuthStore();
-  const router = useRouter();
-
-  // Share to Messages State (اشتراک‌گذاری فیلم ضبط شده در پیام‌ها)
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [sharingSession, setSharingSession] = useState(null);
-  const [shareDirectory, setShareDirectory] = useState({ staff: [], students: [], all: [] });
-  const [isLoadingDirectory, setIsLoadingDirectory] = useState(false);
-  const [shareRoleTab, setShareRoleTab] = useState('all'); // 'all' | 'teacher' | 'student'
-  const [shareSearch, setShareSearch] = useState('');
-  const [selectedRecipient, setSelectedRecipient] = useState(null);
-  const [shareMessageText, setShareMessageText] = useState('سلام، ویدیوی ضبط شده روی تخته هوشمند خدمت شما 🎬');
-  const [isSendingShare, setIsSendingShare] = useState(false);
-
-  // Canvas Refs
-  const canvasRef = useRef(null);
-  const drawingCanvasRef = useRef(null); // Offscreen canvas holding pure user strokes
-  const startPosRef = useRef({ x: 0, y: 0 });
-  const historyRef = useRef([]); // Undo snapshots of drawingCanvas
-  const redoRef = useRef([]);
-
-  // Document, Image & Video Media States & Refs
-  const [docType, setDocType] = useState('pdf'); // 'pdf' | 'pptx' | 'image' | 'video'
-  const [pdfDocument, setPdfDocument] = useState(null);
-  const [pptxPresentation, setPptxPresentation] = useState(null);
-  const [pdfTotalPages, setPdfTotalPages] = useState(0);
-  const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
-  const [pdfFileName, setPdfFileName] = useState('');
-  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
-  const [pdfZoom, setPdfZoom] = useState(1.0);
-  const [pdfFitMode, setPdfFitMode] = useState('fit-width'); // 'fit-width' | 'fit-height'
-  const [pdfOffsetY, setPdfOffsetY] = useState(0);
-  const pdfCanvasRef = useRef(null);
-  const pdfImageRef = useRef(null);
-  const docFileInputRef = useRef(null);
-  const imageFileInputRef = useRef(null);
-  const videoFileInputRef = useRef(null);
-  const videoElementRef = useRef(null);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const [videoDuration, setVideoDuration] = useState(0);
-  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
-  const pageCacheRef = useRef(new Map());
-  const toolsMenuRef = useRef(null);
-
-  // Whiteboard Multi-Page & PDF Export States & Refs
-  const [boardCurrentPage, setBoardCurrentPage] = useState(1);
-  const [boardTotalPages, setBoardTotalPages] = useState(1);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const boardPagesRef = useRef([
-    { pageNum: 1, drawingDataUrl: null, history: [], redo: [], boardType: 'white' }
-  ]);
-
-  // MediaRecorder Refs
   const mediaRecorderRef = useRef(null);
-  const recordedChunksRef = useRef([]);
-  const timerIntervalRef = useRef(null);
-  const micStreamRef = useRef(null);
+  const recChunksRef = useRef([]);
+  const recTimerRef = useRef(null);
+  const recRafRef = useRef(null);
+  const recCanvasRef = useRef(null);
+  const recStreamsRef = useRef([]);
+  const recSecondsRef = useRef(0);
 
-  // ── 1. Load initial data (classes & saved recordings) ──
+  // Live state mirrors for requestAnimationFrame recording loop
+  const stateRef = useRef({});
+  stateRef.current = {
+    boardType,
+    isSplitNotesOpen,
+    activeMedia,
+  };
+
+  // Optional ?autostart=1 convenience support
   useEffect(() => {
-    // Pre-warm PDF.js engine in the background for instant zero-wait file opening
-    getPdfJs().catch(() => {});
-
-    // Load classes for teacher
-    const fetchClasses = async () => {
-      try {
-        const res = await api.get('/classes');
-        if (res.data?.data?.classes) {
-          setClassesList(res.data.data.classes);
-          if (res.data.data.classes.length > 0) {
-            setSelectedClassId(res.data.data.classes[0].id);
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load classes list:', err);
-      }
-    };
-    fetchClasses();
-
-    // Load saved local recordings
-    loadUserRecordings();
-
-    // Fetch folders for whiteboard video categorization
-    fetchAvailableFolders();
-  }, [user?.id]);
-
-  // Close tools dropdown menu when clicking outside
-  useEffect(() => {
-    if (!showToolsMenu) return;
-    const handleOutsideClick = (e) => {
-      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target)) {
-        setShowToolsMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('touchstart', handleOutsideClick);
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
-    };
-  }, [showToolsMenu]);
-
-  const getStorageKey = useCallback(() => {
-    return user?.id ? `educonnect_recorded_sessions_${user.id}` : 'educonnect_recorded_sessions';
-  }, [user?.id]);
-
-  const loadUserRecordings = () => {
-    try {
-      const userKey = user?.id ? `educonnect_recorded_sessions_${user.id}` : null;
-      let saved = userKey ? localStorage.getItem(userKey) : null;
-      if (!saved) {
-        saved = localStorage.getItem('educonnect_recorded_sessions');
-      }
-      if (saved) {
-        setRecordedSessions(JSON.parse(saved));
-      } else {
-        setRecordedSessions([]);
-      }
-    } catch (e) {
-      console.warn('LocalStorage load error:', e);
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autostart') === '1') {
+      const mode = params.get('board') === 'grid' ? 'grid' : 'white';
+      setBoardType(mode);
+      setHasEnteredBoard(true);
     }
-  };
-
-  // Save recordings to localStorage on change (namespaced per user & global)
-  const saveSessionsToLocal = (sessions) => {
-    setRecordedSessions(sessions);
-    try {
-      const key = getStorageKey();
-      localStorage.setItem(key, JSON.stringify(sessions));
-      localStorage.setItem('educonnect_recorded_sessions', JSON.stringify(sessions));
-    } catch (e) {
-      console.warn('LocalStorage limit:', e);
-    }
-  };
-
-  // Fetch available course & media folders from backend + localStorage
-  const fetchAvailableFolders = async () => {
-    let localFolders = [];
-    try {
-      const saved = localStorage.getItem('educonnect_video_folders');
-      if (saved) localFolders = JSON.parse(saved);
-    } catch (e) {}
-
-    let folderList = [];
-    try {
-      const res = await api.get('/videos/folders');
-      if (res.data?.success && Array.isArray(res.data.data?.folders)) {
-        folderList = res.data.data.folders;
-      }
-    } catch (e) {
-      console.warn('Could not fetch folders from backend, using local:', e);
-    }
-
-    localFolders.forEach((lf) => {
-      if (!folderList.some((f) => f.name === lf.name)) {
-        folderList.push(lf);
-      }
-    });
-
-    if (!folderList.some((f) => f.name === 'عمومی')) {
-      folderList.unshift({ name: 'عمومی', color: '#6366f1' });
-    }
-    if (!folderList.some((f) => f.name === 'تخته هوشمند')) {
-      folderList.push({ name: 'تخته هوشمند', color: '#8b5cf6' });
-    }
-
-    setAvailableFolders(folderList);
-    try {
-      localStorage.setItem('educonnect_video_folders', JSON.stringify(folderList));
-    } catch (e) {}
-  };
-
-  // ── Share Video to Messages Handlers ──
-  const fetchShareDirectory = async () => {
-    setIsLoadingDirectory(true);
-    try {
-      const res = await api.get('/messages/directory');
-      if (res.data?.success && res.data.data) {
-        setShareDirectory(res.data.data);
-      }
-    } catch (err) {
-      console.warn('Failed to load message directory:', err);
-      toast.error('خطا در دریافت لیست معلمان و دوستان');
-    } finally {
-      setIsLoadingDirectory(false);
-    }
-  };
-
-  const handleOpenShareModal = (session) => {
-    setSharingSession(session);
-    setSelectedRecipient(null);
-    setShareSearch('');
-    setShareRoleTab('all');
-    setShareMessageText(`سلام، ویدیوی ضبط شده روی تخته هوشمند («${session.title || 'جلسه'}») خدمت شما 🎬`);
-    setShowShareModal(true);
-    fetchShareDirectory();
-  };
-
-  const getFilteredRecipients = () => {
-    let list = [];
-    if (shareRoleTab === 'teacher') {
-      list = shareDirectory.staff || [];
-    } else if (shareRoleTab === 'student') {
-      list = shareDirectory.students || [];
-    } else {
-      list = shareDirectory.all || [];
-    }
-
-    list = list.filter((u) => u.id !== user?.id);
-
-    if (shareSearch.trim()) {
-      const q = shareSearch.trim().toLowerCase().replace(/^@/, '');
-      list = list.filter((u) => {
-        const name = (u.display_name || '').toLowerCase();
-        const username = (u.username || '').toLowerCase();
-        const dept = (u.department || '').toLowerCase();
-        const job = (u.job_title || '').toLowerCase();
-        return name.includes(q) || username.includes(q) || dept.includes(q) || job.includes(q);
-      });
-    }
-    return list;
-  };
-
-  const handleSendShare = async () => {
-    if (!selectedRecipient) {
-      toast.error('لطفاً ابتدا معلم یا دوست مورد نظر را انتخاب فرمایید');
-      return;
-    }
-    if (!sharingSession) return;
-
-    setIsSendingShare(true);
-    try {
-      let finalVideoUrl = sharingSession.videoUrl;
-
-      // If videoUrl is a local blob (blob:http...) or not yet uploaded to server, upload it first to get permanent URL
-      if (!finalVideoUrl || finalVideoUrl.startsWith('blob:')) {
-        let blobToUpload = recordedBlob;
-        if (!blobToUpload && finalVideoUrl) {
-          try {
-            const resp = await fetch(finalVideoUrl);
-            blobToUpload = await resp.blob();
-          } catch (bErr) {
-            console.warn('Failed to fetch blob from videoUrl:', bErr);
-          }
-        }
-
-        if (blobToUpload) {
-          const formData = new FormData();
-          const fileName = `${sharingSession.title || 'تخته_هوشمند'}.webm`;
-          formData.append('file', blobToUpload, fileName);
-          const uploadRes = await api.post('/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
-          if (uploadRes.data?.data?.url) {
-            finalVideoUrl = uploadRes.data.data.url;
-            const updatedSessions = recordedSessions.map((s) =>
-              s.id === sharingSession.id ? { ...s, videoUrl: finalVideoUrl } : s
-            );
-            saveSessionsToLocal(updatedSessions);
-          }
-        }
-      }
-
-      if (!finalVideoUrl) {
-        toast.error('آدرس ویدیوی ضبط شده معتبر نیست');
-        setIsSendingShare(false);
-        return;
-      }
-
-      // Send message with video attachment to selected teacher or classmate
-      const attachmentItem = {
-        name: sharingSession.title || 'ویدیوی تخته هوشمند',
-        originalname: `${sharingSession.title || 'ویدیو'}.webm`,
-        url: finalVideoUrl,
-        is_video: true,
-        mimetype: 'video/webm',
-        duration_seconds: sharingSession.duration || 0,
-      };
-
-      await api.post('/messages', {
-        receiver_id: selectedRecipient.id,
-        content: shareMessageText.trim() || 'ویدیوی ضبط شده روی تخته هوشمند 🎬',
-        attachments: [attachmentItem],
-      });
-
-      const recipientName = selectedRecipient.display_name;
-      const recipientId = selectedRecipient.id;
-      setShowShareModal(false);
-
-      toast.success(
-        (t) => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span>ویدیو با موفقیت برای <strong>{recipientName}</strong> ارسال شد! 🎉</span>
-            <button
-              onClick={() => {
-                toast.dismiss(t.id);
-                router.push(`/dashboard/messages?user=${recipientId}`);
-              }}
-              style={{
-                alignSelf: 'flex-start',
-                background: 'var(--primary-600)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              مشاهده در پیام‌ها 💬
-            </button>
-          </div>
-        ),
-        { duration: 6000 }
-      );
-    } catch (err) {
-      console.error('Failed to share video in messages:', err);
-      toast.error(err.response?.data?.message || 'خطا در ارسال ویدیو در پیام‌ها');
-    } finally {
-      setIsSendingShare(false);
-    }
-  };
-
-  // Open Move Modal for Whiteboard Session
-  const handleOpenMoveModal = (session) => {
-    setMovingSession(session);
-    setTargetFolder(session.folder_name || 'تخته هوشمند');
-    setIsCreatingNewFolder(false);
-    setNewFolderName('');
-    fetchAvailableFolders();
-  };
-
-  // Confirm Move Whiteboard Session to Target Folder
-  const handleConfirmMove = async () => {
-    if (!movingSession) return;
-    const finalFolder = isCreatingNewFolder && newFolderName.trim()
-      ? newFolderName.trim()
-      : targetFolder || 'تخته هوشمند';
-
-    // 1. If new folder created, immediately add to availableFolders and localStorage
-    if (isCreatingNewFolder && newFolderName.trim()) {
-      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
-      setAvailableFolders((prev) => {
-        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
-        try {
-          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
-
-      // Also create on backend if accessible
-      try {
-        await api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' });
-      } catch (e) {
-        console.warn('Backend folder creation note:', e);
-      }
-    }
-
-    // 2. Update local recordedSessions state & storage
-    const updated = recordedSessions.map((s) =>
-      s.id === movingSession.id || s.title === movingSession.title ? { ...s, folder_name: finalFolder } : s
-    );
-    saveSessionsToLocal(updated);
-
-    try {
-      const globalKey = 'educonnect_recorded_sessions';
-      const raw = localStorage.getItem(globalKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const updatedGlobal = parsed.map((s) =>
-          s.id === movingSession.id || s.title === movingSession.title ? { ...s, folder_name: finalFolder } : s
-        );
-        localStorage.setItem(globalKey, JSON.stringify(updatedGlobal));
-      }
-    } catch (e) {}
-
-    // 3. Update backend video folder if video exists on server
-    try {
-      if (movingSession.id) {
-        await api.patch(`/videos/${movingSession.id}/folder`, { folder_name: finalFolder });
-      }
-    } catch (e) {
-      console.warn('Backend patch video folder note:', e);
-    }
-
-    toast.success(`ویدیو با موفقیت به پوشه «${finalFolder}» منتقل شد 📁`);
-    setMovingSession(null);
-    setIsCreatingNewFolder(false);
-    setNewFolderName('');
-    setTargetFolder(finalFolder);
-  };
-
-  // ── 2. Canvas Setup & Drawing Engine ──
-
-  // ── 2.2 Composite Canvas Rendering Engine (Ultra-High DPI & Responsive) ──
-  const renderCompositeCanvas = useCallback(() => {
-    const mainCanvas = canvasRef.current;
-    const drawingCanvas = drawingCanvasRef.current;
-    if (!mainCanvas || !drawingCanvas) return;
-
-    const ctx = mainCanvas.getContext('2d');
-    const dpr = Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 3);
-    const cssWidth = Math.round(mainCanvas.width / dpr);
-    const cssHeight = Math.round(mainCanvas.height / dpr);
-
-    ctx.save();
-    // Scale coordinate matrix by dpr so all operations below use standard CSS pixels
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    // Draw Board Background
-    if (boardType === 'blackboard') {
-      ctx.fillStyle = '#1a2e22';
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-      // Blackboard subtle chalk grain
-      const grad = ctx.createRadialGradient(cssWidth / 2, cssHeight / 2, 50, cssWidth / 2, cssHeight / 2, Math.max(cssWidth, cssHeight) / 1.2);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
-      grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-    } else if (boardType === 'grid') {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-      // Grid lines
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 1;
-      const gridSize = 32;
-      ctx.beginPath();
-      for (let x = gridSize; x < cssWidth; x += gridSize) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, cssHeight);
-      }
-      for (let y = gridSize; y < cssHeight; y += gridSize) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(cssWidth, y);
-      }
-      ctx.stroke();
-    } else {
-      // Pure Whiteboard
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-    }
-
-    // Set high-quality image smoothing
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    // Draw PDF page, Image worksheet, or Video frame if open (Ultra-High Resolution)
-    const mediaSource = pdfCanvasRef.current || pdfImageRef.current || videoElementRef.current;
-    if (mediaSource) {
-      const srcW = mediaSource.videoWidth || mediaSource.width;
-      const srcH = mediaSource.videoHeight || mediaSource.height;
-
-      if (srcW && srcH) {
-        const isMobile = cssWidth < 768;
-        let drawW, drawH;
-        if (pdfFitMode === 'fit-width') {
-          // On mobile, use comfortable full-screen readable width so small text is never crushed
-          const targetW = (isMobile ? (cssWidth - 16) : Math.min(cssWidth - 60, Math.max(920, cssWidth * 0.72))) * pdfZoom;
-          const scale = targetW / srcW;
-          drawW = targetW;
-          drawH = srcH * scale;
-        } else {
-          // Fits height
-          const targetH = (cssHeight - (isMobile ? 90 : 150)) * pdfZoom;
-          const scale = targetH / srcH;
-          drawW = srcW * scale;
-          drawH = targetH;
-        }
-
-        const drawX = (cssWidth - drawW) / 2;
-        const baseY = pdfFitMode === 'fit-width' ? (isMobile ? 55 : 80) : (cssHeight - drawH) / 2;
-        const drawY = baseY + pdfOffsetY;
-
-        // Draw subtle shadow and clean container for media
-        ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
-        ctx.shadowBlur = isMobile ? 12 : 28;
-        ctx.shadowOffsetY = isMobile ? 3 : 6;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(drawX, drawY, drawW, drawH);
-        ctx.restore();
-
-        ctx.drawImage(mediaSource, drawX, drawY, drawW, drawH);
-      }
-    }
-
-    // Draw user strokes from offscreen drawingCanvas
-    ctx.drawImage(drawingCanvas, 0, 0, cssWidth, cssHeight);
-    ctx.restore();
-  }, [boardType, pdfZoom, pdfFitMode, pdfOffsetY]);
-
-  // Adjust canvas size to window/container with Retina / High-DPI support
-  const initCanvases = useCallback(() => {
-    const mainCanvas = canvasRef.current;
-    if (!mainCanvas) return;
-
-    const cssWidth = window.innerWidth;
-    const cssHeight = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-
-    if (!drawingCanvasRef.current) {
-      drawingCanvasRef.current = document.createElement('canvas');
-    }
-    const drawingCanvas = drawingCanvasRef.current;
-
-    // Preserve existing drawings on resize if any
-    let tempImgData = null;
-    if (drawingCanvas.width > 0 && drawingCanvas.height > 0) {
-      try {
-        tempImgData = drawingCanvas.getContext('2d').getImageData(0, 0, drawingCanvas.width, drawingCanvas.height);
-      } catch (e) {}
-    }
-
-    // High-DPI backing buffer
-    mainCanvas.width = Math.round(cssWidth * dpr);
-    mainCanvas.height = Math.round(cssHeight * dpr);
-    mainCanvas.style.width = `${cssWidth}px`;
-    mainCanvas.style.height = `${cssHeight}px`;
-
-    drawingCanvas.width = cssWidth;
-    drawingCanvas.height = cssHeight;
-
-    if (tempImgData) {
-      drawingCanvas.getContext('2d').putImageData(tempImgData, 0, 0);
-    }
-
-    renderCompositeCanvas();
-  }, [renderCompositeCanvas]);
-
-  useEffect(() => {
-    if (isStudioOpen) {
-      initCanvases();
-      window.addEventListener('resize', initCanvases);
-      return () => window.removeEventListener('resize', initCanvases);
-    }
-  }, [isStudioOpen, initCanvases]);
-
-  // Push state to undo stack
-  const saveHistorySnapshot = useCallback(() => {
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas) return;
-    const dCtx = dCanvas.getContext('2d');
-    const snapshot = dCtx.getImageData(0, 0, dCanvas.width, dCanvas.height);
-
-    historyRef.current.push(snapshot);
-    if (historyRef.current.length > 25) {
-      historyRef.current.shift();
-    }
-    redoRef.current = [];
   }, []);
 
-  // Undo / Redo
-  const handleUndo = () => {
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas || historyRef.current.length === 0) return;
-    const dCtx = dCanvas.getContext('2d');
+  // Cleanup blob URLs and streams on unmount
+  useEffect(() => {
+    return () => {
+      if (recTimerRef.current) clearInterval(recTimerRef.current);
+      if (recRafRef.current) cancelAnimationFrame(recRafRef.current);
+      recStreamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    };
+  }, [recordedUrl]);
 
-    // Save current to redo
-    const current = dCtx.getImageData(0, 0, dCanvas.width, dCanvas.height);
-    redoRef.current.push(current);
-
-    const prev = historyRef.current.pop();
-    dCtx.putImageData(prev, 0, 0);
-    renderCompositeCanvas();
+  const handleSelectInitialBoard = ({ boardType: chosenType, title }) => {
+    setBoardType(chosenType);
+    setSessionTitle(title);
+    setHasEnteredBoard(true);
   };
 
-  const handleRedo = () => {
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas || redoRef.current.length === 0) return;
-    const dCtx = dCanvas.getContext('2d');
+  // ── Canvas History Helpers ──
+  const pushUndoSnapshot = useCallback((pane) => {
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    if (!canvas) return;
+    const hist = pane === 'notes' ? notesHistoryRef.current : mainHistoryRef.current;
+    hist.undo.push(canvas.toDataURL('image/png'));
+    if (hist.undo.length > 30) hist.undo.shift();
+    hist.redo = [];
+  }, []);
 
-    const current = dCtx.getImageData(0, 0, dCanvas.width, dCanvas.height);
-    historyRef.current.push(current);
-
-    const next = redoRef.current.pop();
-    dCtx.putImageData(next, 0, 0);
-    renderCompositeCanvas();
-  };
-
-  // Clear Current Board Page Canvas
-  const handleClearBoard = () => {
-    if (window.confirm('آیا از پاک کردن برگه جاری تخته مطمئن هستید؟')) {
-      saveHistorySnapshot();
-      const dCanvas = drawingCanvasRef.current;
-      if (dCanvas) {
-        const dCtx = dCanvas.getContext('2d');
-        dCtx.clearRect(0, 0, dCanvas.width, dCanvas.height);
-      }
-      if (boardPagesRef.current[boardCurrentPage - 1]) {
-        boardPagesRef.current[boardCurrentPage - 1].drawingDataUrl = null;
-        boardPagesRef.current[boardCurrentPage - 1].history = [];
-        boardPagesRef.current[boardCurrentPage - 1].redo = [];
-      }
-      historyRef.current = [];
-      redoRef.current = [];
-      renderCompositeCanvas();
-      toast.success('محتوای برگه جاری کاملاً پاک شد');
+  const handleUndo = useCallback(async () => {
+    const pane = activePane === 'notes' && isSplitNotesOpen ? 'notes' : 'main';
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    const hist = pane === 'notes' ? notesHistoryRef.current : mainHistoryRef.current;
+    if (!canvas || hist.undo.length === 0) {
+      toast('حرکت قبلی برای بازگشت وجود ندارد', { id: 'undo-empty' });
+      return;
     }
-  };
+    hist.redo.push(canvas.toDataURL('image/png'));
+    const prev = hist.undo.pop();
+    await restoreCanvasFromDataUrl(canvas, prev);
+  }, [activePane, isSplitNotesOpen]);
 
-  // Pointer Events for Drawing
-  const getCanvasCoords = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+  const handleRedo = useCallback(async () => {
+    const pane = activePane === 'notes' && isSplitNotesOpen ? 'notes' : 'main';
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    const hist = pane === 'notes' ? notesHistoryRef.current : mainHistoryRef.current;
+    if (!canvas || hist.redo.length === 0) {
+      toast('حرکت بعدی برای انجام مجدد وجود ندارد', { id: 'redo-empty' });
+      return;
+    }
+    hist.undo.push(canvas.toDataURL('image/png'));
+    const next = hist.redo.pop();
+    await restoreCanvasFromDataUrl(canvas, next);
+  }, [activePane, isSplitNotesOpen]);
+
+  const clearCanvasPane = useCallback(
+    (pane) => {
+      const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+      if (!canvas) return;
+      pushUndoSnapshot(pane);
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (pane === 'notes') {
+        delete noteSnapshotsRef.current[notePage];
+      } else if (activeMedia) {
+        delete docAnnotationsRef.current[`${activeMedia.id}_p${activeMedia.currentPage}`];
+      } else {
+        delete boardSnapshotsRef.current[boardPage];
+      }
+    },
+    [activeMedia, boardPage, notePage, pushUndoSnapshot]
+  );
+
+  // ── Pointer Drawing Engine ──
+  const getCanvasPoint = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
     };
   };
 
-  const startDrawing = (e) => {
-    const coords = getCanvasCoords(e);
-    startPosRef.current = coords;
-    setIsDrawing(true);
-    saveHistorySnapshot();
+  const handlePointerDown = (pane) => (e) => {
+    if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    if (!canvas) return;
+    e.preventDefault();
+    canvas.setPointerCapture?.(e.pointerId);
 
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas) return;
-    const dCtx = dCanvas.getContext('2d');
+    setActivePane(pane);
+    pushUndoSnapshot(pane);
 
-    dCtx.beginPath();
-    dCtx.moveTo(coords.x, coords.y);
+    const pt = getCanvasPoint(e, canvas);
+    drawingPaneRef.current = pane;
+    lastPointRef.current = pt;
 
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     if (tool === 'eraser') {
-      dCtx.globalCompositeOperation = 'destination-out';
-      dCtx.lineWidth = brushSize * 4;
-      dCtx.lineCap = 'round';
-      dCtx.lineJoin = 'round';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      renderCompositeCanvas();
-    } else if (tool === 'pen') {
-      dCtx.globalCompositeOperation = 'source-over';
-      dCtx.strokeStyle = currentColor;
-      dCtx.lineWidth = brushSize;
-      dCtx.lineCap = 'round';
-      dCtx.lineJoin = 'round';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      renderCompositeCanvas();
-    } else if (tool === 'highlighter') {
-      dCtx.globalCompositeOperation = 'source-over';
-      dCtx.strokeStyle = currentColor;
-      dCtx.globalAlpha = 0.35;
-      dCtx.lineWidth = brushSize * 3.5;
-      dCtx.lineCap = 'square';
-      dCtx.lineJoin = 'miter';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      dCtx.globalAlpha = 1.0;
-      renderCompositeCanvas();
-    }
-  };
-
-  const draw = (e) => {
-    if (!isDrawing) return;
-    const coords = getCanvasCoords(e);
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas) return;
-    const dCtx = dCanvas.getContext('2d');
-
-    if (tool === 'pen') {
-      dCtx.globalCompositeOperation = 'source-over';
-      dCtx.strokeStyle = currentColor;
-      dCtx.lineWidth = brushSize;
-      dCtx.lineCap = 'round';
-      dCtx.lineJoin = 'round';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      renderCompositeCanvas();
-    } else if (tool === 'eraser') {
-      dCtx.globalCompositeOperation = 'destination-out';
-      dCtx.lineWidth = brushSize * 4;
-      dCtx.lineCap = 'round';
-      dCtx.lineJoin = 'round';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      renderCompositeCanvas();
-    } else if (tool === 'highlighter') {
-      dCtx.globalCompositeOperation = 'source-over';
-      dCtx.strokeStyle = currentColor;
-      dCtx.globalAlpha = 0.35;
-      dCtx.lineWidth = brushSize * 3.5;
-      dCtx.lineCap = 'square';
-      dCtx.lineJoin = 'miter';
-      dCtx.lineTo(coords.x, coords.y);
-      dCtx.stroke();
-      dCtx.globalAlpha = 1.0;
-      renderCompositeCanvas();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = eraserSize;
     } else {
-      // Shape tools: preview dynamically on main composite canvas
-      renderCompositeCanvas();
-      const mainCanvas = canvasRef.current;
-      if (!mainCanvas) return;
-      const mCtx = mainCanvas.getContext('2d');
-      mCtx.save();
-      mCtx.strokeStyle = currentColor;
-      mCtx.lineWidth = brushSize;
-      mCtx.lineCap = 'round';
-
-      const startX = startPosRef.current.x;
-      const startY = startPosRef.current.y;
-      const curX = coords.x;
-      const curY = coords.y;
-
-      if (tool === 'line') {
-        mCtx.beginPath();
-        mCtx.moveTo(startX, startY);
-        mCtx.lineTo(curX, curY);
-        mCtx.stroke();
-      } else if (tool === 'arrow') {
-        mCtx.beginPath();
-        mCtx.moveTo(startX, startY);
-        mCtx.lineTo(curX, curY);
-        mCtx.stroke();
-        // Arrow head
-        const angle = Math.atan2(curY - startY, curX - startX);
-        const headLen = Math.max(14, brushSize * 2.5);
-        mCtx.beginPath();
-        mCtx.moveTo(curX, curY);
-        mCtx.lineTo(curX - headLen * Math.cos(angle - Math.PI / 6), curY - headLen * Math.sin(angle - Math.PI / 6));
-        mCtx.moveTo(curX, curY);
-        mCtx.lineTo(curX - headLen * Math.cos(angle + Math.PI / 6), curY - headLen * Math.sin(angle + Math.PI / 6));
-        mCtx.stroke();
-      } else if (tool === 'rect') {
-        mCtx.strokeRect(startX, startY, curX - startX, curY - startY);
-      } else if (tool === 'circle') {
-        mCtx.beginPath();
-        const rx = Math.abs((curX - startX) / 2);
-        const ry = Math.abs((curY - startY) / 2);
-        const cx = Math.min(startX, curX) + rx;
-        const cy = Math.min(startY, curY) + ry;
-        mCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-        mCtx.stroke();
-      } else if (tool === 'triangle') {
-        mCtx.beginPath();
-        mCtx.moveTo((startX + curX) / 2, startY);
-        mCtx.lineTo(startX, curY);
-        mCtx.lineTo(curX, curY);
-        mCtx.closePath();
-        mCtx.stroke();
-      }
-      mCtx.restore();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
     }
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y);
+    ctx.lineTo(pt.x + 0.1, pt.y + 0.1);
+    ctx.stroke();
+    ctx.restore();
   };
 
-  const stopDrawing = (e) => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
+  const handlePointerMove = (pane) => (e) => {
+    if (drawingPaneRef.current !== pane) return;
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    if (!canvas || !lastPointRef.current) return;
+    e.preventDefault();
 
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas) return;
-    const dCtx = dCanvas.getContext('2d');
+    const pt = getCanvasPoint(e, canvas);
+    const prev = lastPointRef.current;
+    const ctx = canvas.getContext('2d');
 
-    // If shape, commit permanently to offscreen drawingCanvas
-    if (['line', 'arrow', 'rect', 'circle', 'triangle'].includes(tool)) {
-      const coords = getCanvasCoords(e);
-      const startX = startPosRef.current.x;
-      const startY = startPosRef.current.y;
-      const curX = coords.x;
-      const curY = coords.y;
-
-      dCtx.save();
-      dCtx.globalCompositeOperation = 'source-over';
-      dCtx.strokeStyle = currentColor;
-      dCtx.lineWidth = brushSize;
-      dCtx.lineCap = 'round';
-
-      if (tool === 'line') {
-        dCtx.beginPath();
-        dCtx.moveTo(startX, startY);
-        dCtx.lineTo(curX, curY);
-        dCtx.stroke();
-      } else if (tool === 'arrow') {
-        dCtx.beginPath();
-        dCtx.moveTo(startX, startY);
-        dCtx.lineTo(curX, curY);
-        dCtx.stroke();
-        const angle = Math.atan2(curY - startY, curX - startX);
-        const headLen = Math.max(14, brushSize * 2.5);
-        dCtx.beginPath();
-        dCtx.moveTo(curX, curY);
-        dCtx.lineTo(curX - headLen * Math.cos(angle - Math.PI / 6), curY - headLen * Math.sin(angle - Math.PI / 6));
-        dCtx.moveTo(curX, curY);
-        dCtx.lineTo(curX - headLen * Math.cos(angle + Math.PI / 6), curY - headLen * Math.sin(angle + Math.PI / 6));
-        dCtx.stroke();
-      } else if (tool === 'rect') {
-        dCtx.strokeRect(startX, startY, curX - startX, curY - startY);
-      } else if (tool === 'circle') {
-        dCtx.beginPath();
-        const rx = Math.abs((curX - startX) / 2);
-        const ry = Math.abs((curY - startY) / 2);
-        const cx = Math.min(startX, curX) + rx;
-        const cy = Math.min(startY, curY) + ry;
-        dCtx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-        dCtx.stroke();
-      } else if (tool === 'triangle') {
-        dCtx.beginPath();
-        dCtx.moveTo((startX + curX) / 2, startY);
-        dCtx.lineTo(startX, curY);
-        dCtx.lineTo(curX, curY);
-        dCtx.closePath();
-        dCtx.stroke();
-      }
-      dCtx.restore();
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (tool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = eraserSize;
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
     }
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.stroke();
+    ctx.restore();
 
-    dCtx.closePath();
-    renderCompositeCanvas();
+    lastPointRef.current = pt;
   };
 
-  // Insert Text tool
-  const handleInsertText = () => {
-    const text = window.prompt('متن مورد نظر برای درج روی تخته را وارد کنید:');
-    if (!text || !text.trim()) return;
-
-    saveHistorySnapshot();
-    const dCanvas = drawingCanvasRef.current;
-    if (!dCanvas) return;
-    const dCtx = dCanvas.getContext('2d');
-
-    dCtx.save();
-    dCtx.font = `bold ${Math.max(22, brushSize * 4)}px Vazirmatn, Tahoma, sans-serif`;
-    dCtx.fillStyle = currentColor;
-    dCtx.textAlign = 'right';
-    dCtx.direction = 'rtl';
-    dCtx.fillText(text, dCanvas.width / 2, dCanvas.height / 2);
-    dCtx.restore();
-
-    renderCompositeCanvas();
-    toast.success('متن در وسط تخته درج شد');
-  };
-
-  // ── 2.5 Document (PDF & PowerPoint) Rendering & Navigation Engine ──
-
-  // Robust, zero-bundler-conflict loader for Mozilla PDF.js (uses local /pdf.js & /pdf.worker.min.js)
-  const getPdfJs = async () => {
-    if (typeof window === 'undefined') return null;
-    const existingLib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
-    if (existingLib) {
-      if (!existingLib.GlobalWorkerOptions?.workerSrc) {
-        existingLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+  const persistCurrentPaneSnapshot = useCallback(
+    (pane) => {
+      const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL('image/png');
+      if (pane === 'notes') {
+        noteSnapshotsRef.current[notePage] = dataUrl;
+      } else if (activeMedia) {
+        docAnnotationsRef.current[`${activeMedia.id}_p${activeMedia.currentPage}`] = dataUrl;
+      } else {
+        boardSnapshotsRef.current[boardPage] = dataUrl;
       }
-      return existingLib;
-    }
+    },
+    [activeMedia, boardPage, notePage]
+  );
 
-    return new Promise((resolve, reject) => {
-      let script = document.querySelector('script[data-pdfjs="true"]');
-      if (!script) {
-        script = document.createElement('script');
-        script.setAttribute('data-pdfjs', 'true');
-        script.src = '/pdf.js';
-        document.head.appendChild(script);
-      }
-
-      const checkLib = () => {
-        const lib = window.pdfjsLib || window['pdfjs-dist/build/pdf'];
-        if (lib) {
-          lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-          return lib;
-        }
-        return null;
-      };
-
-      const found = checkLib();
-      if (found) return resolve(found);
-
-      script.addEventListener('load', () => {
-        const lib = checkLib();
-        if (lib) {
-          resolve(lib);
-        } else {
-          setTimeout(() => {
-            const retryLib = checkLib();
-            if (retryLib) resolve(retryLib);
-            else reject(new Error('کتابخانه PDF.js بارگذاری نشد'));
-          }, 150);
-        }
-      });
-      script.addEventListener('error', () => {
-        reject(new Error('خطا در بارگذاری اسکریپت PDF'));
-      });
-    });
+  const handlePointerUp = (pane) => (e) => {
+    if (drawingPaneRef.current !== pane) return;
+    const canvas = pane === 'notes' ? notesDrawCanvasRef.current : mainDrawCanvasRef.current;
+    canvas?.releasePointerCapture?.(e.pointerId);
+    drawingPaneRef.current = null;
+    lastPointRef.current = null;
+    persistCurrentPaneSnapshot(pane);
   };
 
-  const renderPdfPage = async (doc, pageNum) => {
+  useEffect(() => {
+    if (!isSplitNotesOpen) return;
+    const timer = setTimeout(() => {
+      restoreCanvasFromDataUrl(notesDrawCanvasRef.current, noteSnapshotsRef.current[notePage]);
+    }, 30);
+    return () => clearTimeout(timer);
+  }, [isSplitNotesOpen, notePage]);
+
+  // ── Whiteboard Multi-Page Navigation ──
+  const switchBoardPage = async (targetPage) => {
+    if (targetPage < 1 || targetPage > boardTotalPages || targetPage === boardPage) return;
+    persistCurrentPaneSnapshot('main');
+    setBoardPage(targetPage);
+    mainHistoryRef.current = { undo: [], redo: [] };
+    await restoreCanvasFromDataUrl(mainDrawCanvasRef.current, boardSnapshotsRef.current[targetPage]);
+  };
+
+  const handleAddBoardPage = async () => {
+    persistCurrentPaneSnapshot('main');
+    const nextPage = boardTotalPages + 1;
+    setBoardTotalPages(nextPage);
+    setBoardPage(nextPage);
+    mainHistoryRef.current = { undo: [], redo: [] };
+    await restoreCanvasFromDataUrl(mainDrawCanvasRef.current, null);
+    toast.success(`صفحه ${nextPage} تخته ایجاد شد`);
+  };
+
+  // ── Side Notes Multi-Page Navigation ──
+  const switchNotePage = async (targetPage) => {
+    if (targetPage < 1 || targetPage > noteTotalPages || targetPage === notePage) return;
+    persistCurrentPaneSnapshot('notes');
+    setNotePage(targetPage);
+    notesHistoryRef.current = { undo: [], redo: [] };
+    await restoreCanvasFromDataUrl(notesDrawCanvasRef.current, noteSnapshotsRef.current[targetPage]);
+  };
+
+  const handleAddNotePage = async () => {
+    persistCurrentPaneSnapshot('notes');
+    const nextPage = noteTotalPages + 1;
+    setNoteTotalPages(nextPage);
+    setNotePage(nextPage);
+    notesHistoryRef.current = { undo: [], redo: [] };
+    await restoreCanvasFromDataUrl(notesDrawCanvasRef.current, null);
+  };
+
+  // ── Document Rendering Engine (PDF, Word, PowerPoint) ──
+  const renderPaginatedDocPage = useCallback(async (mediaObj, pageNum) => {
+    const canvas = docRenderCanvasRef.current;
+    if (!canvas || !mediaObj) return;
+
     try {
-      setIsLoadingPdf(true);
-      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-      const pdfScale = Math.max(2.6, Math.min(3.6, dpr * 1.5));
-
-      // 1. Instant Cache Check (0ms response)
-      if (pageCacheRef.current.has(pageNum)) {
-        pdfCanvasRef.current = pageCacheRef.current.get(pageNum);
-        pdfImageRef.current = null;
-        renderCompositeCanvas();
-        setIsLoadingPdf(false);
-
-        // Pre-render next page in background if not already in cache
-        if (doc && pageNum < doc.numPages && !pageCacheRef.current.has(pageNum + 1)) {
-          setTimeout(async () => {
-            try {
-              const nextP = await doc.getPage(pageNum + 1);
-              const vp = nextP.getViewport({ scale: pdfScale });
-              const c = document.createElement('canvas');
-              c.width = vp.width;
-              c.height = vp.height;
-              const cx = c.getContext('2d', { alpha: false });
-              cx.imageSmoothingEnabled = true;
-              cx.imageSmoothingQuality = 'high';
-              cx.fillStyle = '#ffffff';
-              cx.fillRect(0, 0, c.width, c.height);
-              await nextP.render({ canvasContext: cx, viewport: vp, intent: 'display' }).promise;
-              pageCacheRef.current.set(pageNum + 1, c);
-            } catch (e) {}
-          }, 40);
-        }
-        return;
+      if (mediaObj.type === 'pdf' && pdfDocRef.current) {
+        const page = await pdfDocRef.current.getPage(pageNum);
+        const unscaled = page.getViewport({ scale: 1 });
+        const scale = Math.min(1400 / unscaled.width, 1800 / unscaled.height, 2.2);
+        const viewport = page.getViewport({ scale });
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+      } else if (mediaObj.type === 'word' && wordDocRef.current) {
+        await wordDocRef.current.renderPage(pageNum, canvas);
+      } else if (mediaObj.type === 'pptx' && pptxDocRef.current) {
+        const slideCanvas = await pptxDocRef.current.renderSlideCanvas(pageNum - 1);
+        canvas.width = slideCanvas.width;
+        canvas.height = slideCanvas.height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(slideCanvas, 0, 0);
       }
-
-      // 2. High-speed 4K UHD Render (DPI-aware scale ensures crisp text on mobile & retina)
-      const page = await doc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: pdfScale });
-      const offscreen = document.createElement('canvas');
-      offscreen.width = viewport.width;
-      offscreen.height = viewport.height;
-      const ctx = offscreen.getContext('2d', { alpha: false });
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-
-      // Solid white background for perfect contrast
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, offscreen.width, offscreen.height);
-
-      await page.render({
-        canvasContext: ctx,
-        viewport,
-        intent: 'display',
-      }).promise;
-
-      pageCacheRef.current.set(pageNum, offscreen);
-      pdfCanvasRef.current = offscreen;
-      pdfImageRef.current = null;
-      renderCompositeCanvas();
-      setIsLoadingPdf(false);
-
-      // Pre-render next page in background so scrolling is 100% instant
-      if (doc && pageNum < doc.numPages && !pageCacheRef.current.has(pageNum + 1)) {
-        setTimeout(async () => {
-          try {
-            const nextP = await doc.getPage(pageNum + 1);
-            const vp = nextP.getViewport({ scale: pdfScale });
-            const c = document.createElement('canvas');
-            c.width = vp.width;
-            c.height = vp.height;
-            const cx = c.getContext('2d', { alpha: false });
-            cx.imageSmoothingEnabled = true;
-            cx.imageSmoothingQuality = 'high';
-            cx.fillStyle = '#ffffff';
-            cx.fillRect(0, 0, c.width, c.height);
-            await nextP.render({ canvasContext: cx, viewport: vp, intent: 'display' }).promise;
-            pageCacheRef.current.set(pageNum + 1, c);
-          } catch (e) {}
-        }, 40);
-      }
-    } catch (err) {
-      console.error('Error rendering PDF page:', err);
-      setIsLoadingPdf(false);
-      toast.error('خطا در رسم صفحه PDF');
+    } catch (_err) {
+      toast.error(`خطا در نمایش صفحه ${pageNum} فایل`);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!activeMedia) return;
+    if (['pdf', 'word', 'pptx'].includes(activeMedia.type)) {
+      renderPaginatedDocPage(activeMedia, activeMedia.currentPage);
+    }
+  }, [activeMedia, renderPaginatedDocPage]);
+
+  const goToDocPage = async (targetPage) => {
+    if (!activeMedia) return;
+    if (targetPage < 1 || targetPage > activeMedia.totalPages || targetPage === activeMedia.currentPage) return;
+
+    if (mainDrawCanvasRef.current) {
+      docAnnotationsRef.current[`${activeMedia.id}_p${activeMedia.currentPage}`] =
+        mainDrawCanvasRef.current.toDataURL('image/png');
+    }
+
+    const updated = { ...activeMedia, currentPage: targetPage };
+    setActiveMedia(updated);
+    mainHistoryRef.current = { undo: [], redo: [] };
+
+    await restoreCanvasFromDataUrl(
+      mainDrawCanvasRef.current,
+      docAnnotationsRef.current[`${activeMedia.id}_p${targetPage}`]
+    );
   };
 
-  const handlePdfFileSelect = async (e) => {
+  // ── Trigger Upload From Device (PDF / Word / PPTX / Video / Image) ──
+  const handleTriggerUpload = (kind) => {
+    if (kind === 'pdf') pdfInputRef.current?.click();
+    else if (kind === 'word') wordInputRef.current?.click();
+    else if (kind === 'pptx') pptxInputRef.current?.click();
+    else if (kind === 'video') videoInputRef.current?.click();
+    else if (kind === 'image') imageInputRef.current?.click();
+  };
+
+  const handleCloseMedia = async () => {
+    if (activeMedia?.url) {
+      URL.revokeObjectURL(activeMedia.url);
+    }
+    pdfDocRef.current = null;
+    wordDocRef.current = null;
+    pptxDocRef.current = null;
+    imageElRef.current = null;
+    setActiveMedia(null);
+    setVideoPlaying(false);
+    mainHistoryRef.current = { undo: [], redo: [] };
+    await restoreCanvasFromDataUrl(mainDrawCanvasRef.current, boardSnapshotsRef.current[boardPage]);
+  };
+
+  const handleFileSelected = (kind) => async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    pageCacheRef.current.clear();
-    const lowerName = file.name.toLowerCase();
-    const isPptx = lowerName.endsWith('.pptx') || lowerName.endsWith('.ppt');
+    if (!activeMedia) {
+      persistCurrentPaneSnapshot('main');
+    } else if (activeMedia.url) {
+      URL.revokeObjectURL(activeMedia.url);
+    }
 
-    if (isPptx) {
-      try {
-        toast.loading('در حال تبدیل اسلایدهای پاورپوینت با کیفیت و هندسه اصلی...', { id: 'doc-load' });
+    setIsLoadingMedia(true);
+    const mediaId = `${kind}_${Date.now()}`;
 
-        let pdfDataArray = null;
+    try {
+      pdfDocRef.current = null;
+      wordDocRef.current = null;
+      pptxDocRef.current = null;
+      imageElRef.current = null;
+      mainHistoryRef.current = { undo: [], redo: [] };
 
-        // 1. Try High-Fidelity Server Conversion (Office PowerPoint -> 100% Vector PDF)
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-          const response = await api.post('/videos/convert-pptx', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            responseType: 'arraybuffer',
-            timeout: 90000,
-          });
-
-          if (response && response.data && response.data.byteLength > 500) {
-            pdfDataArray = new Uint8Array(response.data);
-          }
-        } catch (serverErr) {
-          console.warn('Backend PPTX conversion failed, falling back to client parser:', serverErr);
-        }
-
-        if (pdfDataArray) {
-          const pdfjs = await getPdfJs();
-          const loadingTask = pdfjs.getDocument({ data: pdfDataArray });
-          const doc = await loadingTask.promise;
-
-          setPdfDocument(doc);
-          setPptxPresentation(null);
-          setDocType('pptx');
-          setPdfTotalPages(doc.numPages);
-          setPdfCurrentPage(1);
-          setPdfFileName(file.name);
-          setPdfZoom(1.0);
-          setPdfOffsetY(0);
-
-          await renderPdfPage(doc, 1);
-          toast.success(`ارائه پاورپوینت «${file.name}» با دقت ۱۰۰٪ و بدون افت شکل بارگذاری شد (${doc.numPages} اسلاید) 📊`, { id: 'doc-load' });
-          e.target.value = '';
-          return;
-        }
-
-        // 2. Fallback to client-side parser if backend is unavailable
-        const arrayBuffer = await file.arrayBuffer();
-        const pres = await loadPptxPresentation(arrayBuffer);
-
-        setPptxPresentation(pres);
-        setPdfDocument(null);
-        setDocType('pptx');
-        setPdfTotalPages(pres.numPages);
-        setPdfCurrentPage(1);
-        setPdfFileName(file.name);
-        setPdfZoom(1.0);
-        setPdfOffsetY(0);
-
-        const slideCanvas = await pres.renderSlideCanvas(0);
-        if (slideCanvas) {
-          pdfCanvasRef.current = slideCanvas;
-          pdfImageRef.current = null;
-          renderCompositeCanvas();
-        }
-        toast.success(`ارائه پاورپوینت «${file.name}» بارگذاری شد (${pres.numPages} اسلاید) 📊`, { id: 'doc-load' });
-      } catch (err) {
-        console.error('PPTX load error:', err);
-        toast.error(err.message || 'خطا در بارگذاری فایل پاورپوینت', { id: 'doc-load' });
-      }
-    } else if (file.type === 'application/pdf' || lowerName.endsWith('.pdf')) {
-      try {
-        toast.loading('در حال پردازش صفحه با کیفیت فوق‌العاده بالا...', { id: 'doc-load' });
+      if (kind === 'pdf') {
         const arrayBuffer = await file.arrayBuffer();
         const pdfjs = await getPdfJs();
-        const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
-        const doc = await loadingTask.promise;
+        const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+        pdfDocRef.current = pdfDoc;
+        setActiveMedia({
+          id: mediaId,
+          type: 'pdf',
+          name: file.name,
+          totalPages: pdfDoc.numPages || 1,
+          currentPage: 1,
+        });
+        toast.success(`فایل PDF «${file.name}» (${pdfDoc.numPages} صفحه) باز شد`);
+      } else if (kind === 'word') {
+        const arrayBuffer = await file.arrayBuffer();
+        const wordDoc = await loadWordDocument(arrayBuffer, file.name);
+        wordDocRef.current = wordDoc;
+        setActiveMedia({
+          id: mediaId,
+          type: 'word',
+          name: file.name,
+          totalPages: wordDoc.totalPages || 1,
+          currentPage: 1,
+        });
+        toast.success(`فایل Word «${file.name}» (${wordDoc.totalPages} صفحه) باز شد`);
+      } else if (kind === 'pptx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const pptx = await loadPptxPresentation(arrayBuffer);
+        pptxDocRef.current = pptx;
+        setActiveMedia({
+          id: mediaId,
+          type: 'pptx',
+          name: file.name,
+          totalPages: pptx.numPages || 1,
+          currentPage: 1,
+        });
+        toast.success(`فایل PowerPoint «${file.name}» (${pptx.numPages} اسلاید) باز شد`);
+      } else if (kind === 'image') {
+        const url = URL.createObjectURL(file);
+        const img = await loadImageFromUrl(url);
+        imageElRef.current = img;
+        setActiveMedia({
+          id: mediaId,
+          type: 'image',
+          name: file.name,
+          url,
+          totalPages: 1,
+          currentPage: 1,
+        });
+        toast.success(`تصویر «${file.name}» روی تخته قرار گرفت`);
+      } else if (kind === 'video') {
+        const url = URL.createObjectURL(file);
+        setVideoPlaying(false);
+        setVideoProgress(0);
+        setVideoDuration(0);
+        setActiveMedia({
+          id: mediaId,
+          type: 'video',
+          name: file.name,
+          url,
+          totalPages: 1,
+          currentPage: 1,
+        });
+        toast.success(`ویدیو «${file.name}» آماده پخش روی تخته است`);
+      }
 
-        setPdfDocument(doc);
-        setPptxPresentation(null);
-        setDocType('pdf');
-        setPdfTotalPages(doc.numPages);
-        setPdfCurrentPage(1);
-        setPdfFileName(file.name);
-        setPdfZoom(1.0);
-        setPdfOffsetY(0);
-        await renderPdfPage(doc, 1);
-        toast.success(`فایل «${file.name}» با وضوح بالا بارگذاری شد (${doc.numPages} صفحه)`, { id: 'doc-load' });
-      } catch (err) {
-        console.error('PDF error:', err);
-        toast.error('خطا در باز کردن فایل PDF', { id: 'doc-load' });
+      await restoreCanvasFromDataUrl(mainDrawCanvasRef.current, null);
+    } catch (err) {
+      toast.error(err?.message || 'خطا در باز کردن فایل انتخاب‌شده');
+    } finally {
+      setIsLoadingMedia(false);
+    }
+  };
+
+  // ── Video Playback Controls ──
+  const toggleVideoPlay = () => {
+    const vid = videoElRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      vid.play().catch(() => {});
+      setVideoPlaying(true);
+    } else {
+      vid.pause();
+      setVideoPlaying(false);
+    }
+  };
+
+  const toggleVideoMute = () => {
+    const vid = videoElRef.current;
+    if (!vid) return;
+    vid.muted = !vid.muted;
+    setVideoMuted(vid.muted);
+  };
+
+  // ── Composite Frame Renderer (Recording + PNG/PDF Export) ──
+  const renderCompositeFrame = useCallback((targetCanvas) => {
+    const ctx = targetCanvas.getContext('2d');
+    const W = targetCanvas.width;
+    const H = targetCanvas.height;
+    const { boardType: curBoardType, isSplitNotesOpen: splitOpen, activeMedia: curMedia } = stateRef.current;
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(0, 0, W, H);
+
+    const dividerW = splitOpen ? 6 : 0;
+    const notesW = splitOpen ? Math.round(W * 0.36) : 0;
+    const mainW = W - notesW - dividerW;
+    const mainX = splitOpen ? notesW + dividerW : 0;
+
+    // 1. Main Pane
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mainX, 0, mainW, H);
+    ctx.clip();
+    ctx.translate(mainX, 0);
+    drawBoardBackground(ctx, mainW, H, curMedia ? 'white' : curBoardType);
+
+    if (curMedia) {
+      if (['pdf', 'word', 'pptx'].includes(curMedia.type) && docRenderCanvasRef.current) {
+        const dc = docRenderCanvasRef.current;
+        if (dc.width > 0 && dc.height > 0) {
+          drawContained(ctx, dc, dc.width, dc.height, 16, 16, mainW - 32, H - 32);
+        }
+      } else if (curMedia.type === 'image' && imageElRef.current) {
+        const img = imageElRef.current;
+        drawContained(ctx, img, img.naturalWidth, img.naturalHeight, 16, 16, mainW - 32, H - 32);
+      } else if (curMedia.type === 'video' && videoElRef.current && videoElRef.current.readyState >= 2) {
+        const vid = videoElRef.current;
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, mainW, H);
+        drawContained(ctx, vid, vid.videoWidth || 1280, vid.videoHeight || 720, 12, 12, mainW - 24, H - 24);
       }
     }
-    e.target.value = '';
+
+    if (mainDrawCanvasRef.current) {
+      ctx.drawImage(mainDrawCanvasRef.current, 0, 0, mainW, H);
+    }
+    ctx.restore();
+
+    // 2. Side-by-Side White Note Board (when open)
+    if (splitOpen) {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(notesW, 0, dividerW, H);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, notesW, H);
+      ctx.clip();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, notesW, H);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, notesW, 38);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(0, 38);
+      ctx.lineTo(notesW, 38);
+      ctx.stroke();
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '600 15px Vazirmatn, Tahoma, sans-serif';
+      ctx.direction = 'rtl';
+      ctx.textAlign = 'right';
+      ctx.fillText('صفحه سفید نت‌برداری', notesW - 14, 24);
+
+      if (notesDrawCanvasRef.current) {
+        ctx.drawImage(notesDrawCanvasRef.current, 0, 38, notesW, H - 38);
+      }
+      ctx.restore();
+    }
+  }, []);
+
+  // ── Export & Download (PNG & Multi-Page PDF) ──
+  const handleDownloadPng = () => {
+    try {
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = 1600;
+      exportCanvas.height = 900;
+      renderCompositeFrame(exportCanvas);
+
+      const safeTitle = (sessionTitle || 'smartboard').replace(/[\\/:*?"<>|]/g, '_');
+      const link = document.createElement('a');
+      link.download = `${safeTitle}.png`;
+      link.href = exportCanvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('تصویر صفحه تخته (PNG) دانلود شد');
+    } catch (_err) {
+      toast.error('خطا در ذخیره تصویر صفحه');
+    }
   };
 
-  const handleImageFileSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleDownloadPdf = async () => {
+    setIsExporting(true);
+    try {
+      persistCurrentPaneSnapshot('main');
+      if (isSplitNotesOpen) persistCurrentPaneSnapshot('notes');
 
-    pageCacheRef.current.clear();
-    if (videoElementRef.current) {
-      videoElementRef.current.pause();
-      videoElementRef.current.src = '';
-      videoElementRef.current = null;
-    }
-    setIsVideoPlaying(false);
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [1280, 720] });
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = 1280;
+      pageCanvas.height = 720;
+      let hasAddedFirstPage = false;
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        pdfImageRef.current = img;
-        pdfCanvasRef.current = null;
-        setPdfDocument(null);
-        setPptxPresentation(null);
-        setDocType('image');
-        setPdfTotalPages(1);
-        setPdfCurrentPage(1);
-        setPdfFileName(file.name);
-        setPdfZoom(1.0);
-        setPdfOffsetY(0);
-        renderCompositeCanvas();
-        toast.success(`تصویر «${file.name}» روی تخته قرار گرفت 🖼️`);
+      const appendCanvasToPdf = (canvas) => {
+        if (hasAddedFirstPage) pdf.addPage([1280, 720], 'landscape');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 1280, 720);
+        hasAddedFirstPage = true;
       };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
 
-  const handleVideoFileSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    pageCacheRef.current.clear();
-    if (videoElementRef.current) {
-      videoElementRef.current.pause();
-      videoElementRef.current.src = '';
-      videoElementRef.current = null;
-    }
-
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.src = url;
-    video.playsInline = true;
-    video.crossOrigin = 'anonymous';
-    video.loop = false;
-
-    video.onloadedmetadata = () => {
-      videoElementRef.current = video;
-      pdfCanvasRef.current = null;
-      pdfImageRef.current = null;
-      setPdfDocument(null);
-      setPptxPresentation(null);
-      setDocType('video');
-      setPdfTotalPages(1);
-      setPdfCurrentPage(1);
-      setPdfFileName(file.name);
-      setPdfZoom(1.0);
-      setPdfOffsetY(0);
-      setVideoDuration(video.duration || 0);
-      setVideoCurrentTime(0);
-      setIsVideoPlaying(false);
-      renderCompositeCanvas();
-      toast.success(`فیلم آموزشی «${file.name}» روی تخته قرار گرفت 🎬`);
-    };
-
-    video.ontimeupdate = () => {
-      setVideoCurrentTime(video.currentTime);
-      renderCompositeCanvas();
-    };
-
-    video.onended = () => {
-      setIsVideoPlaying(false);
-      renderCompositeCanvas();
-    };
-
-    video.onerror = () => {
-      toast.error('خطا در پخش فایل ویدیویی');
-    };
-
-    e.target.value = '';
-  };
-
-  const togglePlayVideo = () => {
-    const video = videoElementRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play().then(() => {
-        setIsVideoPlaying(true);
-        const loop = () => {
-          if (!video.paused && !video.ended) {
-            renderCompositeCanvas();
-            requestAnimationFrame(loop);
-          } else {
-            setIsVideoPlaying(false);
-            renderCompositeCanvas();
+      if (activeMedia) {
+        renderCompositeFrame(pageCanvas);
+        appendCanvasToPdf(pageCanvas);
+      } else {
+        const pCtx = pageCanvas.getContext('2d');
+        for (let p = 1; p <= boardTotalPages; p += 1) {
+          drawBoardBackground(pCtx, 1280, 720, boardType);
+          const snap = p === boardPage ? mainDrawCanvasRef.current?.toDataURL('image/png') : boardSnapshotsRef.current[p];
+          if (snap) {
+            const img = await loadImageFromUrl(snap).catch(() => null);
+            if (img) pCtx.drawImage(img, 0, 0, 1280, 720);
           }
-        };
-        requestAnimationFrame(loop);
-      }).catch((e) => console.warn('Video play error:', e));
-    } else {
-      video.pause();
-      setIsVideoPlaying(false);
-      renderCompositeCanvas();
-    }
-  };
-
-  const handleSeekVideo = (e) => {
-    const video = videoElementRef.current;
-    if (!video) return;
-    const time = parseFloat(e.target.value);
-    video.currentTime = time;
-    setVideoCurrentTime(time);
-    renderCompositeCanvas();
-  };
-
-  const toggleMuteVideo = () => {
-    const video = videoElementRef.current;
-    if (!video) return;
-    video.muted = !video.muted;
-    setIsVideoMuted(video.muted);
-  };
-
-  const formatVideoTime = (secs) => {
-    const s = Math.floor(secs || 0);
-    const m = Math.floor(s / 60);
-    const rem = s % 60;
-    return `${m}:${rem < 10 ? '0' : ''}${rem}`;
-  };
-
-  const handleNextPdfPage = async () => {
-    if (isLoadingPdf) return;
-    if (pptxPresentation && pdfCurrentPage < pdfTotalPages) {
-      const next = pdfCurrentPage + 1;
-      setPdfCurrentPage(next);
-      setPdfOffsetY(0);
-      setIsLoadingPdf(true);
-      const canvas = await pptxPresentation.renderSlideCanvas(next - 1);
-      if (canvas) {
-        pdfCanvasRef.current = canvas;
-        pdfImageRef.current = null;
-        renderCompositeCanvas();
+          appendCanvasToPdf(pageCanvas);
+        }
       }
-      setIsLoadingPdf(false);
-    } else if (pdfDocument && pdfCurrentPage < pdfTotalPages) {
-      const next = pdfCurrentPage + 1;
-      setPdfCurrentPage(next);
-      setPdfOffsetY(0);
-      renderPdfPage(pdfDocument, next);
-    }
-  };
 
-  const handlePrevPdfPage = async () => {
-    if (isLoadingPdf) return;
-    if (pptxPresentation && pdfCurrentPage > 1) {
-      const prev = pdfCurrentPage - 1;
-      setPdfCurrentPage(prev);
-      setPdfOffsetY(0);
-      setIsLoadingPdf(true);
-      const canvas = await pptxPresentation.renderSlideCanvas(prev - 1);
-      if (canvas) {
-        pdfCanvasRef.current = canvas;
-        pdfImageRef.current = null;
-        renderCompositeCanvas();
+      const savedNotePageNums = Object.keys(noteSnapshotsRef.current)
+        .map(Number)
+        .filter((n) => !Number.isNaN(n))
+        .sort((a, b) => a - b);
+      for (const nPage of savedNotePageNums) {
+        if (isSplitNotesOpen && activeMedia && nPage === notePage) continue;
+        const snap = noteSnapshotsRef.current[nPage];
+        if (!snap) continue;
+        const pCtx = pageCanvas.getContext('2d');
+        pCtx.fillStyle = '#ffffff';
+        pCtx.fillRect(0, 0, 1280, 720);
+        const img = await loadImageFromUrl(snap).catch(() => null);
+        if (img) drawContained(pCtx, img, img.naturalWidth, img.naturalHeight, 40, 20, 1200, 680);
+        appendCanvasToPdf(pageCanvas);
       }
-      setIsLoadingPdf(false);
-    } else if (pdfDocument && pdfCurrentPage > 1) {
-      const prev = pdfCurrentPage - 1;
-      setPdfCurrentPage(prev);
-      setPdfOffsetY(0);
-      renderPdfPage(pdfDocument, prev);
+
+      const safeTitle = (sessionTitle || 'smartboard-notes').replace(/[\\/:*?"<>|]/g, '_');
+      pdf.save(`${safeTitle}.pdf`);
+      toast.success('فایل کامل PDF با موفقیت ذخیره و دانلود شد');
+    } catch (_err) {
+      toast.error('خطا در ساخت فایل PDF');
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleClosePdf = () => {
-    pageCacheRef.current.clear();
-    if (videoElementRef.current) {
-      videoElementRef.current.pause();
-      videoElementRef.current.src = '';
-      videoElementRef.current = null;
+  // ── Recording Engine (Composite Canvas + Microphone Audio -> WebM) ──
+  const stopRecCleanup = () => {
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current);
+      recTimerRef.current = null;
     }
-    setIsVideoPlaying(false);
-    setPdfDocument(null);
-    setPptxPresentation(null);
-    setPdfTotalPages(0);
-    setPdfCurrentPage(1);
-    setPdfFileName('');
-    setPdfZoom(1.0);
-    setPdfOffsetY(0);
-    pdfCanvasRef.current = null;
-    pdfImageRef.current = null;
-    renderCompositeCanvas();
-    toast('محتوا از روی تخته برداشته شد');
+    if (recRafRef.current) {
+      cancelAnimationFrame(recRafRef.current);
+      recRafRef.current = null;
+    }
+    recStreamsRef.current.forEach((stream) => stream.getTracks().forEach((t) => t.stop()));
+    recStreamsRef.current = [];
   };
 
-  // ── 2.8 Whiteboard Multi-Page Navigation & PDF Export Engine ──
-
-  // Save current active page drawing & history to boardPagesRef
-  const saveCurrentPageData = useCallback(() => {
-    if (!drawingCanvasRef.current) return;
-    const currentIdx = boardCurrentPage - 1;
-    const dataUrl = drawingCanvasRef.current.toDataURL();
-
-    if (!boardPagesRef.current[currentIdx]) {
-      boardPagesRef.current[currentIdx] = { pageNum: currentIdx + 1 };
-    }
-    boardPagesRef.current[currentIdx] = {
-      pageNum: currentIdx + 1,
-      drawingDataUrl: dataUrl,
-      history: [...historyRef.current],
-      redo: [...redoRef.current],
-      boardType: boardType,
-    };
-  }, [boardCurrentPage, boardType]);
-
-  // Load a target page into drawingCanvasRef & restore history
-  const loadPageData = useCallback((targetPageNum) => {
-    const targetIdx = targetPageNum - 1;
-    const pageData = boardPagesRef.current[targetIdx];
-
-    const drawCanvas = drawingCanvasRef.current;
-    if (!drawCanvas) return;
-    const drawCtx = drawCanvas.getContext('2d');
-    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-
-    if (pageData && pageData.drawingDataUrl) {
-      const img = new Image();
-      img.onload = () => {
-        drawCtx.drawImage(img, 0, 0);
-        historyRef.current = pageData.history ? [...pageData.history] : [];
-        redoRef.current = pageData.redo ? [...pageData.redo] : [];
-        renderCompositeCanvas();
-      };
-      img.src = pageData.drawingDataUrl;
-    } else {
-      historyRef.current = [];
-      redoRef.current = [];
-      renderCompositeCanvas();
-    }
-  }, [renderCompositeCanvas]);
-
-  const handleNextBoardPage = () => {
-    if (boardCurrentPage < boardTotalPages) {
-      saveCurrentPageData();
-      const next = boardCurrentPage + 1;
-      setBoardCurrentPage(next);
-      loadPageData(next);
-      toast(`انتقال به برگه ${next}`, { id: 'page-nav', duration: 1500 });
-    } else {
-      handleAddNewBoardPage();
-    }
-  };
-
-  const handlePrevBoardPage = () => {
-    if (boardCurrentPage > 1) {
-      saveCurrentPageData();
-      const prev = boardCurrentPage - 1;
-      setBoardCurrentPage(prev);
-      loadPageData(prev);
-      toast(`انتقال به برگه ${prev}`, { id: 'page-nav', duration: 1500 });
-    }
-  };
-
-  const handleAddNewBoardPage = () => {
-    saveCurrentPageData();
-    const newPageNum = boardTotalPages + 1;
-    boardPagesRef.current.push({
-      pageNum: newPageNum,
-      drawingDataUrl: null,
-      history: [],
-      redo: [],
-      boardType: boardType,
-    });
-    setBoardTotalPages(newPageNum);
-    setBoardCurrentPage(newPageNum);
-
-    const drawCanvas = drawingCanvasRef.current;
-    if (drawCanvas) {
-      const drawCtx = drawCanvas.getContext('2d');
-      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    }
-    historyRef.current = [];
-    redoRef.current = [];
-    renderCompositeCanvas();
-    toast.success(`برگه شماره ${newPageNum} ایجاد شد 📄✨`, { id: 'page-nav' });
-  };
-
-  const handleDeleteBoardPage = () => {
-    if (boardTotalPages <= 1) {
-      handleClearBoard();
+  const handleStartRecording = async () => {
+    if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+      toast.error('مرورگر شما از قابلیت ضبط ویدیو پشتیبانی نمی‌کند');
       return;
     }
-    if (window.confirm(`آیا از حذف برگه شماره ${boardCurrentPage} مطمئن هستید؟`)) {
-      const remainingPages = boardPagesRef.current.filter((_, idx) => idx !== boardCurrentPage - 1);
-      remainingPages.forEach((p, idx) => { p.pageNum = idx + 1; });
-      boardPagesRef.current = remainingPages;
-      const newTotal = remainingPages.length;
-      const newCurrent = Math.min(boardCurrentPage, newTotal);
-      setBoardTotalPages(newTotal);
-      setBoardCurrentPage(newCurrent);
-      loadPageData(newCurrent);
-      toast.success(`برگه حذف شد (تعداد باقی‌مانده: ${newTotal})`, { id: 'page-nav' });
-    }
-  };
-
-  // Universal Client Download Engine (Desktop, Mobile & Android WebView compatible)
-  const triggerDownloadFile = async (data, filename, mimeType = 'application/octet-stream') => {
-    try {
-      let blob;
-      if (data instanceof Blob) {
-        blob = data;
-      } else if (typeof data === 'string' && data.startsWith('blob:')) {
-        try {
-          const res = await fetch(data);
-          blob = await res.blob();
-        } catch (e) {
-          blob = new Blob([data], { type: mimeType });
-        }
-      } else if (typeof data === 'string' && data.startsWith('data:')) {
-        const a = document.createElement('a');
-        a.href = data;
-        a.download = filename;
-        a.target = '_self';
-        a.rel = 'noopener noreferrer';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          try {
-            if (a.parentNode) document.body.removeChild(a);
-          } catch (e) {}
-        }, 1000);
-        return true;
-      } else {
-        blob = new Blob([data], { type: mimeType });
-      }
-
-      // IE / legacy Edge support
-      if (typeof window !== 'undefined' && window.navigator && window.navigator.msSaveOrOpenBlob) {
-        window.navigator.msSaveOrOpenBlob(blob, filename);
-        return true;
-      }
-
-      // 1. Blob URL with anchor click
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.target = '_self';
-      a.rel = 'noopener noreferrer';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-
-      if (typeof a.click === 'function') {
-        a.click();
-      } else {
-        const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-        a.dispatchEvent(evt);
-      }
-
-      // Keep Blob URL active for at least 120 seconds so large video files finish downloading without being killed
-      setTimeout(() => {
-        try {
-          if (a.parentNode) {
-            document.body.removeChild(a);
-          }
-          URL.revokeObjectURL(blobUrl);
-        } catch (e) {}
-      }, 120000);
-
-      return true;
-    } catch (err) {
-      console.warn('Standard blob download failed, trying FileReader DataURL fallback:', err);
-      // 2. Data URL Fallback (critical for Android WebView & Mobile)
-      try {
-        const targetBlob = (data instanceof Blob) ? data : (blob instanceof Blob ? blob : new Blob([data], { type: mimeType }));
-        if (targetBlob instanceof Blob) {
-          const reader = new FileReader();
-          reader.onload = function () {
-            try {
-              const a = document.createElement('a');
-              a.href = reader.result;
-              a.download = filename;
-              a.target = '_self';
-              a.rel = 'noopener noreferrer';
-              a.style.display = 'none';
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try {
-                  if (a.parentNode) document.body.removeChild(a);
-                } catch (e) {}
-              }, 10000);
-            } catch (eInner) {
-              console.error('Data URL fallback click failed:', eInner);
-            }
-          };
-          reader.readAsDataURL(targetBlob);
-          return true;
-        }
-      } catch (err2) {
-        console.error('All download methods failed:', err2);
-      }
-      return false;
-    }
-  };
-
-  // Generate & Download Ultra-HD Multi-Page PDF of Whiteboard Pages
-  const handleExportPdf = async () => {
-    if (isExportingPdf) return;
-    setIsExportingPdf(true);
-    const loadingToast = toast.loading('در حال آماده‌سازی و ساخت فایل PDF جزوه...');
 
     try {
-      // 1. Save current active page data first
-      try {
-        saveCurrentPageData();
-      } catch (saveErr) {
-        console.warn('saveCurrentPageData warning:', saveErr);
-      }
+      const recCanvas = document.createElement('canvas');
+      recCanvas.width = REC_CANVAS_W;
+      recCanvas.height = REC_CANVAS_H;
+      recCanvasRef.current = recCanvas;
+      renderCompositeFrame(recCanvas);
 
-      // 2. Safe Dynamic import of jsPDF (handles both default & named exports across all bundlers)
-      const jspdfModule = await import('jspdf');
-      const JsPdfConstructor = jspdfModule.jsPDF || jspdfModule.default;
-      if (!JsPdfConstructor) {
-        throw new Error('کتابخانه ساخت PDF بارگذاری نشد.');
-      }
-
-      const mainCanvas = canvasRef.current;
-      const width = Math.max(800, mainCanvas?.width || 1920);
-      const height = Math.max(600, mainCanvas?.height || 1080);
-      const orientation = width >= height ? 'landscape' : 'portrait';
-
-      const doc = new JsPdfConstructor({
-        orientation,
-        unit: 'px',
-        format: [width, height],
-        hotfixes: ['px_scaling'],
-      });
-
-      // Create an offscreen helper canvas to composite each page identically
-      const offscreen = document.createElement('canvas');
-      offscreen.width = width;
-      offscreen.height = height;
-      const offCtx = offscreen.getContext('2d');
-      if (offCtx) {
-        offCtx.imageSmoothingEnabled = true;
-        offCtx.imageSmoothingQuality = 'high';
-      }
-
-      const totalP = Math.max(1, boardPagesRef.current?.length || 1);
-
-      for (let i = 0; i < totalP; i++) {
-        const page = boardPagesRef.current?.[i] || {};
-        offCtx.clearRect(0, 0, width, height);
-
-        // A. Draw Board Background
-        const pageBg = page.boardType || boardType;
-        if (pageBg === 'blackboard') {
-          offCtx.fillStyle = '#1a2e22';
-          offCtx.fillRect(0, 0, width, height);
-          try {
-            const grad = offCtx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, Math.max(width, height) / 1.2);
-            grad.addColorStop(0, 'rgba(255, 255, 255, 0.03)');
-            grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
-            offCtx.fillStyle = grad;
-            offCtx.fillRect(0, 0, width, height);
-          } catch (e) {}
-        } else if (pageBg === 'grid') {
-          offCtx.fillStyle = '#ffffff';
-          offCtx.fillRect(0, 0, width, height);
-          offCtx.strokeStyle = '#e2e8f0';
-          offCtx.lineWidth = 1;
-          const gridSize = 32;
-          offCtx.beginPath();
-          for (let x = gridSize; x < width; x += gridSize) {
-            offCtx.moveTo(x, 0);
-            offCtx.lineTo(x, height);
-          }
-          for (let y = gridSize; y < height; y += gridSize) {
-            offCtx.moveTo(0, y);
-            offCtx.lineTo(width, y);
-          }
-          offCtx.stroke();
-        } else {
-          offCtx.fillStyle = '#ffffff';
-          offCtx.fillRect(0, 0, width, height);
-        }
-
-        // B. Draw underlying media (PDF slide or Image) if opened
-        const mediaSource = pdfCanvasRef.current || pdfImageRef.current;
-        if (mediaSource) {
-          try {
-            const srcW = mediaSource.width;
-            const srcH = mediaSource.height;
-            if (srcW && srcH) {
-              let drawW, drawH;
-              if (pdfFitMode === 'fit-width') {
-                const targetW = Math.min(width - 60, Math.max(920, width * 0.72)) * (pdfZoom || 1.0);
-                const scale = targetW / srcW;
-                drawW = targetW;
-                drawH = srcH * scale;
-              } else {
-                const targetH = (height - 150) * (pdfZoom || 1.0);
-                const scale = targetH / srcH;
-                drawW = srcW * scale;
-                drawH = targetH;
-              }
-              const drawX = (width - drawW) / 2;
-              const baseY = pdfFitMode === 'fit-width' ? 80 : (height - drawH) / 2;
-              const drawY = baseY + (pdfOffsetY || 0);
-
-              offCtx.save();
-              offCtx.drawImage(mediaSource, drawX, drawY, drawW, drawH);
-              offCtx.restore();
-            }
-          } catch (mediaErr) {
-            console.warn('Could not draw mediaSource onto PDF page:', mediaErr);
-          }
-        }
-
-        // C. Draw strokes of this page
-        if (page.drawingDataUrl) {
-          await new Promise((resolve) => {
-            const img = new Image();
-            const timer = setTimeout(resolve, 1500);
-            img.onload = () => {
-              clearTimeout(timer);
-              try {
-                offCtx.drawImage(img, 0, 0);
-              } catch (e) {}
-              resolve();
-            };
-            img.onerror = () => {
-              clearTimeout(timer);
-              resolve();
-            };
-            img.src = page.drawingDataUrl;
-          });
-        } else if (i === boardCurrentPage - 1 && drawingCanvasRef.current) {
-          try {
-            offCtx.drawImage(drawingCanvasRef.current, 0, 0);
-          } catch (drawErr) {
-            console.warn('Could not draw current active strokes:', drawErr);
-          }
-        }
-
-        // D. Discreet Branding & Page Numbering
-        try {
-          offCtx.save();
-          offCtx.font = 'bold 15px Vazirmatn, Tahoma, sans-serif';
-          offCtx.fillStyle = pageBg === 'blackboard' ? 'rgba(255,255,255,0.7)' : 'rgba(30, 41, 59, 0.65)';
-          const pageLabel = `برگه ${i + 1} از ${totalP}`;
-          offCtx.fillText(pageLabel, 36, height - 24);
-
-          if (projectName) {
-            const titleText = `${projectName} • ${new Date().toLocaleDateString('fa-IR')}`;
-            const textWidth = offCtx.measureText(titleText).width;
-            offCtx.fillText(titleText, width - 36 - textWidth, height - 24);
-          }
-          offCtx.restore();
-        } catch (e) {}
-
-        // E. Add page to PDF
-        let imgData = null;
-        try {
-          imgData = offscreen.toDataURL('image/jpeg', 0.92);
-        } catch (taintErr) {
-          console.warn('Canvas toDataURL failed (likely tainted), trying PNG:', taintErr);
-          try {
-            imgData = offscreen.toDataURL('image/png');
-          } catch (e2) {
-            console.error('Canvas export completely failed:', e2);
-          }
-        }
-
-        if (imgData && imgData !== 'data:,') {
-          if (i > 0) {
-            doc.addPage([width, height], orientation);
-          }
-          doc.addImage(imgData, 'JPEG', 0, 0, width, height, undefined, 'FAST');
-        }
-      }
-
-      const cleanName = (projectName || 'جزوه_تخته_هوشمند')
-        .replace(/[/\\?%*:|"<>]/g, '-')
-        .replace(/\s+/g, '_')
-        .trim();
-      const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
-      const fileName = `${cleanName}_${dateStr}.pdf`;
-
-      // Multi-channel download (Blob + DataURL + jsPDF doc.save fallback)
-      let downloaded = false;
-      try {
-        const pdfBlob = doc.output('blob');
-        if (pdfBlob && pdfBlob.size > 0) {
-          downloaded = await triggerDownloadFile(pdfBlob, fileName, 'application/pdf');
-        }
-      } catch (blobErr) {
-        console.warn('doc.output(blob) failed:', blobErr);
-      }
-
-      if (!downloaded) {
-        try {
-          doc.save(fileName);
-          downloaded = true;
-        } catch (saveErr) {
-          console.warn('doc.save() failed:', saveErr);
-        }
-      }
-
-      toast.dismiss(loadingToast);
-      if (downloaded) {
-        toast.success(`فایل PDF جزوه با ${totalP} برگه با موفقیت دانلود شد 📄✨`, { duration: 4500 });
-      } else {
-        toast.error('خطا در دریافت و ذخیره فایل PDF');
-      }
-    } catch (err) {
-      console.error('PDF export error:', err);
-      toast.dismiss(loadingToast);
-      toast.error('خطا در ایجاد فایل PDF جزوه: ' + (err.message || 'مشکل در پردازش تصاویر'));
-    } finally {
-      setIsExportingPdf(false);
-    }
-  };
-
-  // Scroll wheel navigation on slides with smooth debounce
-  const lastScrollTimeRef = useRef(0);
-
-  const handleCanvasWheel = (e) => {
-    if (pdfTotalPages > 1) {
-      // 1. Ctrl + Wheel -> Zoom in / out
-      if (e.ctrlKey) {
-        e.preventDefault();
-        if (e.deltaY < 0) {
-          setPdfZoom((prev) => Math.min(3.0, +(prev + 0.1).toFixed(1)));
-        } else {
-          setPdfZoom((prev) => Math.max(0.2, +(prev - 0.1).toFixed(1)));
-        }
-        return;
-      }
-
-      // 2. Shift + Wheel -> Fine-grained vertical Pan
-      if (e.shiftKey) {
-        setPdfOffsetY((prev) => prev - e.deltaY * 0.7);
-        return;
-      }
-
-      // 3. Normal Wheel -> Next / Previous Page Navigation with smooth debounce
-      const now = Date.now();
-      if (now - lastScrollTimeRef.current > 300) {
-        if (e.deltaY > 15) {
-          if (pdfCurrentPage < pdfTotalPages && !isLoadingPdf) {
-            lastScrollTimeRef.current = now;
-            handleNextPdfPage();
-          }
-        } else if (e.deltaY < -15) {
-          if (pdfCurrentPage > 1 && !isLoadingPdf) {
-            lastScrollTimeRef.current = now;
-            handlePrevPdfPage();
-          }
-        }
-      }
-    } else if (pdfCanvasRef.current || pdfImageRef.current) {
-      // Single page document or image -> scroll vertically
-      setPdfOffsetY((prev) => prev - e.deltaY * 0.7);
-    }
-  };
-
-  // Keyboard navigation for PowerPoint slides and Whiteboard pages
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
-      if (pdfTotalPages > 1) {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown' || e.key === 'PageDown') {
-          e.preventDefault();
-          handleNextPdfPage();
-        } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'PageUp') {
-          e.preventDefault();
-          handlePrevPdfPage();
-        }
-      } else if (boardTotalPages > 1) {
-        if (e.key === 'PageDown') {
-          e.preventDefault();
-          handleNextBoardPage();
-        } else if (e.key === 'PageUp') {
-          e.preventDefault();
-          handlePrevBoardPage();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pdfTotalPages, pdfCurrentPage, isLoadingPdf, boardTotalPages, boardCurrentPage]);
-
-  // ── 3. Screen / Canvas & Mic Recording Engine ──
-
-  const startRecording = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    try {
-      // 1. Explicitly prompt and request microphone permission FIRST if audio is enabled
-      let micStream = null;
-      if (recordAudio) {
-        const permToast = toast.loading('در حال اتصال به میکروفون 🎙️...');
-        try {
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 48000,
-            },
-          });
-          micStreamRef.current = micStream;
-          toast.dismiss(permToast);
-          toast.success('میکروفون با موفقیت متصل شد 🎙️ صدای تدریس شما روی ویدیو ضبط خواهد شد', { duration: 3500 });
-        } catch (micErr) {
-          toast.dismiss(permToast);
-          console.warn('Microphone permission denied or not available:', micErr);
-          toast.error('دسترسی به میکروفون داده نشد یا میکروفون متصل نیست! ویدیو بدون صدا ضبط خواهد شد ⚠️', { duration: 4500 });
-        }
-      }
-
-      // 2. Capture 30FPS canvas video stream
-      const canvasStream = canvas.captureStream(30);
-
-      // 3. Compose unified stream containing both video and audio tracks
+      const canvasStream = recCanvas.captureStream(24);
       const tracks = [...canvasStream.getVideoTracks()];
-      if (micStream && micStream.getAudioTracks().length > 0) {
-        tracks.push(...micStream.getAudioTracks());
+      const activeStreams = [canvasStream];
+
+      if (micEnabled && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
+          activeStreams.push(audioStream);
+          audioStream.getAudioTracks().forEach((t) => tracks.push(t));
+        } catch (_micErr) {
+          toast('میکروفون در دسترس نبود؛ ضبط تصویر صفحه بدون صدا ادامه می‌یابد', { icon: '🔇' });
+        }
       }
+
+      recStreamsRef.current = activeStreams;
       const combinedStream = new MediaStream(tracks);
 
-      // 4. Determine supported MIME type (prefer Opus for crystal-clear audio recording)
-      let mimeType = 'video/webm;codecs=vp9,opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/webm;codecs=vp8,opus';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = 'video/webm';
-        }
-      }
+      const preferredTypes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+      const mimeType = preferredTypes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
 
-      recordedChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType,
-        audioBitsPerSecond: 128000,
-        videoBitsPerSecond: 2500000,
-      });
+      const recorder = mimeType ? new MediaRecorder(combinedStream, { mimeType }) : new MediaRecorder(combinedStream);
+      recChunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunksRef.current.push(event.data);
-        }
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) recChunksRef.current.push(ev.data);
       };
 
-      mediaRecorder.onstop = () => {
-        const mime = mediaRecorder.mimeType || 'video/webm';
-        const blob = new Blob(recordedChunksRef.current, { type: mime });
-        const videoUrl = URL.createObjectURL(blob);
+      recorder.onstop = () => {
+        stopRecCleanup();
+        const blob = new Blob(recChunksRef.current, { type: mimeType || 'video/webm' });
+        if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+        const url = URL.createObjectURL(blob);
         setRecordedBlob(blob);
-        setRecordedVideoUrl(videoUrl);
-        fetchAvailableFolders();
-        const classObj = classesList.find((c) => c.id === selectedClassId);
-        setSaveTargetFolder(classObj?.name || 'تخته هوشمند');
-        setIsSaveCreatingFolder(false);
-        setSaveNewFolderName('');
-        setShowSaveModal(true);
-
-        // Stop microphone tracks cleanly
-        if (micStreamRef.current) {
-          micStreamRef.current.getTracks().forEach((t) => t.stop());
-          micStreamRef.current = null;
-        }
+        setRecordedUrl(url);
+        setRecStatus('idle');
+        setShowRecordingModal(true);
+        toast.success('ضبط کلاس پایان یافت. می‌توانید ویدیو را ذخیره یا ارسال کنید.');
       };
 
-      mediaRecorder.start(1000); // 1-second chunks
-      mediaRecorderRef.current = mediaRecorder;
-      setRecStatus('recording');
-      setRecSeconds(0);
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
 
-      // Timer
-      timerIntervalRef.current = setInterval(() => {
-        setRecSeconds((prev) => prev + 1);
-      }, 1000);
-
-      toast.success('ضبط تخته و تدریس آغاز شد 🔴', { duration: 3000 });
-    } catch (err) {
-      console.error('Failed to start recording:', err);
-      toast.error('خطا در آغاز ضبط تصویر یا صدا');
-    }
-  };
-
-  const pauseRecording = () => {
-    if (mediaRecorderRef.current && recStatus === 'recording') {
-      mediaRecorderRef.current.pause();
-      setRecStatus('paused');
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      toast('ضبط موقتاً متوقف شد ⏸️');
-    }
-  };
-
-  const resumeRecording = () => {
-    if (mediaRecorderRef.current && recStatus === 'paused') {
-      mediaRecorderRef.current.resume();
-      setRecStatus('recording');
-      timerIntervalRef.current = setInterval(() => {
-        setRecSeconds((prev) => prev + 1);
-      }, 1000);
-      toast.success('ادامه ضبط تدریس ▶️');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && (recStatus === 'recording' || recStatus === 'paused')) {
-      try {
-        if (mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.requestData();
-        }
-      } catch (e) {
-        console.warn('requestData error:', e);
-      }
-      mediaRecorderRef.current.stop();
-      setRecStatus('idle');
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
-      }
-    }
-  };
-
-  // Format seconds to HH:MM:SS
-  const formatTimer = (totalSeconds) => {
-    const hrs = Math.floor(totalSeconds / 3600);
-    const mins = Math.floor((totalSeconds % 3600) / 60);
-    const secs = totalSeconds % 60;
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
-  };
-
-  // ── 4. Project Modal & Studio Launch ──
-
-  const handleStartNewProject = (e) => {
-    e.preventDefault();
-    if (!projectName.trim()) {
-      toast.error('لطفاً عنوان یا مبحث تدریس را وارد کنید');
-      return;
-    }
-    // Initialize board pages with a fresh sheet
-    boardPagesRef.current = [
-      { pageNum: 1, drawingDataUrl: null, history: [], redo: [], boardType: boardType }
-    ];
-    setBoardCurrentPage(1);
-    setBoardTotalPages(1);
-    const dCanvas = drawingCanvasRef.current;
-    if (dCanvas) {
-      const dCtx = dCanvas.getContext('2d');
-      dCtx.clearRect(0, 0, dCanvas.width, dCanvas.height);
-    }
-    historyRef.current = [];
-    redoRef.current = [];
-    setShowNewModal(false);
-    setIsStudioOpen(true);
-    toast.success(`استودیوی تدریس «${projectName}» آماده شد ✨`);
-  };
-
-  const handleExitStudio = () => {
-    if (recStatus === 'recording' || recStatus === 'paused') {
-      if (!window.confirm('ضبط در جریان است. آیا مایلید ضبط را پایان داده و خارج شوید؟')) {
-        return;
-      }
-      stopRecording();
-    }
-    setIsStudioOpen(false);
-  };
-
-  // ── 5. Video Saving & Publishing ──
-
-  // Direct file download (Supports Desktop, Mobile & Android WebView)
-  const handleDownloadVideo = async (showToast = true) => {
-    const cleanName = (projectName || 'جلسه_تدریس_تخته_هوشمند')
-      .replace(/[/\\?%*:|"<>]/g, '-')
-      .replace(/\s+/g, '_')
-      .trim();
-    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
-    const fileName = `${cleanName}_${dateStr}.webm`;
-
-    const loadingToast = showToast ? toast.loading('در حال آماده‌سازی و دانلود فایل ویدیو...') : null;
-
-    try {
-      if (recordedBlob && recordedBlob.size > 0) {
-        const ok = await triggerDownloadFile(recordedBlob, fileName, 'video/webm');
-        if (loadingToast) toast.dismiss(loadingToast);
-        if (ok && showToast) {
-          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-        } else if (!ok && showToast) {
-          toast.error('خطا در دانلود ویدیو');
-        }
-        return ok;
-      }
-
-      if (recordedChunksRef.current && recordedChunksRef.current.length > 0) {
-        const mime = mediaRecorderRef.current?.mimeType || 'video/webm';
-        const fallbackBlob = new Blob(recordedChunksRef.current, { type: mime });
-        setRecordedBlob(fallbackBlob);
-        const ok = await triggerDownloadFile(fallbackBlob, fileName, mime);
-        if (loadingToast) toast.dismiss(loadingToast);
-        if (ok && showToast) {
-          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-        }
-        return ok;
-      }
-
-      if (recordedVideoUrl) {
-        const ok = await triggerDownloadFile(recordedVideoUrl, fileName, 'video/webm');
-        if (loadingToast) toast.dismiss(loadingToast);
-        if (ok && showToast) {
-          toast.success('ویدیوی کلاس با موفقیت دانلود شد 📥');
-        } else if (!ok && showToast) {
-          toast.error('خطا در دانلود ویدیو');
-        }
-        return ok;
-      }
-
-      if (loadingToast) toast.dismiss(loadingToast);
-      if (showToast) toast.error('فایل ویدیوی ضبط شده هنوز آماده نشده یا در دسترس نیست.');
-      return false;
-    } catch (err) {
-      console.error('handleDownloadVideo error:', err);
-      if (loadingToast) toast.dismiss(loadingToast);
-      if (showToast) toast.error('خطا در دانلود فایل ویدیو');
-      return false;
-    }
-  };
-
-  // Save to School Video Archive API and Navigate to Videos
-  const handlePublishToArchive = async () => {
-    setIsUploading(true);
-
-    // Also automatically trigger video download to user's device so they have the file locally
-    try {
-      handleDownloadVideo(false);
-    } catch (e) {
-      console.warn('Auto download error on publish:', e);
-    }
-
-    const classObj = classesList.find((c) => c.id === selectedClassId);
-    const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
-      ? saveNewFolderName.trim()
-      : saveTargetFolder || classObj?.name || 'تخته هوشمند';
-
-    if (isSaveCreatingFolder && saveNewFolderName.trim()) {
-      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
-      setAvailableFolders((prev) => {
-        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
-        try {
-          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
-      api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' }).catch(() => {});
-    }
-
-    const videoTitle = projectName || 'تدریس تخته هوشمند';
-    const sessionDate = new Date().toLocaleDateString('fa-IR');
-
-    let currentBlob = recordedBlob;
-    let localVideoUrl = recordedVideoUrl;
-
-    if (!localVideoUrl && currentBlob) {
-      localVideoUrl = URL.createObjectURL(currentBlob);
-      setRecordedVideoUrl(localVideoUrl);
-    }
-
-    if (!currentBlob && recordedChunksRef.current && recordedChunksRef.current.length > 0) {
-      currentBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-      setRecordedBlob(currentBlob);
-      if (!localVideoUrl) {
-        localVideoUrl = URL.createObjectURL(currentBlob);
-        setRecordedVideoUrl(localVideoUrl);
-      }
-    }
-
-    const localSession = {
-      id: `wb-${Date.now()}`,
-      title: videoTitle,
-      date: sessionDate,
-      duration: recSeconds,
-      classTitle: classObj?.name || 'کلاس عمومی',
-      videoUrl: localVideoUrl,
-      file_url: localVideoUrl,
-      sizeBytes: currentBlob?.size || 0,
-      folder_name: finalFolder,
-      category: 'تخته هوشمند',
-      target_audience: targetAudience || 'all',
-      is_whiteboard_recording: true,
-      created_at: sessionDate,
-    };
-
-    // 1. Immediately store session locally so it is guaranteed to show in Videos section
-    saveSessionsToLocal([localSession, ...recordedSessions.filter((s) => s.id !== localSession.id)]);
-
-    try {
-      const globalKey = 'educonnect_recorded_sessions';
-      let existingGlobal = [];
-      const raw = localStorage.getItem(globalKey);
-      if (raw) existingGlobal = JSON.parse(raw);
-      localStorage.setItem(
-        globalKey,
-        JSON.stringify([localSession, ...existingGlobal.filter((s) => s.id !== localSession.id)])
-      );
-    } catch (e) {
-      console.warn('Global sessions cache write error:', e);
-    }
-
-    // 2. Upload to backend if blob is available
-    if (currentBlob) {
-      try {
-        const formData = new FormData();
-        const fileName = `${projectName || 'تدریس'}.webm`;
-        formData.append('file', currentBlob, fileName);
-        formData.append('title', videoTitle);
-        formData.append('description', `تدریس ضبط شده با تخته هوشمند در تاریخ ${sessionDate}`);
-        if (selectedClassId) {
-          formData.append('class_id', selectedClassId);
-        }
-        formData.append('folder_name', finalFolder);
-        formData.append('category', 'تخته هوشمند');
-        formData.append('target_audience', targetAudience || 'all');
-        formData.append('duration_seconds', recSeconds);
-
-        // Optional quick notes PDF export
-        try {
-          if (typeof window !== 'undefined' && boardPagesRef.current?.length > 0) {
-            saveCurrentPageData();
-            const { jsPDF } = await import('jspdf');
-            const mainCanvas = canvasRef.current;
-            const width = mainCanvas?.width || 1280;
-            const height = mainCanvas?.height || 720;
-            const doc = new jsPDF({
-              orientation: width >= height ? 'landscape' : 'portrait',
-              unit: 'px',
-              format: [width, height],
-            });
-            const page = boardPagesRef.current[0];
-            if (page?.drawingDataUrl) {
-              doc.addImage(page.drawingDataUrl, 'JPEG', 0, 0, width, height);
-              const pdfBlob = doc.output('blob');
-              if (pdfBlob && pdfBlob.size > 500) {
-                formData.append('pdf', pdfBlob, `جزوه-${videoTitle}.pdf`);
-                formData.append('pdf_name', `جزوه-${videoTitle}.pdf`);
-              }
-            }
+      const paintLoop = () => {
+        if (recCanvasRef.current && mediaRecorderRef.current?.state !== 'inactive') {
+          if (mediaRecorderRef.current?.state === 'recording') {
+            renderCompositeFrame(recCanvasRef.current);
           }
-        } catch (pdfErr) {
-          console.warn('PDF note generation skipped in video publish:', pdfErr);
+          recRafRef.current = requestAnimationFrame(paintLoop);
         }
+      };
+      recRafRef.current = requestAnimationFrame(paintLoop);
 
-        const res = await api.post('/videos', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-
-        if (res.data?.data?.video) {
-          const serverVideo = res.data.data.video;
-          localSession.id = serverVideo.id;
-          localSession.videoUrl = serverVideo.file_url || serverVideo.video_url || localVideoUrl;
-          localSession.file_url = serverVideo.file_url || serverVideo.video_url || localVideoUrl;
-          localSession.pdf_url = serverVideo.pdf_url;
-          localSession.pdf_name = serverVideo.pdf_name;
-          saveSessionsToLocal([localSession, ...recordedSessions.filter((s) => s.id !== localSession.id)]);
+      recSecondsRef.current = 0;
+      setRecSeconds(0);
+      setRecStatus('recording');
+      recTimerRef.current = setInterval(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          recSecondsRef.current += 1;
+          setRecSeconds(recSecondsRef.current);
         }
-      } catch (err) {
-        console.warn('Backend video upload note (saved in local archive):', err);
-      }
+      }, 1000);
+    } catch (_err) {
+      stopRecCleanup();
+      toast.error('خطا در شروع ضبط ویدیو');
     }
-
-    toast.success(`ویدیو با موفقیت ذخیره و دانلود شد و در حال انتقال به بخش ویدیوها... 🎉`);
-    setShowSaveModal(false);
-    setIsStudioOpen(false);
-    setIsUploading(false);
-
-    // 3. Seamlessly redirect to the videos page
-    router.push('/dashboard/videos');
   };
 
-  // Finish and save locally + auto background upload to videos
-  const handleSaveLocallyAndClose = () => {
-    try {
-      handleDownloadVideo(false);
-    } catch (e) {}
-    const classObj = classesList.find((c) => c.id === selectedClassId);
-    const finalFolder = isSaveCreatingFolder && saveNewFolderName.trim()
-      ? saveNewFolderName.trim()
-      : saveTargetFolder || classObj?.name || 'تخته هوشمند';
-
-    if (isSaveCreatingFolder && saveNewFolderName.trim()) {
-      const newFolderObj = { name: finalFolder, color: '#8b5cf6', count: 1 };
-      setAvailableFolders((prev) => {
-        const updated = prev.some((f) => f.name === finalFolder) ? prev : [...prev, newFolderObj];
-        try {
-          localStorage.setItem('educonnect_video_folders', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
-      api.post('/videos/folders', { name: finalFolder, color: '#8b5cf6' }).catch(() => {});
+  const handlePauseOrResumeRecording = () => {
+    const rec = mediaRecorderRef.current;
+    if (!rec) return;
+    if (rec.state === 'recording') {
+      rec.pause();
+      setRecStatus('paused');
+    } else if (rec.state === 'paused') {
+      rec.resume();
+      setRecStatus('recording');
     }
-
-    if (recordedBlob) {
-      try {
-        const formData = new FormData();
-        const fileName = `${projectName || 'تدریس'}.webm`;
-        formData.append('file', recordedBlob, fileName);
-        formData.append('title', projectName || 'تدریس تخته هوشمند');
-        formData.append('description', `تدریس ضبط شده با تخته هوشمند در تاریخ ${new Date().toLocaleDateString('fa-IR')}`);
-        if (selectedClassId) formData.append('class_id', selectedClassId);
-        formData.append('folder_name', finalFolder);
-        formData.append('category', 'تخته هوشمند');
-        formData.append('target_audience', targetAudience || 'all');
-        formData.append('duration_seconds', recSeconds);
-
-        api.post('/videos', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        }).catch((e) => console.warn('Background upload video error:', e));
-      } catch (e) {}
-    }
-
-    const newSession = {
-      id: Date.now().toString(),
-      title: projectName || 'جلسه تدریس هوشمند',
-      date: new Date().toLocaleDateString('fa-IR'),
-      duration: recSeconds,
-      classTitle: classObj?.name || 'کلاس عمومی',
-      videoUrl: recordedVideoUrl,
-      sizeBytes: recordedBlob?.size || 0,
-      folder_name: finalFolder,
-      category: 'تخته هوشمند',
-      target_audience: targetAudience || 'all',
-    };
-    saveSessionsToLocal([newSession, ...recordedSessions]);
-    toast.success(`جلسه در پوشه «${finalFolder}» و بخش ویدیوها ذخیره شد ✅`);
-    setShowSaveModal(false);
-    setIsStudioOpen(false);
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER: Fullscreen Studio OR Recordings Hub
-  // ─────────────────────────────────────────────────────────────────────────
+  const handleStopRecording = () => {
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === 'inactive') return;
+    rec.stop();
+  };
+
+  if (!hasEnteredBoard) {
+    return <BoardEntryPicker userRole={user?.role} onSelectBoard={handleSelectInitialBoard} />;
+  }
+
+  const isPaginatedDoc = activeMedia && ['pdf', 'word', 'pptx'].includes(activeMedia.type);
 
   return (
-    <div className={styles.container}>
+    <div className={styles.studioShell} data-testid="smartboard-studio">
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className={styles.hiddenInput}
+        onChange={handleFileSelected('pdf')}
+        data-testid="upload-pdf-input"
+      />
+      <input
+        ref={wordInputRef}
+        type="file"
+        accept=".docx,.doc,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className={styles.hiddenInput}
+        onChange={handleFileSelected('word')}
+        data-testid="upload-word-input"
+      />
+      <input
+        ref={pptxInputRef}
+        type="file"
+        accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        className={styles.hiddenInput}
+        onChange={handleFileSelected('pptx')}
+        data-testid="upload-pptx-input"
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*,.mp4,.webm,.mov"
+        className={styles.hiddenInput}
+        onChange={handleFileSelected('video')}
+        data-testid="upload-video-input"
+      />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className={styles.hiddenInput}
+        onChange={handleFileSelected('image')}
+        data-testid="upload-image-input"
+      />
 
-      {/* ── 1. Top Hub Header / Hero Card ── */}
-      <div className={styles.heroCard}>
-        <div className={styles.heroContent}>
-          <span className={styles.heroBadge}>
-            <HiOutlineVideoCamera size={16} />
-            استودیوی تعاملی و تخته هوشمند
-          </span>
-          <h1 className={styles.title}>ضبط کلاس و تدریس آنلاین</h1>
-          <p className={styles.subtitle}>
-            با استفاده از تخته سفید هوشمند، قلم، پاک‌کن و ابزارهای هندسی تدریس کنید و همزمان تصویر تخته و صدای خود را با
-            کیفیت بالا ضبط نمایید.
-          </p>
-        </div>
+      <SmartboardToolbar
+        title={sessionTitle}
+        boardType={boardType}
+        onChangeBoardType={setBoardType}
+        tool={tool}
+        onSelectTool={setTool}
+        penColor={penColor}
+        onChangePenColor={setPenColor}
+        penSize={penSize}
+        onChangePenSize={setPenSize}
+        eraserSize={eraserSize}
+        onChangeEraserSize={setEraserSize}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onClearActiveBoard={() => clearCanvasPane(activePane === 'notes' && isSplitNotesOpen ? 'notes' : 'main')}
+        onTriggerUpload={handleTriggerUpload}
+        activeMedia={activeMedia}
+        onCloseMedia={handleCloseMedia}
+        isSplitNotesOpen={isSplitNotesOpen}
+        onToggleSplitNotes={() => setIsSplitNotesOpen((prev) => !prev)}
+        boardPage={boardPage}
+        boardTotalPages={boardTotalPages}
+        onPrevBoardPage={() => switchBoardPage(boardPage - 1)}
+        onNextBoardPage={() => switchBoardPage(boardPage + 1)}
+        onAddBoardPage={handleAddBoardPage}
+        isExporting={isExporting}
+        onDownloadPdf={handleDownloadPdf}
+        onDownloadPng={handleDownloadPng}
+        onExitBoard={() => setHasEnteredBoard(false)}
+      />
 
-        <div className={styles.heroActions}>
-          <button
-            id="start-new-record-btn"
-            className={styles.newRecordBtn}
-            onClick={() => {
-              setProjectName('');
-              setShowNewModal(true);
-            }}
-          >
-            <HiPlus size={22} />
-            <span>شروع تدریس و ضبط جدید</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── 2. Previous Recorded Sessions Gallery ── */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-            جلسات تدریس ضبط شده ({recordedSessions.length})
-          </h2>
-          {recordedSessions.length > 0 && (
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-tertiary)' }}>
-              ذخیره محلی و آماده پخش / دانلود
-            </span>
-          )}
-        </div>
-
-        {recordedSessions.length === 0 ? (
-          <div
-            style={{
-              background: 'var(--bg-card)',
-              border: '2px dashed var(--border-color)',
-              borderRadius: 'var(--radius-2xl)',
-              padding: '48px 24px',
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 16,
-            }}
-          >
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: '50%',
-                background: 'rgba(99, 102, 241, 0.1)',
-                color: 'var(--primary-600)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '2rem',
-              }}
-            >
-              <HiOutlineVideoCamera />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>
-                هنوز جلسه‌ای ضبط نشده است
-              </h3>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', maxWidth: 440 }}>
-                برای شروع اولین تدریس و باز کردن تخته سفید، روی دکمه «شروع تدریس و ضبط جدید» (+) کلیک کنید.
-              </p>
-            </div>
-            <button
-              className={styles.newRecordBtn}
-              onClick={() => {
-                setProjectName('');
-                setShowNewModal(true);
-              }}
-            >
-              <HiPlus size={20} />
-              <span>ایجاد اولین جلسه ضبط</span>
-            </button>
-          </div>
-        ) : (
-          <div className={styles.recordingsGrid}>
-            {recordedSessions.map((session) => (
-              <div key={session.id} className={styles.recordingCard}>
-                <div className={styles.videoThumb}>
-                  {/* Action buttons overlay */}
-                  <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, zIndex: 3 }}>
-                    <button
-                      type="button"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '50%',
-                        background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenShareModal(session);
-                      }}
-                      title="اشتراک‌گذاری ویدیو با معلم یا دوستان در پیام‌ها"
-                    >
-                      <HiOutlineShare size={14} />
-                    </button>
-                    {session.videoUrl && (
-                      <a
-                        href={session.videoUrl}
-                        download={`${session.title}.webm`}
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: '50%',
-                          background: 'rgba(15, 23, 42, 0.75)',
-                          border: '1px solid rgba(255, 255, 255, 0.2)',
-                          color: '#38bdf8',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        title="دانلود ویدیو"
-                      >
-                        <HiOutlineArrowDownTray size={14} />
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '50%',
-                        background: 'rgba(15, 23, 42, 0.75)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: '#c7d2fe',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenMoveModal(session);
-                      }}
-                      title="انتقال به پوشه درس"
-                    >
-                      <HiOutlineArrowsRightLeft size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '50%',
-                        background: 'rgba(15, 23, 42, 0.75)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: '#fca5a5',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm('آیا از حذف این جلسه اطمینان دارید؟')) {
-                          saveSessionsToLocal(recordedSessions.filter((s) => s.id !== session.id));
-                        }
-                      }}
-                      title="حذف ویدیو"
-                    >
-                      <HiOutlineTrash size={14} />
-                    </button>
-                  </div>
-
-                  {session.videoUrl ? (
-                    <video src={session.videoUrl} preload="metadata" />
-                  ) : (
-                    <div style={{ color: '#94a3b8' }}>
-                      <HiOutlineVideoCamera size={48} />
-                    </div>
-                  )}
-                  {session.videoUrl && (
-                    <div
-                      className={styles.playOverlay}
-                      onClick={() => {
-                        setPreviewVideoUrl(session.videoUrl);
-                        setShowPreviewModal(true);
-                      }}
-                    >
-                      <div className={styles.playCircle}>
-                        <HiOutlinePlay style={{ marginRight: -3 }} />
-                      </div>
-                    </div>
-                  )}
-                  <div className={styles.durationBadge}>{formatTimer(session.duration || 0)}</div>
-                </div>
-
-                <div className={styles.cardBody}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-                    <h3 className={styles.cardTitle}>{session.title}</h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      {(() => {
-                        const aInfo = getAudienceInfo(session.target_audience);
-                        return (
-                          <span
-                            className={styles.audienceBadge}
-                            style={{
-                              background: aInfo.bg,
-                              color: aInfo.color,
-                              borderColor: aInfo.color,
-                              fontSize: '0.7rem',
-                              padding: '2px 7px',
-                            }}
-                            title={`گروه مخاطبان: ${aInfo.label}`}
-                          >
-                            <span>{aInfo.icon}</span>
-                            <span>{aInfo.label}</span>
-                          </span>
-                        );
-                      })()}
-                      <span
-                        style={{
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          color: 'var(--primary-600)',
-                          background: 'rgba(99, 102, 241, 0.1)',
-                          border: '1px solid rgba(99, 102, 241, 0.2)',
-                          padding: '2px 8px',
-                          borderRadius: 'var(--radius-md)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          whiteSpace: 'nowrap',
-                        }}
-                        title="پوشه درس در بخش ویدیوها"
-                      >
-                        <HiOutlineFolder size={12} />
-                        {session.folder_name || 'تخته هوشمند'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className={styles.cardMeta}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <HiOutlineAcademicCap size={15} />
-                      {session.classTitle}
-                    </span>
-                    <span>•</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <HiOutlineCalendar size={15} />
-                      {session.date}
-                    </span>
-                  </div>
-
-                  <div className={styles.cardActions} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: '0.8125rem',
-                          background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                          color: '#fff',
-                          fontWeight: 700,
-                          borderRadius: 'var(--radius-lg)',
-                          padding: '6px 12px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)',
-                        }}
-                        onClick={() => handleOpenShareModal(session)}
-                        title="اشتراک‌گذاری این فیلم با معلم یا دوستان در بخش پیام‌ها"
-                      >
-                        <HiOutlinePaperAirplane size={14} style={{ transform: 'rotate(180deg)' }} />
-                        <span>اشتراک‌گذاری در پیام‌ها</span>
-                      </button>
-
-                      {session.videoUrl && (
-                        <a
-                          href={session.videoUrl}
-                          download={`${session.title}.webm`}
-                          className="btn btn-sm btn-outline"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', padding: '6px 10px' }}
-                          title="دانلود ویدیو"
-                        >
-                          <HiOutlineArrowDownTray size={14} />
-                          <span>دانلود</span>
-                        </a>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        style={{ color: 'var(--primary-600)', padding: '6px 8px' }}
-                        onClick={() => handleOpenMoveModal(session)}
-                        title="انتقال به پوشه / تغییر پوشه درس"
-                        type="button"
-                      >
-                        <HiOutlineArrowsRightLeft size={16} />
-                      </button>
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        style={{ color: '#ef4444', padding: '6px 8px' }}
-                        onClick={() => {
-                          if (window.confirm('آیا مایلید این جلسه از لیست شما حذف شود؟')) {
-                            saveSessionsToLocal(recordedSessions.filter((s) => s.id !== session.id));
-                          }
-                        }}
-                        title="حذف این ویدیو"
-                        type="button"
-                      >
-                        <HiOutlineTrash size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+      <div className={`${styles.workspaceArea} ${isSplitNotesOpen ? styles.workspaceSplit : ''}`}>
+        <section
+          className={`${styles.mainPane} ${!activeMedia && boardType === 'grid' ? styles.gridSurface : styles.whiteSurface} ${
+            activePane === 'main' ? styles.paneFocused : ''
+          }`}
+          data-testid="main-board-pane"
+          data-board-type={boardType}
+        >
+          {activeMedia && (
+            <div className={styles.mediaHeaderBar} data-testid="active-media-bar">
+              <div className={styles.mediaNameBadge}>
+                <HiOutlineDocumentText />
+                <span>{activeMedia.name}</span>
               </div>
-            ))}
+              <div className={styles.mediaHeaderActions}>
+                {!isSplitNotesOpen && (
+                  <button
+                    type="button"
+                    className={styles.mediaQuickNoteBtn}
+                    onClick={() => setIsSplitNotesOpen(true)}
+                  >
+                    <HiOutlineSquares2X2 />
+                    <span>باز کردن صفحه سفید کناری</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={styles.mediaCloseBtn}
+                  onClick={handleCloseMedia}
+                  title="بستن فایل"
+                  data-testid="close-media-btn"
+                >
+                  <HiOutlineXMark />
+                  <span>بستن فایل</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className={styles.boardStage}>
+            {isLoadingMedia && (
+              <div className={styles.loadingOverlay}>در حال آماده‌سازی و نمایش فایل روی تخته...</div>
+            )}
+
+            {isPaginatedDoc && (
+              <div className={styles.docCanvasWrap}>
+                <canvas
+                  ref={docRenderCanvasRef}
+                  className={styles.docRenderCanvas}
+                  data-testid="doc-render-canvas"
+                />
+              </div>
+            )}
+
+            {activeMedia?.type === 'image' && (
+              <div className={styles.docCanvasWrap}>
+                <img
+                  src={activeMedia.url}
+                  alt={activeMedia.name}
+                  className={styles.mediaImageEl}
+                  data-testid="board-uploaded-image"
+                />
+              </div>
+            )}
+
+            {activeMedia?.type === 'video' && (
+              <div className={styles.videoStageWrap}>
+                <video
+                  ref={videoElRef}
+                  src={activeMedia.url}
+                  className={styles.mediaVideoEl}
+                  playsInline
+                  onTimeUpdate={(e) => setVideoProgress(e.currentTarget.currentTime)}
+                  onLoadedMetadata={(e) => setVideoDuration(e.currentTarget.duration || 0)}
+                  onEnded={() => setVideoPlaying(false)}
+                  data-testid="board-uploaded-video"
+                />
+              </div>
+            )}
+
+            <canvas
+              ref={mainDrawCanvasRef}
+              width={MAIN_CANVAS_W}
+              height={MAIN_CANVAS_H}
+              className={`${styles.drawCanvas} ${tool === 'eraser' ? styles.eraserCursor : styles.penCursor}`}
+              onPointerDown={handlePointerDown('main')}
+              onPointerMove={handlePointerMove('main')}
+              onPointerUp={handlePointerUp('main')}
+              onPointerCancel={handlePointerUp('main')}
+              data-testid="main-draw-canvas"
+            />
           </div>
+
+          {isPaginatedDoc && (
+            <div className={styles.docPaginationBar} data-testid="doc-pagination-bar">
+              <button
+                type="button"
+                className={styles.docPageBtn}
+                disabled={activeMedia.currentPage <= 1}
+                onClick={() => goToDocPage(activeMedia.currentPage - 1)}
+                data-testid="doc-prev-page-btn"
+              >
+                <HiOutlineChevronRight />
+                <span>صفحه قبل</span>
+              </button>
+              <span className={styles.docPageCounter} data-testid="doc-page-indicator">
+                صفحه {activeMedia.currentPage} از {activeMedia.totalPages}
+              </span>
+              <button
+                type="button"
+                className={styles.docPageBtn}
+                disabled={activeMedia.currentPage >= activeMedia.totalPages}
+                onClick={() => goToDocPage(activeMedia.currentPage + 1)}
+                data-testid="doc-next-page-btn"
+              >
+                <span>صفحه بعد</span>
+                <HiOutlineChevronLeft />
+              </button>
+            </div>
+          )}
+
+          {activeMedia?.type === 'video' && (
+            <div className={styles.videoControlsBar} data-testid="board-video-controls">
+              <button type="button" className={styles.vidCtrlBtn} onClick={toggleVideoPlay}>
+                {videoPlaying ? <HiOutlinePause /> : <HiOutlinePlay />}
+                <span>{videoPlaying ? 'توقف' : 'پخش'}</span>
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(1, videoDuration)}
+                step={0.1}
+                value={videoProgress}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (videoElRef.current) videoElRef.current.currentTime = val;
+                  setVideoProgress(val);
+                }}
+                className={styles.vidSeekSlider}
+                aria-label="جابجایی زمان ویدیو"
+              />
+              <button type="button" className={styles.vidCtrlBtn} onClick={toggleVideoMute}>
+                {videoMuted ? <HiOutlineSpeakerXMark /> : <HiOutlineSpeakerWave />}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {isSplitNotesOpen && (
+          <aside
+            className={`${styles.notesPane} ${activePane === 'notes' ? styles.paneFocused : ''}`}
+            data-testid="split-notes-pane"
+          >
+            <div className={styles.notesHeader}>
+              <div className={styles.notesHeaderTitle}>
+                <span>صفحه سفید نت‌برداری</span>
+              </div>
+              <div className={styles.notesHeaderActions}>
+                <button
+                  type="button"
+                  className={styles.noteMiniBtn}
+                  disabled={notePage <= 1}
+                  onClick={() => switchNotePage(notePage - 1)}
+                  title="صفحه قبلی نت"
+                  aria-label="صفحه قبلی نت"
+                >
+                  <HiOutlineChevronRight />
+                </button>
+                <span className={styles.notePageLabel}>
+                  نت {notePage}/{noteTotalPages}
+                </span>
+                <button
+                  type="button"
+                  className={styles.noteMiniBtn}
+                  disabled={notePage >= noteTotalPages}
+                  onClick={() => switchNotePage(notePage + 1)}
+                  title="صفحه بعدی نت"
+                  aria-label="صفحه بعدی نت"
+                >
+                  <HiOutlineChevronLeft />
+                </button>
+                <button
+                  type="button"
+                  className={styles.noteMiniBtn}
+                  onClick={handleAddNotePage}
+                  title="صفحه جدید نت"
+                  aria-label="صفحه جدید نت"
+                >
+                  <HiOutlinePlus />
+                </button>
+                <button
+                  type="button"
+                  className={styles.noteMiniBtn}
+                  onClick={() => clearCanvasPane('notes')}
+                  title="پاک کردن صفحه نت"
+                  aria-label="پاک کردن صفحه نت"
+                >
+                  <HiOutlineTrash />
+                </button>
+                <button
+                  type="button"
+                  className={styles.noteMiniBtn}
+                  onClick={() => setIsSplitNotesOpen(false)}
+                  title="بستن صفحه نت"
+                  aria-label="بستن صفحه نت"
+                >
+                  <HiOutlineXMark />
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.notesCanvasWrap}>
+              <canvas
+                ref={notesDrawCanvasRef}
+                width={NOTE_CANVAS_W}
+                height={NOTE_CANVAS_H}
+                className={`${styles.notesCanvas} ${tool === 'eraser' ? styles.eraserCursor : styles.penCursor}`}
+                onPointerDown={handlePointerDown('notes')}
+                onPointerMove={handlePointerMove('notes')}
+                onPointerUp={handlePointerUp('notes')}
+                onPointerCancel={handlePointerUp('notes')}
+                data-testid="notes-canvas"
+              />
+            </div>
+          </aside>
         )}
       </div>
 
-      {/* ── 3. Modal: New Project / Session Prompt (As requested) ── */}
-      {showNewModal && (
-        <div className={styles.modalBackdrop}>
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    background: 'rgba(99, 102, 241, 0.1)',
-                    color: 'var(--primary-600)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.25rem',
-                  }}
-                >
-                  <HiPlus />
-                </div>
-                <h2>تنظیمات جلسه تدریس جدید</h2>
-              </div>
-              <button className={styles.closeBtn} onClick={() => setShowNewModal(false)}>
-                <HiOutlineXMark />
-              </button>
-            </div>
-
-            <form onSubmit={handleStartNewProject} className={styles.formGrid}>
-              <div className="form-group">
-                <label className="form-label" style={{ fontWeight: 800, fontSize: '1rem', marginBottom: 8, display: 'block' }}>
-                  نام پروژه / موضوع تدریس <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  className={styles.largeTopicInput}
-                  placeholder="مثال: فصل ۳ ریاضی دوازدهم - حل تمرین مشتق"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              {classesList.length > 0 && (
-                <div className="form-group">
-                  <label className="form-label">کلاس / گروه درسی مرتبط</label>
-                  <select
-                    className="form-input"
-                    value={selectedClassId}
-                    onChange={(e) => setSelectedClassId(e.target.value)}
-                  >
-                    <option value="">کلاس عمومی / بدون انتخاب</option>
-                    {classesList.map((cls) => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.name} ({cls.grade || 'مقطع عمومی'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Target Audience Selector (گروه مخاطبان هدف: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) */}
-              <div className={styles.audienceSection}>
-                <label className={styles.audienceSectionTitle}>
-                  <span>🎯</span>
-                  <span>گروه مخاطبان این جلسه تدریس (ارسال و نمایش برای):</span>
-                </label>
-                <div className={styles.audienceGrid}>
-                  {AUDIENCE_OPTIONS.map((opt) => {
-                    const isSelected = targetAudience === opt.id;
-                    return (
-                      <div
-                        key={opt.id}
-                        className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
-                        onClick={() => setTargetAudience(opt.id)}
-                        style={{
-                          borderColor: isSelected ? opt.color : undefined,
-                        }}
-                      >
-                        <div className={styles.audienceCardIcon}>{opt.icon}</div>
-                        <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
-                          {opt.label}
-                        </div>
-                        <div className={styles.audienceCardDesc}>{opt.desc}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">نوع تخته تدریس</label>
-                <div className={styles.boardChoiceGrid}>
-                  <div
-                    className={`${styles.boardChoiceCard} ${boardType === 'white' ? styles.boardChoiceCardActive : ''}`}
-                    onClick={() => setBoardType('white')}
-                  >
-                    <div style={{ fontSize: '1.5rem', marginBottom: 4 }}>📋</div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem' }}>تخته سفید</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>مدرن و تمیز</div>
-                  </div>
-
-                  <div
-                    className={`${styles.boardChoiceCard} ${boardType === 'grid' ? styles.boardChoiceCardActive : ''}`}
-                    onClick={() => setBoardType('grid')}
-                  >
-                    <div style={{ fontSize: '1.5rem', marginBottom: 4 }}>📐</div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem' }}>شطرنجی ریاضی</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>رسم نمودار و فرمول</div>
-                  </div>
-
-                  <div
-                    className={`${styles.boardChoiceCard} ${boardType === 'blackboard' ? styles.boardChoiceCardActive : ''}`}
-                    onClick={() => setBoardType('blackboard')}
-                  >
-                    <div style={{ fontSize: '1.5rem', marginBottom: 4 }}>🎓</div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem' }}>تخته سیاه کلاسیک</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>سبک سنتی مدرسه</div>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  background: 'var(--bg-secondary)',
-                  padding: '12px 16px',
-                  borderRadius: 'var(--radius-lg)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <HiOutlineMicrophone size={20} color="var(--primary-600)" />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>ضبط صدای معلم</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                      دریافت و ادغام همزمان صدای میکروفون در ویدیو
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={recordAudio}
-                  onChange={(e) => setRecordAudio(e.target.checked)}
-                  style={{ width: 18, height: 18, cursor: 'pointer' }}
-                />
-              </div>
-
-              <div className={styles.modalActions}>
-                <button type="button" className="btn btn-outline" onClick={() => setShowNewModal(false)}>
-                  انصراف
-                </button>
-                <button type="submit" className="btn btn-primary" style={{ minWidth: 160 }}>
-                  <HiOutlinePlay size={18} />
-                  <span>ورود به تخته هوشمند</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── 4. Fullscreen Whiteboard Studio ── */}
-      {isStudioOpen && (
-        <div className={styles.studioWrapper}>
-          {/* Top Floating Glass Toolbar */}
-          <div className={styles.topToolbar}>
-            {/* 1. Essential Tools: Pen, Eraser, and Active Shape indicator */}
-            <div className={styles.toolGroup}>
-              <button
-                className={`${styles.toolBtn} ${tool === 'pen' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('pen')}
-                title="قلم معمولی"
-              >
-                <HiOutlinePencil />
-              </button>
-
-              <button
-                className={`${styles.toolBtn} ${tool === 'eraser' ? styles.toolBtnActive : ''}`}
-                onClick={() => setTool('eraser')}
-                title="پاک‌کن"
-              >
-                <LuEraser size={21} />
-              </button>
-
-              {['line', 'arrow', 'rect', 'circle', 'triangle'].includes(tool) && (
-                <button
-                  className={`${styles.toolBtn} ${styles.toolBtnActive}`}
-                  onClick={() => {
-                    setTool('pen');
-                    toast('به قلم معمولی بازگشتید ✏️', { duration: 1500 });
-                  }}
-                  title="ابزار هندسی فعال است. کلیک کنید تا به قلم معمولی برگردید"
-                  style={{ background: '#6366f1', color: '#fff', fontSize: '1.05rem', fontWeight: 900 }}
-                >
-                  {tool === 'line' && '╱'}
-                  {tool === 'arrow' && '➔'}
-                  {tool === 'rect' && '▭'}
-                  {tool === 'circle' && '◯'}
-                  {tool === 'triangle' && '△'}
-                </button>
-              )}
-            </div>
-
-            <div className={styles.toolDivider} />
-
-            {/* 2. Color Palette */}
-            <div className={`${styles.toolGroup} ${styles.colorGroup}`}>
-              {PALETTE_COLORS.map((c) => (
-                <div
-                  key={c.value}
-                  className={`${styles.colorPill} ${currentColor === c.value ? styles.colorPillSelected : ''}`}
-                  style={{ backgroundColor: c.value }}
-                  onClick={() => setCurrentColor(c.value)}
-                  title={c.name}
-                />
-              ))}
-            </div>
-
-            <div className={styles.toolDivider} />
-
-            {/* 3. Dropdown Menu for All Other Whiteboard Capabilities */}
-            <div className={styles.menuContainer} ref={toolsMenuRef}>
-              <button
-                className={`${styles.menuToggleBtn} ${showToolsMenu ? styles.menuToggleBtnActive : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowToolsMenu((prev) => !prev);
-                }}
-                title="مشاهده تمام ابزارها و قابلیت‌های تخته"
-              >
-                <HiOutlineBars3 size={18} />
-                <span>ابزارها</span>
-                <HiOutlineChevronDown
-                  size={14}
-                  style={{
-                    transform: showToolsMenu ? 'rotate(180deg)' : 'none',
-                    transition: 'transform 0.2s',
-                  }}
-                />
-              </button>
-
-              {showToolsMenu && (
-                <div className={styles.toolsDropdownMenu}>
-                  {/* Section 1: بارگذاری فایل و رسانه */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>
-                      <span>📁</span>
-                      <span>باز کردن فایل و رسانه روی تخته</span>
-                    </span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        type="button"
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          docFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="باز کردن کتاب، جزوه PDF یا ارائه پاورپوینت"
-                        style={{ color: '#ef4444', fontWeight: 800 }}
-                      >
-                        <FaFilePdf size={15} />
-                        <span>PDF / پاورپوینت</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          imageFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="باز کردن عکس، کاربرگ آموزشی یا برگه امتحانی"
-                        style={{ color: '#10b981', fontWeight: 800 }}
-                      >
-                        <HiOutlinePhoto size={16} />
-                        <span>عکس / کاربرگ</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          videoFileInputRef.current?.click();
-                          setShowToolsMenu(false);
-                        }}
-                        title="پخش و یادداشت روی فیلم آموزشی"
-                        style={{ color: '#8b5cf6', fontWeight: 800 }}
-                      >
-                        <HiOutlineFilm size={16} />
-                        <span>فیلم آموزشی</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Section 2: اشکال هندسی */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>
-                      <span>📐</span>
-                      <span>اشکال هندسی (خط، فلش، اشکال)</span>
-                    </span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'line' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('line');
-                          setShowToolsMenu(false);
-                          toast('ابزار خط صاف فعال شد ╱', { duration: 1800 });
-                        }}
-                        title="رسم خط صاف و مستقیم"
-                      >
-                        <span>╱ خط صاف</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'arrow' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('arrow');
-                          setShowToolsMenu(false);
-                          toast('ابزار فلش جهت‌دار فعال شد ➔', { duration: 1800 });
-                        }}
-                        title="رسم فلش و بردار جهت‌دار"
-                      >
-                        <span>➔ فلش</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'rect' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('rect');
-                          setShowToolsMenu(false);
-                          toast('ابزار مستطیل و کادر فعال شد ▭', { duration: 1800 });
-                        }}
-                        title="رسم مستطیل و کادر"
-                      >
-                        <span>▭ مستطیل</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'circle' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('circle');
-                          setShowToolsMenu(false);
-                          toast('ابزار دایره و بیضی فعال شد ◯', { duration: 1800 });
-                        }}
-                        title="رسم دایره و بیضی"
-                      >
-                        <span>◯ دایره</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'triangle' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('triangle');
-                          setShowToolsMenu(false);
-                          toast('ابزار مثلث فعال شد △', { duration: 1800 });
-                        }}
-                        title="رسم مثلث هندسی"
-                      >
-                        <span>△ مثلث</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          handleInsertText();
-                          setShowToolsMenu(false);
-                        }}
-                        title="درج متن تایپی روی تخته"
-                      >
-                        <HiOutlineDocumentText size={15} />
-                        <span>متن تایپی</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Section 3: Highlighter & Brush Size */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>
-                      <span>🖌️</span>
-                      <span>قلم و ضخامت</span>
-                    </span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        type="button"
-                        className={`${styles.menuItemBtn} ${tool === 'highlighter' ? styles.menuItemBtnActive : ''}`}
-                        onClick={() => {
-                          setTool('highlighter');
-                          setShowToolsMenu(false);
-                          toast('ماژیک هایلایتر فعال شد 🖌️', { duration: 1800 });
-                        }}
-                        title="ماژیک هایلایتر"
-                      >
-                        <HiOutlinePaintBrush size={16} />
-                        <span>هایلایتر</span>
-                      </button>
-
-                      {BRUSH_SIZES.map((b) => (
-                        <button
-                          key={b.size}
-                          type="button"
-                          className={`${styles.menuItemBtn} ${brushSize === b.size ? styles.menuItemBtnActive : ''}`}
-                          onClick={() => setBrushSize(b.size)}
-                          title={`ضخامت: ${b.label}`}
-                          style={{ padding: '6px 8px' }}
-                        >
-                          <div
-                            style={{
-                              width: b.dotSize,
-                              height: b.dotSize,
-                              borderRadius: '50%',
-                              backgroundColor: currentColor,
-                            }}
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Section: Board Background & Actions */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>پس‌زمینه تخته و عملیات</span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          const next = boardType === 'white' ? 'grid' : boardType === 'grid' ? 'blackboard' : 'white';
-                          setBoardType(next);
-                          toast(`نوع تخته: ${next === 'white' ? 'سفید' : next === 'grid' ? 'شطرنجی' : 'تخته سیاه'}`);
-                        }}
-                      >
-                        <HiOutlineSquares2X2 size={15} />
-                        <span>{boardType === 'white' ? 'تخته سفید' : boardType === 'grid' ? 'شطرنجی' : 'تخته سیاه'}</span>
-                      </button>
-                      <button className={styles.menuItemBtn} onClick={handleUndo} title="بازگردانی">
-                        <HiOutlineArrowUturnLeft size={15} />
-                        <span>Undo</span>
-                      </button>
-                      <button className={styles.menuItemBtn} onClick={handleRedo} title="انجام مجدد">
-                        <HiOutlineArrowUturnRight size={15} />
-                        <span>Redo</span>
-                      </button>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          handleClearBoard();
-                          setShowToolsMenu(false);
-                        }}
-                        style={{ color: '#ef4444' }}
-                      >
-                        <HiOutlineTrash size={15} />
-                        <span>پاک کردن برگه</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Section: Multi-Page Sheets & Export */}
-                  <div className={styles.dropdownSection}>
-                    <span className={styles.dropdownSectionTitle}>برگه‌های تخته ({boardCurrentPage} از {boardTotalPages})</span>
-                    <div className={styles.dropdownRow}>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={handlePrevBoardPage}
-                        disabled={boardCurrentPage <= 1}
-                        style={{ opacity: boardCurrentPage <= 1 ? 0.4 : 1 }}
-                      >
-                        <HiOutlineChevronRight size={14} />
-                        <span>برگه قبل</span>
-                      </button>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={handleNextBoardPage}
-                      >
-                        <span>برگه بعد</span>
-                        <HiOutlineChevronLeft size={14} />
-                      </button>
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={handleAddNewBoardPage}
-                        style={{ color: '#6366f1' }}
-                      >
-                        <HiPlus size={14} />
-                        <span>برگه جدید</span>
-                      </button>
-                      {boardTotalPages > 1 && (
-                        <button
-                          className={styles.menuItemBtn}
-                          onClick={handleDeleteBoardPage}
-                          style={{ color: '#ef4444' }}
-                        >
-                          <HiOutlineTrash size={14} />
-                          <span>حذف برگه</span>
-                        </button>
-                      )}
-                      <button
-                        className={styles.menuItemBtn}
-                        onClick={() => {
-                          handleExportPdf();
-                          setShowToolsMenu(false);
-                        }}
-                        style={{ color: '#10b981', fontWeight: 800 }}
-                      >
-                        <FaFilePdf size={14} />
-                        <span>دانلود جزوه</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Hidden File Inputs */}
-            <input
-              type="file"
-              ref={docFileInputRef}
-              onChange={handlePdfFileSelect}
-              accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-              style={{ display: 'none' }}
-            />
-            <input
-              type="file"
-              ref={imageFileInputRef}
-              onChange={handleImageFileSelect}
-              accept="image/*"
-              style={{ display: 'none' }}
-            />
-            <input
-              type="file"
-              ref={videoFileInputRef}
-              onChange={handleVideoFileSelect}
-              accept="video/*"
-              style={{ display: 'none' }}
-            />
-
-            <div className={styles.toolDivider} />
-
-            {/* 4. Exit studio button */}
-            <button
-              className={styles.toolBtn}
-              onClick={handleExitStudio}
-              style={{ color: '#ef4444' }}
-              title="خروج از استودیو"
-            >
-              <HiOutlineXMark size={20} />
-            </button>
-          </div>
-
-          {/* Prominent Floating Banner to Close Open File/Video and Return to Whiteboard */}
-          {pdfFileName && (
-            <div className={styles.floatingMediaCloseHeader}>
-              <div className={styles.floatingMediaInfo}>
-                {docType === 'video' ? (
-                  <HiOutlineFilm size={16} color="#a78bfa" />
-                ) : (
-                  <FaFilePdf size={16} color="#ef4444" />
-                )}
-                <span>
-                  {docType === 'video' ? 'فیلم آموزشی' : 'فایل باز شده'}: <strong>{pdfFileName}</strong>
-                </span>
-              </div>
-              <button
-                className={styles.floatingMediaCloseAction}
-                onClick={handleClosePdf}
-                title="بستن و بازگشت به تخته سفید"
-              >
-                <HiOutlineXMark size={16} />
-                <span>بستن و بازگشت به تخته</span>
-              </button>
-            </div>
-          )}
-
-          {/* Floating Document / Media Controls (Ultra HD Controller) */}
-          {pdfFileName && (
-            <div className={styles.pdfControlBar}>
-              <div
-                className={styles.pdfBadge}
-                style={{
-                  background:
-                    docType === 'video'
-                      ? 'rgba(139, 92, 246, 0.12)'
-                      : docType === 'image'
-                      ? 'rgba(16, 185, 129, 0.12)'
-                      : docType === 'pptx'
-                      ? 'rgba(234, 88, 12, 0.12)'
-                      : 'rgba(239, 68, 68, 0.1)',
-                  color:
-                    docType === 'video'
-                      ? '#8b5cf6'
-                      : docType === 'image'
-                      ? '#10b981'
-                      : docType === 'pptx'
-                      ? '#ea580c'
-                      : '#ef4444',
-                }}
-              >
-                {docType === 'video' ? (
-                  <HiOutlineFilm size={14} />
-                ) : docType === 'image' ? (
-                  <HiOutlinePhoto size={14} />
-                ) : docType === 'pptx' ? (
-                  <FaFilePowerpoint size={14} />
-                ) : (
-                  <FaFilePdf size={14} />
-                )}
-                <span>
-                  {docType === 'video'
-                    ? 'فیلم آموزشی'
-                    : docType === 'image'
-                    ? 'تصویر'
-                    : docType === 'pptx'
-                    ? 'پاورپوینت'
-                    : 'PDF HD'}
-                </span>
-              </div>
-
-              <span className={styles.pdfTitle} title={pdfFileName}>
-                {pdfFileName}
-              </span>
-
-              {/* Video Player Controls */}
-              {docType === 'video' && (
-                <div className={styles.pdfNavGroup} style={{ gap: 8, padding: '2px 8px' }}>
-                  <button
-                    className={styles.pdfPageBtn}
-                    onClick={togglePlayVideo}
-                    title={isVideoPlaying ? 'توقف موقت (Pause)' : 'پخش فیلم (Play)'}
-                    style={{ color: '#8b5cf6', fontSize: '1rem' }}
-                  >
-                    {isVideoPlaying ? <HiOutlinePause size={17} /> : <HiOutlinePlay size={17} />}
-                  </button>
-
-                  <span className={styles.pdfPageText} style={{ minWidth: 70, direction: 'ltr', fontSize: '0.75rem' }}>
-                    {formatVideoTime(videoCurrentTime)} / {formatVideoTime(videoDuration)}
-                  </span>
-
-                  <input
-                    type="range"
-                    min={0}
-                    max={videoDuration || 0}
-                    step="0.1"
-                    value={videoCurrentTime}
-                    onChange={handleSeekVideo}
-                    title="عقب / جلو بردن فیلم"
-                    style={{
-                      width: 100,
-                      accentColor: '#8b5cf6',
-                      cursor: 'pointer',
-                      height: 5,
-                    }}
-                  />
-
-                  <button
-                    className={styles.pdfPageBtn}
-                    onClick={toggleMuteVideo}
-                    title={isVideoMuted ? 'وصل صدا' : 'قطع صدا'}
-                    style={{ color: isVideoMuted ? '#ef4444' : 'inherit' }}
-                  >
-                    {isVideoMuted ? <HiOutlineSpeakerXMark size={16} /> : <HiOutlineSpeakerWave size={16} />}
-                  </button>
-                </div>
-              )}
-
-              {/* Slide Navigation (for multi-page PDF & PPTX) */}
-              {pdfTotalPages > 1 && (
-                <div className={styles.pdfNavGroup}>
-                  <button
-                    className={styles.pdfPageBtn}
-                    onClick={handlePrevPdfPage}
-                    disabled={pdfCurrentPage <= 1 || isLoadingPdf}
-                    title={docType === 'pptx' ? 'اسلاید قبل' : 'صفحه قبل'}
-                  >
-                    <HiOutlineChevronRight />
-                  </button>
-
-                  <span className={styles.pdfPageText}>
-                    {docType === 'pptx'
-                      ? `اسلاید ${pdfCurrentPage} از ${pdfTotalPages}`
-                      : `صفحه ${pdfCurrentPage} از ${pdfTotalPages}`}
-                  </span>
-
-                  <button
-                    className={styles.pdfPageBtn}
-                    onClick={handleNextPdfPage}
-                    disabled={pdfCurrentPage >= pdfTotalPages || isLoadingPdf}
-                    title={docType === 'pptx' ? 'اسلاید بعد' : 'صفحه بعد'}
-                  >
-                    <HiOutlineChevronLeft />
-                  </button>
-                </div>
-              )}
-
-              {/* Zoom & Fit Controls */}
-              <div className={styles.pdfNavGroup}>
-                <button
-                  className={styles.pdfPageBtn}
-                  onClick={() => setPdfZoom((prev) => Math.max(0.2, +(prev - 0.1).toFixed(1)))}
-                  title="کوچک‌نمایی / زوم به عقب (-)"
-                >
-                  <HiOutlineMagnifyingGlassMinus />
-                </button>
-
-                <button
-                  className={styles.pdfPageBtn}
-                  onClick={() => {
-                    setPdfZoom(1.0);
-                    setPdfOffsetY(0);
-                    toast.success('اندازه زوم روی ۱۰۰٪ تنظیم شد');
-                  }}
-                  title="کلیک برای بازنشانی زوم به ۱۰۰٪ (اندازه استاندارد)"
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    padding: '0 6px',
-                    minWidth: 46,
-                    textAlign: 'center',
-                    background: pdfZoom === 1.0 ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                    color: pdfZoom === 1.0 ? 'var(--primary-600)' : 'inherit',
-                    borderRadius: 6,
-                    border: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {Math.round(pdfZoom * 100)}%
-                </button>
-
-                <button
-                  className={styles.pdfPageBtn}
-                  onClick={() => setPdfZoom((prev) => Math.min(3.0, +(prev + 0.1).toFixed(1)))}
-                  title="بزرگ‌نمایی (+)"
-                >
-                  <HiOutlineMagnifyingGlassPlus />
-                </button>
-
-                <button
-                  className={styles.pdfPageBtn}
-                  onClick={() => setPdfFitMode((prev) => (prev === 'fit-width' ? 'fit-height' : 'fit-width'))}
-                  title={pdfFitMode === 'fit-width' ? 'تغییر به ارتفاع کامل' : 'تغییر به عرض کامل'}
-                  style={{ color: pdfFitMode === 'fit-width' ? 'var(--primary-600)' : 'inherit' }}
-                >
-                  <HiOutlineArrowsPointingOut />
-                </button>
-              </div>
-
-              <button
-                className={styles.pdfCloseBtnProminent}
-                onClick={handleClosePdf}
-                title="بستن و برداشتن محتوا از روی تخته"
-              >
-                <HiOutlineXMark size={16} />
-                <span>بستن و بازگشت به تخته</span>
-              </button>
-            </div>
-          )}
-
-          {/* Interactive Whiteboard Canvas Area (Supports mouse wheel scroll on slides/pages) */}
-          <div
-            className={styles.canvasArea}
-            onWheel={handleCanvasWheel}
-            style={{
-              cursor:
-                tool === 'eraser'
-                  ? 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23ef4444\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\'/%3E%3Cpath d=\'M22 21H7\'/%3E%3Cpath d=\'m5 11 9 9\'/%3E%3C/svg%3E") 4 20, auto'
-                  : 'crosshair',
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              className={styles.canvasElement}
-              onPointerDown={startDrawing}
-              onPointerMove={draw}
-              onPointerUp={stopDrawing}
-              onPointerCancel={stopDrawing}
-            />
-          </div>
-
-          {/* Bottom Floating Recording Bar (As requested: "گزینه شروع ریکورد از صفحه پایین صفحه قرار داشته باشه") */}
-          <div className={styles.bottomControlBar}>
-            {/* Status indicator */}
-            <div className={styles.recStatus}>
-              <div
-                className={`${styles.recDot} ${recStatus === 'recording' ? styles.recDotPulsing : ''}`}
-                style={{
-                  backgroundColor:
-                    recStatus === 'recording' ? '#ef4444' : recStatus === 'paused' ? '#f59e0b' : '#94a3b8',
-                }}
-              />
-              <span>
-                {recStatus === 'recording' ? 'در حال ضبط' : recStatus === 'paused' ? 'متوقف موقت' : 'آماده ضبط'}
-              </span>
-            </div>
-
-            {/* Timer display */}
-            <div className={styles.recTimer}>{formatTimer(recSeconds)}</div>
-
-            {/* Record / Pause / Stop Buttons */}
-            {recStatus === 'idle' ? (
-              <button className={styles.recBtnStart} onClick={startRecording} title="شروع ضبط ویدیو و صدای تدریس">
-                <HiOutlinePlay size={14} />
-                <span>ضبط ویدیو</span>
-              </button>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {recStatus === 'recording' ? (
-                  <button className={styles.recBtnPause} onClick={pauseRecording} title="توقف موقت ضبط">
-                    <HiOutlinePause size={13} />
-                    <span>مکث</span>
-                  </button>
-                ) : (
-                  <button className={styles.recBtnPause} onClick={resumeRecording} title="ادامه ضبط">
-                    <HiOutlinePlay size={13} />
-                    <span>ادامه</span>
-                  </button>
-                )}
-
-                <button className={styles.recBtnStop} onClick={stopRecording} title="پایان و ذخیره ویدیو">
-                  <HiOutlineStop size={14} />
-                  <span>پایان ضبط</span>
-                </button>
-              </div>
-            )}
-
-            {/* Lesson Title Badge */}
-            <div className={styles.lessonTag} title={projectName}>
-              {projectName || 'تدریس آزاد'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 5. Modal: Save & Review Video (Shown upon stop recording) ── */}
-      {showSaveModal && (
-        <div className={styles.modalBackdrop}>
-          <div className={styles.modalContent} style={{ maxWidth: 640 }}>
-            <div className={styles.modalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: '#10b981',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.25rem',
-                  }}
-                >
-                  <HiOutlineCheck />
-                </div>
-                <h2>ضبط تدریس با موفقیت انجام شد</h2>
-              </div>
-              <button className={styles.closeBtn} onClick={() => setShowSaveModal(false)}>
-                <HiOutlineXMark />
-              </button>
-            </div>
-
-            {recordedVideoUrl && (
-              <video
-                src={recordedVideoUrl}
-                controls
-                autoPlay
-                className={styles.previewPlayer}
-              />
-            )}
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: 10,
-                background: 'var(--bg-secondary)',
-                padding: '12px 14px',
-                borderRadius: 'var(--radius-lg)',
-                marginBottom: 16,
-                fontSize: '0.85rem',
-              }}
-            >
-              <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>موضوع: </span>
-                <span style={{ fontWeight: 700 }}>{projectName || 'تدریس تخته هوشمند'}</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>مدت زمان: </span>
-                <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{formatTimer(recSeconds)}</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>فرمت ذخیره: </span>
-                <span style={{ fontWeight: 700 }}>WebM Video HD</span>
-              </div>
-              <div>
-                <span style={{ color: 'var(--text-tertiary)' }}>حجم فایل: </span>
-                <span style={{ fontWeight: 700 }}>
-                  {recordedBlob ? (recordedBlob.size / (1024 * 1024)).toFixed(2) + ' مگابایت' : '-'}
-                </span>
-              </div>
-            </div>
-
-            {/* Target Audience Selector (انتخاب گروه مخاطبان: معلمان، دانش‌آموزان، اولیا یا هر سه گروه) */}
-            <div className={styles.audienceSection}>
-              <label className={styles.audienceSectionTitle}>
-                <span>🎯</span>
-                <span>گروه مخاطبان انتشار ویدیو (ارسال و نمایش برای):</span>
-              </label>
-              <div className={styles.audienceGrid}>
-                {AUDIENCE_OPTIONS.map((opt) => {
-                  const isSelected = targetAudience === opt.id;
-                  return (
-                    <div
-                      key={opt.id}
-                      className={`${styles.audienceCard} ${isSelected ? styles.audienceCardActive : ''}`}
-                      onClick={() => setTargetAudience(opt.id)}
-                      style={{
-                        borderColor: isSelected ? opt.color : undefined,
-                      }}
-                    >
-                      <div className={styles.audienceCardIcon}>{opt.icon}</div>
-                      <div className={styles.audienceCardLabel} style={{ color: isSelected ? opt.color : undefined }}>
-                        {opt.label}
-                      </div>
-                      <div className={styles.audienceCardDesc}>{opt.desc}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Folder Selection for Saved Whiteboard Video */}
-            <div
-              style={{
-                background: 'var(--bg-secondary)',
-                padding: '12px 14px',
-                borderRadius: 'var(--radius-lg)',
-                marginBottom: 16,
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 8,
-                }}
-              >
-                <label
-                  style={{
-                    fontWeight: 750,
-                    fontSize: '0.875rem',
-                    color: 'var(--text-primary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <HiOutlineFolder size={18} color="var(--primary-600)" />
-                  <span>پوشه مقصد در بخش ویدیوها و رسانه‌ها:</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSaveCreatingFolder(!isSaveCreatingFolder);
-                    if (!isSaveCreatingFolder) setSaveNewFolderName('');
-                  }}
-                  className="btn btn-xs btn-outline"
-                  style={{ fontSize: '0.75rem', gap: 4 }}
-                >
-                  {isSaveCreatingFolder ? '✕ انتخاب از پوشه‌ها' : '➕ ساخت پوشه جدید...'}
-                </button>
-              </div>
-
-              {!isSaveCreatingFolder ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <select
-                    className="select"
-                    value={saveTargetFolder}
-                    onChange={(e) => {
-                      if (e.target.value === '__NEW__') {
-                        setIsSaveCreatingFolder(true);
-                        setSaveNewFolderName('');
-                      } else {
-                        setSaveTargetFolder(e.target.value);
-                      }
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      fontSize: '0.875rem',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {availableFolders.map((f) => (
-                      <option key={f.name} value={f.name}>
-                        📁 {f.name}
-                      </option>
-                    ))}
-                    <option value="__NEW__">➕ ساخت پوشه یا درس جدید...</option>
-                  </select>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="نام پوشه جدید (مثلاً: ریاضی دهم - فصل ۲)"
-                    value={saveNewFolderName}
-                    onChange={(e) => setSaveNewFolderName(e.target.value)}
-                    autoFocus
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1.5px solid var(--primary-500)',
-                      fontSize: '0.875rem',
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  style={{
-                    flex: '1 1 150px',
-                    minWidth: '130px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    padding: '11px 14px',
-                    fontSize: '0.875rem',
-                    fontWeight: 700,
-                  }}
-                  onClick={() => handleDownloadVideo(true)}
-                >
-                  <HiOutlineArrowDownTray size={18} />
-                  <span>دانلود مستقیم ویدیو (روی سیستم / گوشی)</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{
-                    flex: '1.4 1 200px',
-                    minWidth: '170px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    padding: '11px 16px',
-                    fontSize: '0.875rem',
-                    fontWeight: 800,
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    borderColor: '#059669',
-                    color: '#ffffff',
-                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-                    cursor: isUploading ? 'not-allowed' : 'pointer',
-                  }}
-                  onClick={handlePublishToArchive}
-                  disabled={isUploading}
-                >
-                  <HiOutlineCloudArrowUp size={20} />
-                  <span>{isUploading ? 'در حال ثبت، ذخیره و دانلود...' : 'ذخیره در پنل + دانلود مستقیم ویدیو'}</span>
-                </button>
-              </div>
-
-              {/* Download Whiteboard Notes as PDF */}
-              <button
-                type="button"
-                className="btn btn-outline"
-                style={{
-                  width: '100%',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  borderColor: '#ef4444',
-                  color: '#dc2626',
-                  background: 'rgba(239, 68, 68, 0.05)',
-                  fontWeight: 700,
-                  padding: '11px 16px',
-                  fontSize: '0.875rem',
-                }}
-                onClick={handleExportPdf}
-                disabled={isExportingPdf}
-              >
-                <FaFilePdf size={18} color="#ef4444" />
-                <span>
-                  {isExportingPdf
-                    ? 'در حال آماده‌سازی فایل PDF...'
-                    : `دانلود فایل PDF جزوه (${boardTotalPages} برگه نوشته شده)`}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{
-                  width: '100%',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  fontWeight: 800,
-                  padding: '11px 16px',
-                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                  color: 'white',
-                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
-                  fontSize: '0.875rem',
-                }}
-                onClick={() => {
-                  const classObj = classesList.find((c) => c.id === selectedClassId);
-                  const folderName = classObj?.name || 'تخته هوشمند';
-                  const newSession = {
-                    id: Date.now().toString(),
-                    title: projectName || 'جلسه تدریس هوشمند',
-                    date: new Date().toLocaleDateString('fa-IR'),
-                    duration: recSeconds,
-                    classTitle: classObj?.name || 'کلاس عمومی',
-                    videoUrl: recordedVideoUrl,
-                    sizeBytes: recordedBlob?.size || 0,
-                    folder_name: folderName,
-                    category: 'تخته هوشمند',
-                  };
-                  saveSessionsToLocal([newSession, ...recordedSessions]);
-                  setShowSaveModal(false);
-                  setIsStudioOpen(false);
-                  handleOpenShareModal(newSession);
-                }}
-              >
-                <HiOutlinePaperAirplane size={18} style={{ transform: 'rotate(180deg)' }} />
-                <span>ذخیره و ارسال برای معلم یا دوستان</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ width: '100%', fontSize: '0.85rem', color: 'var(--text-tertiary)', padding: '10px' }}
-                onClick={handleSaveLocallyAndClose}
-              >
-                ذخیره در پنل و بستن پنجره
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 6. Preview Modal for Previous Recordings ── */}
-      {showPreviewModal && (
-        <div className={styles.modalBackdrop}>
-          <div className={styles.modalContent} style={{ maxWidth: 720 }}>
-            <div className={styles.modalHeader}>
-              <h2>پیش‌نمایش جلسه ضبط شده</h2>
-              <button className={styles.closeBtn} onClick={() => setShowPreviewModal(false)}>
-                <HiOutlineXMark />
-              </button>
-            </div>
-
-            {previewVideoUrl && (
-              <video
-                src={previewVideoUrl}
-                controls
-                autoPlay
-                className={styles.previewPlayer}
-              />
-            )}
-
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                  fontWeight: 700,
-                }}
-                onClick={() => {
-                  setShowPreviewModal(false);
-                  const sessionObj = recordedSessions.find((s) => s.videoUrl === previewVideoUrl) || {
-                    id: Date.now().toString(),
-                    title: projectName || 'جلسه تخته هوشمند',
-                    videoUrl: previewVideoUrl,
-                    duration: recSeconds,
-                    date: new Date().toLocaleDateString('fa-IR'),
-                  };
-                  handleOpenShareModal(sessionObj);
-                }}
-              >
-                <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                <span>اشتراک‌گذاری در پیام‌ها</span>
-              </button>
-              <a
-                href={previewVideoUrl}
-                download="class-recording.webm"
-                className="btn btn-outline"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-              >
-                <HiOutlineArrowDownTray size={18} />
-                دانلود ویدیو
-              </a>
-              <button className="btn btn-ghost" onClick={() => setShowPreviewModal(false)}>
-                بستن
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 7. Move Whiteboard Video to Folder Modal (انتقال و پوشه‌بندی ویدیوهای تخته هوشمند) ── */}
-      {movingSession && (
-        <div className={styles.modalBackdrop} onClick={() => setMovingSession(null)}>
-          <div
-            className={styles.modalContent}
-            style={{ maxWidth: 520 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className={styles.modalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 10,
-                    background: 'rgba(99, 102, 241, 0.12)',
-                    color: 'var(--primary-600)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <HiOutlineArrowsRightLeft size={20} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '1.15rem', margin: 0 }}>انتقال و پوشه‌بندی ویدیو</h2>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
-                    می‌خواهید این ویدیو در کدام پوشه قرار گیرد؟
-                  </span>
-                </div>
-              </div>
-              <button
-                className={styles.closeBtn}
-                onClick={() => setMovingSession(null)}
-                type="button"
-              >
-                <HiOutlineXMark />
-              </button>
-            </div>
-
-            {/* Current Video Info Banner */}
-            <div
-              style={{
-                background: 'var(--bg-secondary)',
-                padding: '12px 14px',
-                borderRadius: '12px',
-                border: '1px solid var(--border-color)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 8,
-                  background: 'rgba(99, 102, 241, 0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--primary-600)',
-                  flexShrink: 0,
-                }}
-              >
-                <HiOutlineFilm size={22} />
-              </div>
-              <div style={{ overflow: 'hidden' }}>
-                <div
-                  style={{
-                    fontWeight: 800,
-                    fontSize: '0.9rem',
-                    color: 'var(--text-primary)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {movingSession.title}
-                </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  پوشه فعلی:{' '}
-                  <span style={{ fontWeight: 700, color: 'var(--primary-600)' }}>
-                    📁 {movingSession.folder_name || 'تخته هوشمند'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Destination Folder Selector */}
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 10,
-                }}
-              >
-                <label
-                  style={{
-                    fontWeight: 750,
-                    fontSize: '0.875rem',
-                    color: 'var(--text-primary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <HiOutlineFolder size={18} color="var(--primary-600)" />
-                  <span>انتخاب پوشه یا درس مقصد:</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreatingNewFolder(!isCreatingNewFolder);
-                    if (!isCreatingNewFolder) setNewFolderName('');
-                  }}
-                  className="btn btn-xs btn-outline"
-                  style={{ fontSize: '0.75rem', gap: 4 }}
-                >
-                  {isCreatingNewFolder ? '✕ انتخاب از پوشه‌های موجود' : '➕ ساخت پوشه جدید...'}
-                </button>
-              </div>
-
-              {!isCreatingNewFolder ? (
-                <div className={styles.moveFolderList}>
-                  {availableFolders.map((f) => {
-                    const isCurrent = (movingSession.folder_name || 'تخته هوشمند') === f.name;
-                    const isSelected = targetFolder === f.name;
-
-                    return (
-                      <div
-                        key={f.name}
-                        className={`${styles.moveFolderItem} ${
-                          isSelected ? styles.moveFolderItemActive : ''
-                        }`}
-                        onClick={() => setTargetFolder(f.name)}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 8,
-                              background: `${f.color || '#6366f1'}1f`,
-                              color: f.color || '#6366f1',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <HiOutlineFolder size={18} />
-                          </div>
-                          <span style={{ fontWeight: 700, fontSize: '0.875rem' }}>{f.name}</span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {isCurrent && (
-                            <span
-                              style={{
-                                fontSize: '0.7rem',
-                                color: 'var(--text-tertiary)',
-                                background: 'var(--bg-card)',
-                                padding: '2px 8px',
-                                borderRadius: '10px',
-                              }}
-                            >
-                              پوشه فعلی
-                            </span>
-                          )}
-                          <input
-                            type="radio"
-                            name="wb_move_target_folder"
-                            checked={isSelected}
-                            onChange={() => setTargetFolder(f.name)}
-                            style={{ accentColor: 'var(--primary-600)', cursor: 'pointer' }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ marginTop: 6 }}>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="نام پوشه جدید را بنویسید (مثلاً: حسابان ۲ - فصل مشتق)"
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    autoFocus
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-lg)',
-                      border: '1.5px solid var(--primary-500)',
-                      fontSize: '0.9rem',
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      color: 'var(--text-tertiary)',
-                      marginTop: 4,
-                      display: 'block',
-                    }}
-                  >
-                    این پوشه ساخته شده و ویدیو مستقیماً به آن منتقل می‌گردد.
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Actions */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 10,
-                marginTop: 22,
-                borderTop: '1px solid var(--border-color)',
-                paddingTop: 16,
-              }}
-            >
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setMovingSession(null)}
-              >
-                انصراف
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleConfirmMove}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <HiOutlineFolder size={18} />
-                <span>انتقال به این پوشه</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 8. Share Video to Messages Modal (اشتراک‌گذاری ویدیو در گفتگو و پیام‌ها با معلم یا دوستان) ── */}
-      {showShareModal && sharingSession && (
-        <div className={styles.modalBackdrop} onClick={() => !isSendingShare && setShowShareModal(false)}>
-          <div
-            className={styles.modalContent}
-            style={{ maxWidth: 620 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className={styles.modalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 10,
-                    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.2rem',
-                    boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)',
-                  }}
-                >
-                  <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '1.125rem', fontWeight: 800, margin: 0 }}>
-                    اشتراک‌گذاری ویدیو در گفتگو و پیام‌ها
-                  </h2>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', margin: 0 }}>
-                    ارسال مستقیم این ویدیو برای معلم مورد نظر یا هم‌کلاسی‌ها
-                  </p>
-                </div>
-              </div>
-              <button
-                className={styles.closeBtn}
-                onClick={() => setShowShareModal(false)}
-                disabled={isSendingShare}
-                type="button"
-              >
-                <HiOutlineXMark />
-              </button>
-            </div>
-
-            {/* Video preview banner */}
-            <div className={styles.shareVideoBanner}>
-              <div className={styles.shareVideoIcon}>🎬</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className={styles.shareVideoTitle}>{sharingSession.title || 'ویدیوی تخته هوشمند'}</div>
-                <div className={styles.shareVideoMeta}>
-                  <span>⏱️ مدت: {formatTimer(sharingSession.duration || 0)}</span>
-                  <span>•</span>
-                  <span>📅 {sharingSession.date || 'امروز'}</span>
-                  <span>•</span>
-                  <span style={{ color: '#818cf8', fontWeight: 700 }}>🔒 ویدیوی تخته هوشمند</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Category tabs */}
-            <div className={styles.shareTabs}>
-              <button
-                type="button"
-                className={`${styles.shareTabBtn} ${shareRoleTab === 'all' ? styles.shareTabBtnActive : ''}`}
-                onClick={() => setShareRoleTab('all')}
-              >
-                🌟 همه مخاطبان ({shareDirectory.all?.filter((u) => u.id !== user?.id).length || 0})
-              </button>
-              <button
-                type="button"
-                className={`${styles.shareTabBtn} ${shareRoleTab === 'teacher' ? styles.shareTabBtnActive : ''}`}
-                onClick={() => setShareRoleTab('teacher')}
-              >
-                👨‍🏫 دبیران و معلمان ({shareDirectory.staff?.length || 0})
-              </button>
-              <button
-                type="button"
-                className={`${styles.shareTabBtn} ${shareRoleTab === 'student' ? styles.shareTabBtnActive : ''}`}
-                onClick={() => setShareRoleTab('student')}
-              >
-                🎓 هم‌کلاسی‌ها و دوستان ({shareDirectory.students?.filter((u) => u.id !== user?.id).length || 0})
-              </button>
-            </div>
-
-            {/* Search Input */}
-            <div className={styles.shareSearchBox}>
-              <input
-                type="text"
-                className={styles.shareSearchInput}
-                placeholder="جستجو با نام، نام خانوادگی یا آیدی (مثلاً @ali)..."
-                value={shareSearch}
-                onChange={(e) => setShareSearch(e.target.value)}
-              />
-              <HiOutlineMagnifyingGlass className={styles.shareSearchIcon} />
-            </div>
-
-            {/* Recipients List */}
-            <div className={styles.recipientsList}>
-              {isLoadingDirectory ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>
-                  در حال بارگذاری لیست مخاطبان...
-                </div>
-              ) : getFilteredRecipients().length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>
-                  مخاطبی با این مشخصات یافت نشد
-                </div>
-              ) : (
-                getFilteredRecipients().map((person) => {
-                  const isSelected = selectedRecipient?.id === person.id;
-                  const isTeacher = person.role === 'teacher';
-                  return (
-                    <div
-                      key={person.id}
-                      className={`${styles.recipientItem} ${isSelected ? styles.recipientItemSelected : ''}`}
-                      onClick={() => setSelectedRecipient(person)}
-                    >
-                      <div className={styles.recipientAvatar}>
-                        {person.display_name?.charAt(0) || '👤'}
-                      </div>
-                      <div className={styles.recipientInfo}>
-                        <div className={styles.recipientNameRow}>
-                          <span className={styles.recipientName}>{person.display_name}</span>
-                          {person.username && (
-                            <span className={styles.recipientHandle}>@{person.username}</span>
-                          )}
-                          <span
-                            className={`${styles.recipientRoleBadge} ${
-                              isTeacher ? styles.recipientRoleTeacher : styles.recipientRoleStudent
-                            }`}
-                          >
-                            {isTeacher ? '👨‍🏫 دبیر' : '🎓 دانش‌آموز'}
-                          </span>
-                        </div>
-                        <div className={styles.recipientSub}>
-                          {isTeacher
-                            ? `مدرس ${person.department || 'دروس کلاسی'}`
-                            : `دانش‌آموز ${person.department || ''}`}
-                        </div>
-                      </div>
-
-                      {/* Checkmark or select indicator */}
-                      <div
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          border: isSelected ? 'none' : '2px solid var(--border-color)',
-                          background: isSelected ? '#10b981' : 'transparent',
-                          color: 'white',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.8125rem',
-                          flexShrink: 0,
-                          transition: 'all 0.2s ease',
-                        }}
-                      >
-                        {isSelected && <HiOutlineCheck />}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Custom message note */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
-                متن همراه ویدیو در پیام:
-              </label>
-              <textarea
-                className="input"
-                rows={2}
-                style={{ width: '100%', fontSize: '0.8125rem', padding: '8px 12px', resize: 'vertical' }}
-                value={shareMessageText}
-                onChange={(e) => setShareMessageText(e.target.value)}
-                placeholder="متنی برای مخاطب بنویسید..."
-              />
-            </div>
-
-            {/* Footer Buttons */}
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontWeight: 800,
-                  padding: '10px 22px',
-                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)',
-                }}
-                onClick={handleSendShare}
-                disabled={!selectedRecipient || isSendingShare}
-              >
-                <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                <span>
-                  {isSendingShare
-                    ? 'در حال آماده‌سازی و ارسال...'
-                    : selectedRecipient
-                    ? `ارسال برای ${selectedRecipient.display_name} 🚀`
-                    : 'ابتدا یک مخاطب را انتخاب کنید'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setShowShareModal(false)}
-                disabled={isSendingShare}
-              >
-                انصراف
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SmartboardRecorderBar
+        recStatus={recStatus}
+        recSeconds={recSeconds}
+        micEnabled={micEnabled}
+        onToggleMic={() => setMicEnabled((prev) => !prev)}
+        onStartRecording={handleStartRecording}
+        onPauseOrResume={handlePauseOrResumeRecording}
+        onStopRecording={handleStopRecording}
+        hasFinishedRecording={Boolean(recordedUrl)}
+        onOpenRecordingModal={() => setShowRecordingModal(true)}
+      />
+
+      <RecordingActionModal
+        isOpen={showRecordingModal}
+        onClose={() => setShowRecordingModal(false)}
+        recordedBlob={recordedBlob}
+        recordedUrl={recordedUrl}
+        durationSeconds={recSeconds}
+        defaultTitle={sessionTitle}
+        userRole={user?.role}
+      />
     </div>
   );
 }

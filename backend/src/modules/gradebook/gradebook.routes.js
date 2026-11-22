@@ -9,9 +9,234 @@ const {
   assertTeacherOfStudent,
 } = require('../../middleware/auth');
 const { logAudit } = require('../../utils/auditLogger');
+const { cache } = require('../../utils/cache');
+const {
+  rankStudentSuggestions,
+  validateManualClassPayload,
+} = require('../../utils/gradebookClassHelper');
+const { buildRosterGroupSnapshot } = require('../../utils/classRosterHelper');
 const { v4: uuidv4 } = require('uuid');
 
 router.use(authenticate);
+
+/**
+ * GET /api/v1/gradebook/students/search
+ * Live DB student autocomplete strictly scoped to the teacher's school.
+ */
+router.get('/students/search', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const limit = Math.min(30, Math.max(5, parseInt(req.query.limit, 10) || 15));
+
+    if (!req.user.school_id) {
+      return res.json({ success: true, data: { students: [] } });
+    }
+
+    const rows = await db('users')
+      .leftJoin('students', 'students.user_id', 'users.id')
+      .where({
+        'users.role': 'student',
+        'users.school_id': req.user.school_id,
+        'users.is_active': true,
+      })
+      .select(
+        'users.id',
+        'users.display_name',
+        'users.username',
+        'users.student_code',
+        'users.phone',
+        'students.grade',
+        'students.major',
+        'students.education_level'
+      );
+
+    const suggestions = rankStudentSuggestions(rows, q, limit);
+
+    res.json({
+      success: true,
+      data: {
+        students: suggestions,
+        total_school_students: rows.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/gradebook/classes-with-scores
+ * Creates a new class in DB, enrolls verified DB students (linking teacher <-> student),
+ * creates the evaluation category, and persists initial scores atomically so every student
+ * sees the grades immediately in their own «کارنامه‌ها» panel.
+ */
+router.post('/classes-with-scores', authorize('teacher', 'admin', 'manager'), async (req, res, next) => {
+  try {
+    const validation = validateManualClassPayload(req.body);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, message: validation.error });
+    }
+
+    const { name, grade, subject, category_title, max_score, entries } = validation.data;
+
+    if (!req.user.school_id) {
+      return res.status(400).json({ success: false, message: 'حساب کاربری شما به هیچ مدرسه‌ای متصل نیست' });
+    }
+
+    // Verify every selected student exists in DB and belongs to the teacher's exact school
+    const requestedStudentIds = entries.map((e) => e.student_id);
+    let verifiedStudents = [];
+    if (requestedStudentIds.length > 0) {
+      verifiedStudents = await db('users')
+        .leftJoin('students', 'students.user_id', 'users.id')
+        .whereIn('users.id', requestedStudentIds)
+        .andWhere({
+          'users.role': 'student',
+          'users.school_id': req.user.school_id,
+        })
+        .select(
+          'users.id',
+          'users.display_name',
+          'users.username',
+          'users.student_code',
+          'students.grade',
+          'students.major'
+        );
+
+      if (verifiedStudents.length !== requestedStudentIds.length) {
+        return res.status(403).json({
+          success: false,
+          message: 'یک یا چند دانش‌آموز انتخاب‌شده در دیتابیس مدرسه شما یافت نشد',
+        });
+      }
+    }
+
+    const classId = uuidv4();
+    const categoryId = uuidv4();
+    const joinCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const nowIso = new Date().toISOString();
+
+    const classRow = {
+      id: classId,
+      school_id: req.user.school_id,
+      teacher_id: req.user.id,
+      name,
+      subject,
+      grade,
+      join_code: joinCode,
+      is_active: true,
+    };
+
+    const categoryRow = {
+      id: categoryId,
+      class_id: classId,
+      title: category_title,
+      weight: 1.0,
+      max_score,
+      term: 'term1',
+    };
+
+    let scoresSaved = 0;
+    const hasLinksTable = await db.schema.hasTable('student_teacher_links');
+    const hasRosterGroupsTable = await db.schema.hasTable('class_roster_groups');
+
+    await db.transaction(async (trx) => {
+      await trx('classes').insert(classRow);
+
+      // Enroll teacher as class owner
+      await trx('class_members').insert({
+        id: uuidv4(),
+        class_id: classId,
+        user_id: req.user.id,
+        role: 'teacher',
+      });
+
+      // Create evaluation category
+      await trx('gradebook_categories').insert(categoryRow);
+
+      // Enroll verified students & persist scores
+      for (const entry of entries) {
+        await trx('class_members').insert({
+          id: uuidv4(),
+          class_id: classId,
+          user_id: entry.student_id,
+          role: 'student',
+        });
+
+        // Link student <-> teacher if table exists
+        if (hasLinksTable) {
+          const existingLink = await trx('student_teacher_links')
+            .where({ student_user_id: entry.student_id, teacher_user_id: req.user.id })
+            .first();
+          if (!existingLink) {
+            await trx('student_teacher_links').insert({
+              id: uuidv4(),
+              school_id: req.user.school_id,
+              student_user_id: entry.student_id,
+              teacher_user_id: req.user.id,
+              class_id: classId,
+              grade,
+              created_at: nowIso,
+              updated_at: nowIso,
+            });
+          }
+        }
+
+        if (entry.score !== null && entry.score !== undefined) {
+          await trx('gradebook_scores').insert({
+            id: uuidv4(),
+            category_id: categoryId,
+            student_id: entry.student_id,
+            score: entry.score,
+            teacher_comment: entry.teacher_comment || '',
+            graded_at: nowIso,
+          });
+          scoresSaved += 1;
+        }
+      }
+
+      // Sync persisted class roster group snapshot
+      if (hasRosterGroupsTable) {
+        const snapshot = buildRosterGroupSnapshot(classRow, verifiedStudents);
+        await trx('class_roster_groups').insert({
+          id: uuidv4(),
+          ...snapshot,
+          created_at: nowIso,
+          updated_at: nowIso,
+        });
+      }
+    });
+
+    try {
+      cache.delBySchool(req.user.school_id);
+    } catch (_e) {}
+
+    await logAudit(req, 'CREATE_CLASS_WITH_GRADEBOOK_SCORES', 'class', classId, {
+      name,
+      grade,
+      subject,
+      enrolled_count: entries.length,
+      scores_saved: scoresSaved,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `کلاس «${name}» با ${entries.length} دانش‌آموز و ${scoresSaved} نمره با موفقیت ثبت شد`,
+      data: {
+        class: {
+          ...classRow,
+          teacher_name: req.user.display_name,
+          student_count: entries.length,
+        },
+        category: categoryRow,
+        enrolled_count: entries.length,
+        scores_saved: scoresSaved,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const parsePersianScore = (val) => {
   if (val === null || val === undefined || val === '') return null;
@@ -578,8 +803,17 @@ async function handleGetReportCard(req, res, next) {
       }
     }
 
-    const student = await assertTeacherOfStudent(req.user, studentId);
-    assertSameSchool(req.user, student);
+    let student;
+    if (req.user.role === 'student' || req.user.role === 'parent') {
+      student = await db('users').where({ id: studentId }).first();
+      if (!student) {
+        return res.status(404).json({ success: false, message: 'دانش‌آموز یافت نشد' });
+      }
+      assertSameSchool(req.user, student);
+    } else {
+      student = await assertTeacherOfStudent(req.user, studentId);
+      assertSameSchool(req.user, student);
+    }
 
     const classes = await db('class_members')
       .join('classes', 'classes.id', 'class_members.class_id')
@@ -650,6 +884,9 @@ async function handleGetReportCard(req, res, next) {
     disciplineScore = Math.max(0, Math.min(20, disciplineScore));
 
     const overallGPA = overallCredits > 0 ? (overallWeightedSum / overallCredits).toFixed(2) : null;
+    const schoolRow = student.school_id
+      ? await db('schools').where({ id: student.school_id }).select('name').first()
+      : null;
 
     res.json({
       success: true,
@@ -657,6 +894,7 @@ async function handleGetReportCard(req, res, next) {
         student: {
           id: student.id,
           display_name: student.display_name,
+          username: student.username || null,
           student_code: student.student_code || 'STD-140301',
           email: student.email,
           department: student.department || 'دوره دوم متوسطه',
@@ -672,7 +910,7 @@ async function handleGetReportCard(req, res, next) {
           failed_courses: reportCards.filter((r) => r.status === 'نیاز به تلاش').length,
           term: 'نوبت اول (دی ماه ۱۴۰۳)',
           academic_year: 'سال تحصیلی ۱۴۰۳ - ۱۴۰۴',
-          school_name: 'مجتمع آموزشی هوشمند ادیبان',
+          school_name: schoolRow?.name || 'مدرسه هوشمند',
           generated_at: new Date().toLocaleDateString('fa-IR'),
         },
       },

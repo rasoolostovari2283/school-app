@@ -4,7 +4,17 @@ const jwt = require('jsonwebtoken');
 const db = require('../../config/database');
 const config = require('../../config');
 const { generateId, insertAndReturn } = require('../../utils/dbHelpers');
-const { generateUniqueUsername } = require('../../utils/usernameHelper');
+const {
+  generateUniqueUsername,
+  generateUniqueSchoolUsername,
+  normalizeMajors,
+} = require('../../utils/usernameHelper');
+const {
+  normalizePersianDigits,
+  validateStudentAcademicInfo,
+} = require('../../utils/studentRegistrationHelper');
+const { validateTeacherTeachingInfo } = require('../../utils/teacherRegistrationHelper');
+const { validateParentRelation } = require('../../utils/parentRegistrationHelper');
 const localCaptcha = require('../../utils/localCaptcha');
 
 /**
@@ -63,16 +73,44 @@ const DEFAULT_BUILTIN_SCHOOLS = [
   { id: 'sch-8', name: 'دبیرستان استعدادهای درخشان شهید بهشتی', code: 'SCH-1008', city: 'تهران', level: 'متوسطه دوم (دبیرستان)' },
 ];
 
-async function ensureBuiltinSchool(schoolName = null, schoolCode = null) {
+function parseSchoolMajors(rawMajors) {
+  if (Array.isArray(rawMajors)) return rawMajors;
+  if (!rawMajors || typeof rawMajors !== 'string') return [];
+  try {
+    const parsed = JSON.parse(rawMajors);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+async function ensureBuiltinSchool(schoolName = null, schoolCode = null, schoolUsername = null) {
   const cleanName = schoolName ? String(schoolName).trim() : '';
   const cleanCode = schoolCode ? String(schoolCode).trim() : '';
+  const cleanUsername = schoolUsername
+    ? String(schoolUsername).trim().replace(/^@/, '').toLowerCase()
+    : '';
+  const cleanNameAsUsername = cleanName.startsWith('@')
+    ? cleanName.replace(/^@/, '').toLowerCase()
+    : '';
 
   let matched = null;
   if (cleanName) {
     matched = await db('schools').where({ name: cleanName }).first();
   }
   if (!matched && cleanCode) {
-    matched = await db('schools').where({ code: cleanCode }).first();
+    matched = await db('schools').whereRaw('UPPER(code) = ?', [cleanCode.toUpperCase()]).first();
+  }
+  if (!matched && (cleanUsername || cleanNameAsUsername)) {
+    const uname = cleanUsername || cleanNameAsUsername;
+    try {
+      matched = await db('schools').whereRaw('LOWER(username) = ?', [uname]).first();
+    } catch (_e) {}
+  }
+  if (!matched && cleanName && /^[a-z0-9_]+$/i.test(cleanName)) {
+    try {
+      matched = await db('schools').whereRaw('LOWER(username) = ?', [cleanName.toLowerCase()]).first();
+    } catch (_e) {}
   }
   if (matched) return matched;
 
@@ -392,19 +430,31 @@ class AuthService {
   }
 
   /**
-   * Register a new School and its Principal Admin account
+   * Register a new School and its Principal Admin account.
+   * Persists all school attributes (name, city, level, majors, unique username,
+   * bcrypt password_hash, principal_name, principal_phone) in one dedicated row in `schools`,
+   * and creates the corresponding admin account in `users` with the exact same unique username.
    */
-  async registerSchool({ school_name, school_level, city, admin_name, admin_phone, admin_password }) {
-    if (!school_name || !school_name.trim()) {
+  async registerSchool({
+    school_name,
+    school_level,
+    majors = [],
+    city,
+    admin_name,
+    admin_phone,
+    admin_password,
+  }) {
+    if (!school_name || !String(school_name).trim()) {
       const error = new Error('نام مدرسه الزامی است');
       error.statusCode = 400;
       throw error;
     }
 
-    const cleanSchoolName = school_name.trim();
-    const cleanCity = (city || 'تهران').trim() || 'تهران';
-    const cleanLevel = (school_level || 'متوسطه دوم').trim() || 'متوسطه دوم';
-    const cleanAdminName = (admin_name || 'مدیر مدرسه').trim() || 'مدیر مدرسه';
+    const cleanSchoolName = String(school_name).trim();
+    const cleanCity = (city && String(city).trim()) || 'تهران';
+    const cleanLevel = (school_level && String(school_level).trim()) || 'متوسطه دوم (دبیرستان)';
+    const normalizedMajors = normalizeMajors(majors, cleanLevel);
+    const cleanAdminName = (admin_name && String(admin_name).trim()) || 'مدیر مدرسه';
     const cleanPhone = admin_phone ? String(admin_phone).trim() : null;
     const passToHash = admin_password && String(admin_password).trim()
       ? String(admin_password).trim()
@@ -431,10 +481,14 @@ class AuthService {
                   id: existingUsersSchool.id,
                   school_code: existingUsersSchool.code,
                   name: existingUsersSchool.name,
-                  level: cleanLevel,
+                  level: existingUsersSchool.level || cleanLevel,
+                  majors: parseSchoolMajors(existingUsersSchool.majors),
                   city: existingUsersSchool.city || cleanCity,
-                  principal: cleanAdminName,
-                  phone: cleanPhone,
+                  username: existingUsersSchool.username || safeUser.username,
+                  principal_name: existingUsersSchool.principal_name || cleanAdminName,
+                  principal: existingUsersSchool.principal_name || cleanAdminName,
+                  principal_phone: existingUsersSchool.principal_phone || cleanPhone,
+                  phone: existingUsersSchool.principal_phone || cleanPhone,
                 },
                 ...tokens,
               };
@@ -465,7 +519,8 @@ class AuthService {
       finalSchoolName = existingWithCity ? `${cleanSchoolName} - ${school_code}` : withCity;
     }
 
-    const username = `admin_${school_code.toLowerCase().replace('-', '')}_${crypto.randomBytes(2).toString('hex')}`;
+    // Generate a guaranteed-unique personal username across both `users` and `schools`
+    const username = await generateUniqueSchoolUsername(db, cleanAdminName, finalSchoolName);
     const password_hash = await bcrypt.hash(passToHash, 10);
 
     const schoolId = generateId();
@@ -474,12 +529,20 @@ class AuthService {
       name: finalSchoolName,
       code: school_code,
       city: cleanCity,
+      level: cleanLevel,
+      majors: JSON.stringify(normalizedMajors),
+      username,
+      password_hash,
+      principal_name: cleanAdminName,
+      principal_phone: cleanPhone,
     });
 
     const schoolSettings = JSON.stringify({
       school_name: finalSchoolName,
       school_code,
+      school_username: username,
       school_level: cleanLevel,
+      majors: normalizedMajors,
       city: cleanCity,
       principal: cleanAdminName,
       is_school_registered: true,
@@ -510,8 +573,12 @@ class AuthService {
       school_code: schoolRecord?.code || school_code,
       name: finalSchoolName,
       level: cleanLevel,
+      majors: normalizedMajors,
       city: cleanCity,
+      username,
+      principal_name: cleanAdminName,
       principal: cleanAdminName,
+      principal_phone: cleanPhone,
       phone: cleanPhone,
     };
 
@@ -519,14 +586,24 @@ class AuthService {
   }
 
   /**
-   * Public list of all registered and default schools
+   * Public list of all registered and default schools.
+   * Supports optional search query by school username (@id), name, code, city, or principal name.
+   * NEVER exposes password_hash or principal_phone.
    */
-  async getPublicSchoolsList() {
+  async getPublicSchoolsList(searchQuery = '') {
     let dbSchools = [];
     try {
-      dbSchools = await db('schools').select('*').orderBy('created_at', 'desc');
-    } catch (e) {
-      dbSchools = [];
+      dbSchools = await db('schools')
+        .select('id', 'name', 'code', 'city', 'level', 'majors', 'username', 'principal_name', 'created_at')
+        .orderBy('created_at', 'desc');
+    } catch (_e) {
+      try {
+        dbSchools = await db('schools')
+          .select('id', 'name', 'code', 'city', 'created_at')
+          .orderBy('created_at', 'desc');
+      } catch (_err) {
+        dbSchools = [];
+      }
     }
 
     const schoolMap = new Map();
@@ -534,19 +611,728 @@ class AuthService {
       schoolMap.set(s.name, {
         id: s.id,
         name: s.name,
-        code: s.code || `SCH-${s.id.slice(-4)}`,
+        code: s.code || `SCH-${String(s.id).slice(-4)}`,
         city: s.city || 'تهران',
         level: s.level || 'متوسطه دوم (دبیرستان)',
+        majors: parseSchoolMajors(s.majors),
+        username: s.username || null,
+        principal_name: s.principal_name || null,
         is_registered: true,
       });
     });
     DEFAULT_BUILTIN_SCHOOLS.forEach((s) => {
       if (!schoolMap.has(s.name)) {
-        schoolMap.set(s.name, s);
+        schoolMap.set(s.name, {
+          ...s,
+          majors: s.majors || [],
+          username: s.username || null,
+          principal_name: s.principal_name || null,
+        });
       }
     });
 
-    return Array.from(schoolMap.values());
+    const allSchools = Array.from(schoolMap.values());
+    const cleanQ = String(searchQuery || '').trim();
+    if (!cleanQ) return allSchools;
+
+    const lowerQ = cleanQ.toLowerCase();
+    const strippedAt = lowerQ.replace(/^@/, '');
+
+    return allSchools.filter((s) => {
+      const uname = (s.username || '').toLowerCase();
+      const name = (s.name || '').toLowerCase();
+      const code = (s.code || '').toLowerCase();
+      const city = (s.city || '').toLowerCase();
+      const principal = (s.principal_name || '').toLowerCase();
+      return (
+        (uname && (uname.includes(strippedAt) || `@${uname}`.includes(lowerQ))) ||
+        name.includes(lowerQ) ||
+        code.includes(lowerQ) ||
+        city.includes(lowerQ) ||
+        principal.includes(lowerQ)
+      );
+    });
+  }
+
+  /**
+   * Look up a registered school strictly by its unique username (آیدی مدرسه) in the database.
+   * NEVER exposes password_hash or principal_phone.
+   */
+  async getSchoolByUsername(rawUsername) {
+    const cleanUsername = String(rawUsername || '')
+      .trim()
+      .replace(/^@/, '')
+      .toLowerCase();
+
+    if (!cleanUsername) {
+      const error = new Error('لطفاً نام کاربری مدرسه را وارد کنید');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let school = null;
+    try {
+      school = await db('schools')
+        .select('id', 'name', 'code', 'city', 'level', 'majors', 'username', 'principal_name')
+        .whereRaw('LOWER(username) = ?', [cleanUsername])
+        .first();
+    } catch (_e) {
+      school = null;
+    }
+
+    if (!school) {
+      const error = new Error('مدرسه‌ای با این نام کاربری در دیتابیس یافت نشد');
+      error.messageEn = 'School not found by username';
+      error.statusCode = 404;
+      throw error;
+    }
+
+    return {
+      id: school.id,
+      name: school.name,
+      code: school.code,
+      city: school.city || 'تهران',
+      level: school.level || 'متوسطه دوم (دبیرستان)',
+      majors: parseSchoolMajors(school.majors),
+      username: school.username,
+      principal_name: school.principal_name || null,
+      is_registered: true,
+    };
+  }
+
+  /**
+   * Dedicated Student Registration:
+   * Persists all student details exclusively in the dedicated `students` table
+   * AND creates the linked `student` user account in `users` with the exact same
+   * auto-generated exclusive username and bcrypt-hashed password.
+   */
+  async registerStudent({
+    display_name,
+    full_name,
+    phone,
+    school_id = null,
+    school_name = null,
+    school_code = null,
+    school_username = null,
+    education_level,
+    major = null,
+    grade = null,
+    password,
+  }) {
+    const cleanFullName = String(display_name || full_name || '').trim();
+    if (!cleanFullName || cleanFullName.length < 2) {
+      const error = new Error('نام و نام خانوادگی دانش‌آموز الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPhone = normalizePersianDigits(phone || '').replace(/\s+/g, '').trim();
+    if (!cleanPhone) {
+      const error = new Error('شماره تماس دانش‌آموز الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPassword = String(password || '').trim();
+    if (cleanPassword.length < 6) {
+      const error = new Error('رمز عبور باید حداقل ۶ کاراکتر باشد');
+      error.messageEn = 'Password must be at least 6 characters';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const academicCheck = validateStudentAcademicInfo({
+      education_level,
+      major,
+      grade,
+    });
+    if (!academicCheck.valid) {
+      const error = new Error(academicCheck.error);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Resolve School strictly from database (by school_id, school_username, school_code, or school_name)
+    let matchedSchool = null;
+    const cleanSchoolUsername = school_username
+      ? String(school_username).trim().replace(/^@/, '').toLowerCase()
+      : '';
+
+    if (school_id && String(school_id).trim()) {
+      matchedSchool = await db('schools').where({ id: String(school_id).trim() }).first();
+    }
+    if (!matchedSchool && cleanSchoolUsername) {
+      try {
+        matchedSchool = await db('schools')
+          .whereRaw('LOWER(username) = ?', [cleanSchoolUsername])
+          .first();
+      } catch (_e) {}
+      if (!matchedSchool) {
+        const error = new Error('مدرسه‌ای با نام کاربری واردشده در دیتابیس یافت نشد');
+        error.messageEn = 'School username not found';
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+    if (!matchedSchool && (school_name || school_code)) {
+      matchedSchool = await ensureBuiltinSchool(school_name, school_code, cleanSchoolUsername || null);
+    }
+
+    if (!matchedSchool) {
+      const error = new Error('لطفاً یک مدرسه ثبت‌شده را از لیست انتخاب کنید یا نام کاربری معتبر مدرسه را وارد نمایید');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check duplicate phone across users
+    const existingByPhone = await db('users').where({ phone: cleanPhone }).first();
+    if (existingByPhone) {
+      const error = new Error('این شماره تماس قبلاً در سامانه ثبت شده است. لطفاً از بخش «ورود با نام کاربری» وارد شوید.');
+      error.messageEn = 'Phone number already registered';
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // Auto-generate guaranteed-unique personal username across users, schools, and students
+    const exclusiveUsername = await generateUniqueUsername(db, cleanFullName);
+    const password_hash = await bcrypt.hash(cleanPassword, 12);
+
+    const countRow = await db('users').where({ role: 'student' }).count('id as count').first();
+    const student_code = `STD-${40300 + (parseInt(countRow ? countRow.count : 0, 10) + 1)}`;
+
+    const userSettings = JSON.stringify({
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_code: matchedSchool.code,
+      school_username: matchedSchool.username || null,
+      education_level: academicCheck.education_level,
+      major: academicCheck.major,
+      grade: academicCheck.grade,
+      is_onboarded: false,
+    });
+
+    const user = await insertAndReturn(db, 'users', {
+      phone: cleanPhone,
+      password_hash,
+      display_name: cleanFullName,
+      username: exclusiveUsername,
+      role: 'student',
+      school_id: matchedSchool.id,
+      student_code,
+      department: academicCheck.departmentLabel,
+      job_title: 'دانش‌آموز',
+      locale: 'fa',
+      is_verified: true,
+      is_active: true,
+      settings: userSettings,
+    });
+
+    const studentRecordId = generateId();
+    const studentRecord = await insertAndReturn(db, 'students', {
+      id: studentRecordId,
+      user_id: user.id,
+      full_name: cleanFullName,
+      phone: cleanPhone,
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_username: matchedSchool.username || null,
+      education_level: academicCheck.education_level,
+      major: academicCheck.major,
+      grade: academicCheck.grade,
+      student_code,
+      username: exclusiveUsername,
+      password_hash,
+    });
+
+    delete user.password_hash;
+    const safeStudent = { ...(studentRecord || {}) };
+    delete safeStudent.password_hash;
+
+    const tokens = this.generateTokens(user.id, user.role, user.token_version);
+    return {
+      user,
+      student: safeStudent,
+      school: {
+        id: matchedSchool.id,
+        name: matchedSchool.name,
+        code: matchedSchool.code,
+        username: matchedSchool.username || null,
+        city: matchedSchool.city || 'تهران',
+      },
+      ...tokens,
+    };
+  }
+
+  /**
+   * Dedicated Teacher Registration:
+   * Persists all teacher details in the dedicated `teachers` table as a subordinate of
+   * the selected school (`school_id`), creates the linked `teacher` account in `users`
+   * with the exact same auto-generated exclusive username and bcrypt-hashed password.
+   */
+  async registerTeacher({
+    display_name,
+    full_name,
+    phone,
+    school_id = null,
+    school_name = null,
+    school_code = null,
+    school_username = null,
+    education_level,
+    majors = [],
+    taught_grades = [],
+    grades = [],
+    password,
+  }) {
+    const cleanFullName = String(display_name || full_name || '').trim();
+    if (!cleanFullName || cleanFullName.length < 2) {
+      const error = new Error('نام و نام خانوادگی معلم الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPhone = normalizePersianDigits(phone || '').replace(/\s+/g, '').trim();
+    if (!cleanPhone) {
+      const error = new Error('شماره تماس معلم الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPassword = String(password || '').trim();
+    if (cleanPassword.length < 6) {
+      const error = new Error('رمز عبور باید حداقل ۶ کاراکتر باشد');
+      error.messageEn = 'Password must be at least 6 characters';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const selectedGrades = Array.isArray(taught_grades) && taught_grades.length > 0 ? taught_grades : grades;
+    const teachingCheck = validateTeacherTeachingInfo({
+      education_level,
+      majors,
+      taught_grades: selectedGrades,
+    });
+    if (!teachingCheck.valid) {
+      const error = new Error(teachingCheck.error);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Resolve School strictly from database (by school_id, school_username, school_code, or school_name)
+    let matchedSchool = null;
+    const cleanSchoolUsername = school_username
+      ? String(school_username).trim().replace(/^@/, '').toLowerCase()
+      : '';
+
+    if (school_id && String(school_id).trim()) {
+      matchedSchool = await db('schools').where({ id: String(school_id).trim() }).first();
+    }
+    if (!matchedSchool && cleanSchoolUsername) {
+      try {
+        matchedSchool = await db('schools')
+          .whereRaw('LOWER(username) = ?', [cleanSchoolUsername])
+          .first();
+      } catch (_e) {}
+      if (!matchedSchool) {
+        const error = new Error('مدرسه‌ای با نام کاربری واردشده در دیتابیس یافت نشد');
+        error.messageEn = 'School username not found';
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+    if (!matchedSchool && (school_name || school_code)) {
+      matchedSchool = await ensureBuiltinSchool(school_name, school_code, cleanSchoolUsername || null);
+    }
+
+    if (!matchedSchool) {
+      const error = new Error('لطفاً یک مدرسه ثبت‌شده را از لیست انتخاب کنید یا نام کاربری معتبر مدرسه را وارد نمایید');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check duplicate phone
+    const existingByPhone = await db('users').where({ phone: cleanPhone }).first();
+    if (existingByPhone) {
+      const error = new Error('این شماره تماس قبلاً در سامانه ثبت شده است. لطفاً از بخش «ورود با نام کاربری» وارد شوید.');
+      error.messageEn = 'Phone number already registered';
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // Auto-generate guaranteed-unique personal username across users, schools, students, and teachers
+    const exclusiveUsername = await generateUniqueUsername(db, cleanFullName);
+    const password_hash = await bcrypt.hash(cleanPassword, 12);
+
+    const countRow = await db('users').where({ role: 'teacher' }).count('id as count').first();
+    const personnel_code = `EMP-${98400 + (parseInt(countRow ? countRow.count : 0, 10) + 1)}`;
+
+    const userSettings = JSON.stringify({
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_code: matchedSchool.code,
+      school_username: matchedSchool.username || null,
+      schools: [matchedSchool.name],
+      education_level: teachingCheck.education_level,
+      majors: teachingCheck.majors,
+      taught_grades: teachingCheck.taught_grades,
+      is_teacher_onboarded: true,
+    });
+
+    const user = await insertAndReturn(db, 'users', {
+      phone: cleanPhone,
+      password_hash,
+      display_name: cleanFullName,
+      username: exclusiveUsername,
+      role: 'teacher',
+      school_id: matchedSchool.id,
+      personnel_code,
+      department: teachingCheck.departmentLabel,
+      job_title: `معلم ${teachingCheck.education_level}`,
+      locale: 'fa',
+      is_verified: true,
+      is_active: true,
+      settings: userSettings,
+    });
+
+    const teacherRecordId = generateId();
+    const teacherRecord = await insertAndReturn(db, 'teachers', {
+      id: teacherRecordId,
+      user_id: user.id,
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_username: matchedSchool.username || null,
+      full_name: cleanFullName,
+      phone: cleanPhone,
+      education_level: teachingCheck.education_level,
+      majors: JSON.stringify(teachingCheck.majors),
+      taught_grades: JSON.stringify(teachingCheck.taught_grades),
+      personnel_code,
+      username: exclusiveUsername,
+      password_hash,
+    });
+
+    delete user.password_hash;
+    const safeTeacher = {
+      ...(teacherRecord || {}),
+      majors: teachingCheck.majors,
+      taught_grades: teachingCheck.taught_grades,
+    };
+    delete safeTeacher.password_hash;
+
+    const tokens = this.generateTokens(user.id, user.role, user.token_version);
+    return {
+      user,
+      teacher: safeTeacher,
+      school: {
+        id: matchedSchool.id,
+        name: matchedSchool.name,
+        code: matchedSchool.code,
+        username: matchedSchool.username || null,
+        city: matchedSchool.city || 'تهران',
+      },
+      ...tokens,
+    };
+  }
+
+  /**
+   * Lookup a student in the database by their exclusive username (optionally scoped to a school)
+   * Never exposes phone or password_hash.
+   */
+  async getStudentByUsername(rawUsername, { school_id = null } = {}) {
+    const clean = String(rawUsername || '').trim().replace(/^@/, '').toLowerCase();
+    if (!clean) {
+      const error = new Error('نام کاربری دانش‌آموز الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let studentRow = null;
+    try {
+      studentRow = await db('students')
+        .whereRaw('LOWER(username) = ?', [clean])
+        .first();
+    } catch (_e) {}
+
+    let studentUser = null;
+    if (studentRow && studentRow.user_id) {
+      studentUser = await db('users').where({ id: studentRow.user_id }).first();
+    }
+    if (!studentUser) {
+      studentUser = await db('users')
+        .where({ role: 'student' })
+        .andWhereRaw('LOWER(username) = ?', [clean])
+        .first();
+    }
+
+    if (!studentUser) {
+      const error = new Error('دانش‌آموزی با این نام کاربری در دیتابیس یافت نشد');
+      error.messageEn = 'Student username not found';
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const effectiveSchoolId = studentRow?.school_id || studentUser.school_id || null;
+    if (school_id && String(school_id).trim() && effectiveSchoolId && String(effectiveSchoolId) !== String(school_id).trim()) {
+      const error = new Error('این نام کاربری دانش‌آموز متعلق به مدرسه انتخاب‌شده نیست');
+      error.messageEn = 'Student does not belong to the selected school';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let schoolObj = null;
+    if (effectiveSchoolId) {
+      schoolObj = await db('schools').where({ id: effectiveSchoolId }).first();
+    }
+
+    return {
+      id: studentRow?.id || null,
+      user_id: studentUser.id,
+      full_name: studentRow?.full_name || studentUser.display_name,
+      username: studentRow?.username || studentUser.username,
+      student_code: studentRow?.student_code || studentUser.student_code || null,
+      education_level: studentRow?.education_level || null,
+      grade: studentRow?.grade || null,
+      school_id: effectiveSchoolId,
+      school_name: studentRow?.school_name || schoolObj?.name || null,
+      school_username: studentRow?.school_username || schoolObj?.username || null,
+    };
+  }
+
+  /**
+   * Dedicated Parent Registration:
+   * Persists all parent details in the dedicated `parents` table hierarchically
+   * under the verified student (`student_id` / `student_user_id`) who is under
+   * the selected school (`school_id`), creates the linked `parent` user in `users`
+   * + `parent_student_links`, issues a strictly unique personal `@username`, and
+   * stores bcrypt-hashed password for future username+password logins.
+   */
+  async registerParent({
+    display_name,
+    full_name,
+    phone,
+    school_id = null,
+    school_name = null,
+    school_code = null,
+    school_username = null,
+    student_name = '',
+    student_username = '',
+    relation_type = '',
+    relation = '',
+    custom_relation = '',
+    password,
+  }) {
+    const cleanFullName = String(display_name || full_name || '').trim();
+    if (!cleanFullName || cleanFullName.length < 2) {
+      const error = new Error('نام و نام خانوادگی اولیا الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPhone = normalizePersianDigits(phone || '').replace(/\s+/g, '').trim();
+    if (!cleanPhone) {
+      const error = new Error('شماره تماس اولیا الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanPassword = String(password || '').trim();
+    if (cleanPassword.length < 6) {
+      const error = new Error('رمز عبور باید حداقل ۶ کاراکتر باشد');
+      error.messageEn = 'Password must be at least 6 characters';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const relationCheck = validateParentRelation({
+      relation_type,
+      relation,
+      custom_relation,
+    });
+    if (!relationCheck.valid) {
+      const error = new Error(relationCheck.error);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Resolve School strictly from database (by school_id, school_username, school_code, or school_name)
+    let matchedSchool = null;
+    const cleanSchoolUsername = school_username
+      ? String(school_username).trim().replace(/^@/, '').toLowerCase()
+      : '';
+
+    if (school_id && String(school_id).trim()) {
+      matchedSchool = await db('schools').where({ id: String(school_id).trim() }).first();
+    }
+    if (!matchedSchool && cleanSchoolUsername) {
+      try {
+        matchedSchool = await db('schools')
+          .whereRaw('LOWER(username) = ?', [cleanSchoolUsername])
+          .first();
+      } catch (_e) {}
+      if (!matchedSchool) {
+        const error = new Error('مدرسه‌ای با نام کاربری واردشده در دیتابیس یافت نشد');
+        error.messageEn = 'School username not found';
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+    if (!matchedSchool && (school_name || school_code)) {
+      matchedSchool = await ensureBuiltinSchool(school_name, school_code, cleanSchoolUsername || null);
+    }
+
+    if (!matchedSchool) {
+      const error = new Error('لطفاً مدرسه دانش‌آموز را از لیست جستجو انتخاب کنید یا نام کاربری معتبر مدرسه را وارد نمایید');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Resolve Student strictly from database under this school by student_username
+    const cleanStudentUsername = String(student_username || '').trim().replace(/^@/, '').toLowerCase();
+    if (!cleanStudentUsername) {
+      const error = new Error('نام کاربری دانش‌آموز الزامی است');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let studentRow = null;
+    try {
+      studentRow = await db('students')
+        .whereRaw('LOWER(username) = ?', [cleanStudentUsername])
+        .first();
+    } catch (_e) {}
+
+    let studentUser = null;
+    if (studentRow && studentRow.user_id) {
+      studentUser = await db('users').where({ id: studentRow.user_id }).first();
+    }
+    if (!studentUser) {
+      studentUser = await db('users')
+        .where({ role: 'student' })
+        .andWhereRaw('LOWER(username) = ?', [cleanStudentUsername])
+        .first();
+    }
+
+    if (!studentUser) {
+      const error = new Error('دانش‌آموزی با این نام کاربری در دیتابیس یافت نشد. لطفاً نام کاربری دانش‌آموز را دقیق وارد کنید.');
+      error.messageEn = 'Student username not found';
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const studentSchoolId = studentRow?.school_id || studentUser.school_id;
+    if (studentSchoolId && String(studentSchoolId) !== String(matchedSchool.id)) {
+      const error = new Error('دانش‌آموز واردشده زیرمجموعه مدرسه انتخاب‌شده نیست. لطفاً مدرسه یا نام کاربری دانش‌آموز را بررسی کنید.');
+      error.messageEn = 'Student does not belong to the selected school';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const cleanStudentName = String(student_name || '').trim() || studentRow?.full_name || studentUser.display_name;
+
+    // Check duplicate phone across users
+    const existingByPhone = await db('users').where({ phone: cleanPhone }).first();
+    if (existingByPhone) {
+      const error = new Error('این شماره تماس قبلاً در سامانه ثبت شده است. لطفاً از بخش «ورود با نام کاربری» وارد شوید.');
+      error.messageEn = 'Phone number already registered';
+      error.statusCode = 409;
+      throw error;
+    }
+
+    // Auto-generate guaranteed-unique personal username across all tables
+    const exclusiveUsername = await generateUniqueUsername(db, cleanFullName);
+    const password_hash = await bcrypt.hash(cleanPassword, 12);
+
+    const userSettings = JSON.stringify({
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_code: matchedSchool.code,
+      school_username: matchedSchool.username || null,
+      student_id: studentRow?.id || null,
+      student_user_id: studentUser.id,
+      student_name: cleanStudentName,
+      student_username: studentRow?.username || studentUser.username,
+      relation: relationCheck.relation,
+      relation_type: relationCheck.relation_type,
+      is_onboarded: true,
+    });
+
+    const user = await insertAndReturn(db, 'users', {
+      phone: cleanPhone,
+      password_hash,
+      display_name: cleanFullName,
+      username: exclusiveUsername,
+      role: 'parent',
+      school_id: matchedSchool.id,
+      student_code: studentRow?.student_code || studentUser.student_code || null,
+      department: studentUser.department || 'اولیاء و مربیان',
+      job_title: relationCheck.jobTitle,
+      locale: 'fa',
+      is_verified: true,
+      is_active: true,
+      settings: userSettings,
+    });
+
+    // Link parent to student in parent_student_links for full dashboard interoperability
+    try {
+      const existingLink = await db('parent_student_links')
+        .where({ parent_id: user.id, student_id: studentUser.id })
+        .first();
+      if (!existingLink) {
+        await db('parent_student_links').insert({
+          id: generateId(),
+          parent_id: user.id,
+          student_id: studentUser.id,
+          relation: relationCheck.relation,
+          is_verified: true,
+        });
+      }
+    } catch (_e) {}
+
+    // Persist dedicated hierarchical row in `parents` table (Parent -> Student -> School)
+    const parentRecordId = generateId();
+    const parentRecord = await insertAndReturn(db, 'parents', {
+      id: parentRecordId,
+      user_id: user.id,
+      school_id: matchedSchool.id,
+      school_name: matchedSchool.name,
+      school_username: matchedSchool.username || null,
+      student_id: studentRow?.id || null,
+      student_user_id: studentUser.id,
+      student_name: cleanStudentName,
+      student_username: studentRow?.username || studentUser.username,
+      full_name: cleanFullName,
+      phone: cleanPhone,
+      relation_type: relationCheck.relation_type,
+      relation: relationCheck.relation,
+      username: exclusiveUsername,
+      password_hash,
+    });
+
+    delete user.password_hash;
+    const safeParent = { ...(parentRecord || {}) };
+    delete safeParent.password_hash;
+
+    const tokens = this.generateTokens(user.id, user.role, user.token_version);
+    return {
+      user,
+      parent: safeParent,
+      student: {
+        id: studentRow?.id || null,
+        user_id: studentUser.id,
+        full_name: studentRow?.full_name || studentUser.display_name,
+        username: studentRow?.username || studentUser.username,
+        student_code: studentRow?.student_code || studentUser.student_code || null,
+        grade: studentRow?.grade || null,
+        education_level: studentRow?.education_level || null,
+      },
+      school: {
+        id: matchedSchool.id,
+        name: matchedSchool.name,
+        code: matchedSchool.code,
+        username: matchedSchool.username || null,
+        city: matchedSchool.city || 'تهران',
+      },
+      ...tokens,
+    };
   }
 
   /**
@@ -713,8 +1499,17 @@ class AuthService {
       }
     }
 
-    const cleanId = (identifier || '').trim();
+    const cleanId = normalizePersianDigits(identifier || '').trim();
     const cleanUsername = cleanId.replace(/^@/, '').toLowerCase();
+
+    if (!cleanId) {
+      const error = new Error('لطفاً نام کاربری خود را وارد نمایید');
+      error.messageEn = 'Username is required';
+      error.errorField = 'username';
+      error.errorCode = 'USERNAME_REQUIRED';
+      error.statusCode = 401;
+      throw error;
+    }
 
     // Ensure demo accounts exist if logging in with a known demo identifier
     await ensureDemoDataIfMatched(cleanId);
@@ -746,15 +1541,19 @@ class AuthService {
     }
 
     if (!candidates || candidates.length === 0) {
-      const error = new Error('کاربری با این شناسه کاربری، آیدی یا شماره تلفن یافت نشد');
-      error.messageEn = 'User not found';
+      const error = new Error('نام کاربری واردشده اشتباه است و در دیتابیس یافت نشد');
+      error.messageEn = 'Invalid username — account not found';
+      error.errorField = 'username';
+      error.errorCode = 'INVALID_USERNAME';
       error.statusCode = 401;
       throw error;
     }
 
     if (!password || !password.trim()) {
-      const error = new Error('رمز عبور الزامی است');
+      const error = new Error('لطفاً رمز عبور خود را وارد نمایید');
       error.messageEn = 'Password is required';
+      error.errorField = 'password';
+      error.errorCode = 'PASSWORD_REQUIRED';
       error.statusCode = 401;
       throw error;
     }
@@ -773,8 +1572,10 @@ class AuthService {
     }
 
     if (!matchedUser) {
-      const error = new Error('رمز عبور اشتباه است');
+      const error = new Error('رمز عبور واردشده اشتباه است');
       error.messageEn = 'Invalid password';
+      error.errorField = 'password';
+      error.errorCode = 'INVALID_PASSWORD';
       error.statusCode = 401;
       throw error;
     }
@@ -1116,83 +1917,189 @@ class AuthService {
     return user;
   }
 
-  async getStudentSetupOptions() {
+  async getStudentSetupOptions(currentUser = null) {
     const schools = await this.getPublicSchoolsList();
 
     const grades = [
-      // پیش‌دبستانی
-      'پیش‌دبستانی ۱',
-      'پیش‌دبستانی ۲',
-      // دبستان
+      'پیش دبستانی ۱',
+      'پیش دبستانی ۲',
       'اول دبستان',
       'دوم دبستان',
       'سوم دبستان',
       'چهارم دبستان',
       'پنجم دبستان',
       'ششم دبستان',
-      // متوسطه اول
       'پایه هفتم',
       'پایه هشتم',
       'پایه نهم',
-      // متوسطه دوم (نظری)
-      'پایه دهم ریاضی',
-      'پایه دهم تجربی',
-      'پایه دهم انسانی',
-      'پایه یازدهم ریاضی',
-      'پایه یازدهم تجربی',
-      'پایه یازدهم انسانی',
-      'پایه دوازدهم ریاضی',
-      'پایه دوازدهم تجربی',
-      'پایه دوازدهم انسانی',
-      // هنرستان و فنی‌حرفه‌ای
-      'دهم هنرستان (فنی‌حرفه‌ای)',
-      'دهم هنرستان (کاردانش)',
-      'یازدهم هنرستان (فنی‌حرفه‌ای)',
-      'یازدهم هنرستان (کاردانش)',
-      'دوازدهم هنرستان (فنی‌حرفه‌ای)',
-      'دوازدهم هنرستان (کاردانش)',
+      'پایه دهم',
+      'پایه یازدهم',
+      'پایه دوازدهم',
     ];
 
-    const teachers = await db('users')
-      .whereIn('role', ['teacher', 'admin'])
-      .select('id', 'display_name', 'username', 'job_title', 'department', 'avatar_url', 'role');
-
-    const classes = await db('classes')
-      .where({ is_active: true })
-      .select('id', 'name', 'subject', 'grade', 'teacher_id');
-
-    const teacherClassMap = new Map();
-    classes.forEach((c) => {
-      if (!teacherClassMap.has(c.teacher_id)) teacherClassMap.set(c.teacher_id, []);
-      teacherClassMap.get(c.teacher_id).push(c);
-    });
-
-    let enrichedTeachers = teachers.map((t) => {
-      const tClasses = teacherClassMap.get(t.id) || [];
-      const subjects = Array.from(new Set(tClasses.map((c) => c.subject).filter(Boolean)));
-      return {
-        ...t,
-        subjects: subjects.length > 0 ? subjects : [t.job_title || 'مدرس تخصصی'],
-        classes: tClasses,
-      };
-    });
-
-    if (enrichedTeachers.length === 0) {
-      enrichedTeachers = [
-        { id: 'staff-mirzaei', display_name: 'مهندس حسین میرزایی', username: 'hossein_mirzaei', job_title: 'معاون آموزشی و دبیر حسابان', subjects: ['حسابان و دیفرانسیل', 'ریاضی'] },
-        { id: 'staff-sadeghi', display_name: 'دکتر فاطمه صادقی', username: 'fatemeh_sadeghi', job_title: 'دبیر زیست‌شناسی و ژنتیک', subjects: ['زیست‌شناسی و ژنتیک'] },
-        { id: 'staff-akbari', display_name: 'استاد مسعود اکبری', username: 'masoud_akbari', job_title: 'دبیر ادبیات فارسی و نگارش', subjects: ['ادبیات فارسی', 'نگارش'] },
-        { id: 'staff-jalali', display_name: 'سرکار خانم مهندس جلالی', username: 'jalali', job_title: 'دبیر شیمی پایه و پیشرفته', subjects: ['شیمی'] },
-        { id: 'staff-rahmani', display_name: 'دکتر مهدی رحمانی', username: 'mehdi_rahmani', job_title: 'دبیر و طراح فیزیک کنکور', subjects: ['فیزیک'] },
-        { id: '15148e90-e32b-418f-a356-fa77867f86b2', display_name: 'دکتر مسعود کریمی', username: 'masoud_karimi', job_title: 'دبیر هندسه و گسسته', subjects: ['هندسه', 'ریاضیات گسسته'] },
-        { id: 'staff-taghavi', display_name: 'دکتر علیرضا تقوی', username: 'alireza_taghavi', job_title: 'مدیریت و مدرس معارف', subjects: ['دین و زندگی'] },
-      ];
+    let studentRow = null;
+    let studentUser = currentUser;
+    if (currentUser?.id) {
+      studentUser = await db('users').where({ id: currentUser.id }).first();
+      try {
+        studentRow = await db('students').where({ user_id: currentUser.id }).first();
+      } catch (_e) {
+        studentRow = null;
+      }
     }
 
-    return { schools, grades, teachers: enrichedTeachers };
+    const schoolId = studentUser?.school_id || studentRow?.school_id || null;
+    let school = null;
+    if (schoolId) {
+      school = await db('schools')
+        .where({ id: schoolId })
+        .select('id', 'name', 'city', 'level as education_level', 'username', 'code as school_code')
+        .first();
+    }
+
+    // Strictly load real teachers stored in this school's database (never cross-school or fake fallbacks)
+    let enrichedTeachers = [];
+    if (schoolId) {
+      const teacherUsers = await db('users')
+        .where({ school_id: schoolId, role: 'teacher' })
+        .andWhere(function () {
+          this.where('is_active', true).orWhere('is_active', 1).orWhereNull('is_active');
+        })
+        .select('id', 'display_name', 'username', 'job_title', 'department', 'avatar_url', 'role', 'personnel_code')
+        .orderBy('display_name', 'asc');
+
+      const teacherUserIds = teacherUsers.map((t) => t.id);
+
+      let teacherProfiles = [];
+      if (teacherUserIds.length > 0) {
+        try {
+          teacherProfiles = await db('teachers')
+            .whereIn('user_id', teacherUserIds)
+            .where({ school_id: schoolId });
+        } catch (_e) {
+          teacherProfiles = [];
+        }
+      }
+      const profileByUserId = new Map(teacherProfiles.map((p) => [p.user_id, p]));
+
+      const classes = teacherUserIds.length > 0
+        ? await db('classes')
+            .where({ school_id: schoolId, is_active: true })
+            .whereIn('teacher_id', teacherUserIds)
+            .select('id', 'name', 'subject', 'grade', 'major', 'teacher_id')
+        : [];
+
+      const teacherClassMap = new Map();
+      classes.forEach((c) => {
+        if (!teacherClassMap.has(c.teacher_id)) teacherClassMap.set(c.teacher_id, []);
+        teacherClassMap.get(c.teacher_id).push(c);
+      });
+
+      const parseJsonArr = (val) => {
+        if (Array.isArray(val)) return val;
+        if (!val || typeof val !== 'string') return [];
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      };
+
+      enrichedTeachers = [];
+      for (const t of teacherUsers) {
+        if (!t.username) {
+          t.username = await ensureUserHasUsername(t.id);
+        }
+        const profile = profileByUserId.get(t.id);
+        const tClasses = teacherClassMap.get(t.id) || [];
+        const subjectsFromClasses = Array.from(new Set(tClasses.map((c) => c.subject).filter(Boolean)));
+        const majors = parseJsonArr(profile?.majors);
+        const taughtGrades = parseJsonArr(profile?.taught_grades);
+
+        enrichedTeachers.push({
+          id: t.id,
+          display_name: profile?.full_name || t.display_name,
+          username: t.username || profile?.username || '',
+          job_title: t.job_title || (profile?.education_level ? `دبیر ${profile.education_level}` : 'معلم مدرسه'),
+          department: t.department || profile?.education_level || '',
+          avatar_url: t.avatar_url || null,
+          role: t.role,
+          personnel_code: t.personnel_code || profile?.personnel_code || '',
+          education_level: profile?.education_level || '',
+          majors,
+          taught_grades: taughtGrades,
+          subjects: subjectsFromClasses.length > 0
+            ? subjectsFromClasses
+            : [t.job_title || profile?.education_level || 'معلم'],
+          classes: tClasses,
+        });
+      }
+    }
+
+    let selectedTeacherIds = [];
+    if (studentUser?.id) {
+      try {
+        const existingLinks = await db('student_teacher_links')
+          .where({ student_user_id: studentUser.id })
+          .pluck('teacher_user_id');
+        if (existingLinks.length > 0) {
+          selectedTeacherIds = existingLinks;
+        }
+      } catch (_e) {
+        selectedTeacherIds = [];
+      }
+
+      if (selectedTeacherIds.length === 0 && studentUser.settings) {
+        try {
+          const parsedSettings = typeof studentUser.settings === 'string'
+            ? JSON.parse(studentUser.settings)
+            : studentUser.settings;
+          if (Array.isArray(parsedSettings?.selected_teacher_ids)) {
+            selectedTeacherIds = parsedSettings.selected_teacher_ids;
+          }
+        } catch (_e) {}
+      }
+    }
+
+    let userSettings = {};
+    if (studentUser?.settings) {
+      try {
+        userSettings = typeof studentUser.settings === 'string'
+          ? JSON.parse(studentUser.settings)
+          : studentUser.settings;
+      } catch (_e) {
+        userSettings = {};
+      }
+    }
+
+    const studentProfile = studentUser
+      ? {
+          id: studentUser.id,
+          display_name: studentRow?.full_name || studentUser.display_name,
+          username: studentUser.username || '',
+          school_id: schoolId,
+          school_name: school?.name || studentRow?.school_name || userSettings.school_name || '',
+          education_level: studentRow?.education_level || userSettings.education_level || '',
+          grade: studentRow?.grade || userSettings.grade || studentUser.department || '',
+          major: studentRow?.major || userSettings.major || '',
+          is_onboarded: Boolean(userSettings.is_onboarded),
+        }
+      : null;
+
+    return {
+      school,
+      student_profile: studentProfile,
+      selected_teacher_ids: selectedTeacherIds,
+      teachers: enrichedTeachers,
+      schools,
+      grades,
+    };
   }
 
-  async saveStudentSetup(studentId, { school_name, grade, teacher_ids = [] }) {
+  async saveStudentSetup(studentId, { school_name, grade, major, education_level, teacher_ids = [] } = {}) {
+    const { buildAutoClassTitle } = require('../../utils/studentTeacherHelper');
+
     const student = await db('users').where({ id: studentId }).first();
     if (!student) {
       const error = new Error('دانش‌آموز یافت نشد');
@@ -1200,51 +2107,244 @@ class AuthService {
       throw error;
     }
 
-    let settings = {};
-    if (student.settings) {
-      try { settings = JSON.parse(student.settings); } catch (e) { settings = {}; }
+    if (!student.school_id) {
+      const error = new Error('مدرسه این دانش‌آموز مشخص نشده است');
+      error.statusCode = 400;
+      throw error;
     }
 
-    settings.school_name = school_name || settings.school_name || 'دبیرستان استعدادهای درخشان علامه حلی ۱ (تهران)';
-    settings.grade = grade || settings.grade || 'پایه دهم ریاضی';
-    settings.selected_teacher_ids = Array.isArray(teacher_ids) ? teacher_ids : [];
-    settings.is_onboarded = true;
+    let studentProfile = null;
+    try {
+      studentProfile = await db('students').where({ user_id: studentId }).first();
+    } catch (_e) {
+      studentProfile = null;
+    }
 
-    // Update user
-    await db('users').where({ id: studentId }).update({
-      department: grade || student.department,
-      settings: JSON.stringify(settings),
-      updated_at: new Date(),
-    });
+    const school = await db('schools').where({ id: student.school_id }).first();
 
-    // Auto-join classes of selected teachers within the same school only
-    if (Array.isArray(teacher_ids) && teacher_ids.length > 0) {
-      for (const tId of teacher_ids) {
-        const classQuery = db('classes').where({ teacher_id: tId, is_active: true });
-        if (student.school_id) {
-          classQuery.andWhere({ school_id: student.school_id });
-        }
-        const teacherClass = await classQuery.first();
-
-        if (teacherClass) {
-          const isMember = await db('class_members')
-            .where({ class_id: teacherClass.id, user_id: studentId })
-            .first();
-
-          if (!isMember) {
-            await insertAndReturn(db, 'class_members', {
-              class_id: teacherClass.id,
-              user_id: studentId,
-              role: 'student',
-            });
-          }
-        }
+    let settings = {};
+    if (student.settings) {
+      try {
+        settings = typeof student.settings === 'string' ? JSON.parse(student.settings) : student.settings;
+      } catch (_e) {
+        settings = {};
       }
     }
 
+    const effectiveSchoolName = school?.name || studentProfile?.school_name || school_name || settings.school_name || '';
+    const effectiveEducationLevel = String(education_level || studentProfile?.education_level || settings.education_level || '').trim();
+    const effectiveGrade = String(grade || studentProfile?.grade || settings.grade || student.department || 'عمومی').trim();
+    const effectiveMajor = String(major !== undefined ? major : (studentProfile?.major || settings.major || '')).trim();
+
+    const uniqueRequestedIds = Array.from(
+      new Set((Array.isArray(teacher_ids) ? teacher_ids : []).map((id) => String(id || '').trim()).filter(Boolean))
+    );
+
+    // Strictly validate every requested teacher belongs to the student's school
+    const validatedTeachers = [];
+    if (uniqueRequestedIds.length > 0) {
+      const foundTeachers = await db('users')
+        .whereIn('id', uniqueRequestedIds)
+        .select('id', 'display_name', 'username', 'role', 'school_id', 'job_title', 'department');
+
+      const foundById = new Map(foundTeachers.map((t) => [t.id, t]));
+      for (const reqId of uniqueRequestedIds) {
+        const t = foundById.get(reqId);
+        if (!t) {
+          const err = new Error('یکی از معلمان انتخاب‌شده در پایگاه داده یافت نشد');
+          err.statusCode = 404;
+          throw err;
+        }
+        if (t.school_id !== student.school_id) {
+          const err = new Error('انتخاب معلم از مدرسه دیگر مجاز نیست');
+          err.statusCode = 403;
+          throw err;
+        }
+        if (!['teacher', 'admin', 'manager'].includes(t.role)) {
+          const err = new Error('کاربر انتخاب‌شده دارای نقش معلم نیست');
+          err.statusCode = 400;
+          throw err;
+        }
+        validatedTeachers.push(t);
+      }
+    }
+
+    const validatedTeacherIds = validatedTeachers.map((t) => t.id);
+    const enrolledClasses = [];
+    const linkedTeachers = [];
+    const timestamp = new Date().toISOString();
+
+    const generateUniqueClassJoinCode = async (trx) => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+          code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        const exists = await trx('classes').where({ join_code: code }).first();
+        if (!exists) return code;
+      }
+      return `CL${Date.now().toString(36).toUpperCase().slice(-4)}`;
+    };
+
+    await db.transaction(async (trx) => {
+      const classService = require('../classes/class.service');
+      const affectedClassIds = new Set();
+
+      const existingLinks = await trx('student_teacher_links')
+        .where({ student_user_id: studentId });
+
+      const existingLinkMap = new Map(existingLinks.map((l) => [l.teacher_user_id, l]));
+      const selectedSet = new Set(validatedTeacherIds);
+
+      // 1. Remove links (and auto-linked class membership) for teachers the student unselected
+      for (const oldLink of existingLinks) {
+        if (!selectedSet.has(oldLink.teacher_user_id)) {
+          await trx('student_teacher_links').where({ id: oldLink.id }).del();
+          if (oldLink.class_id) {
+            await trx('class_members')
+              .where({ class_id: oldLink.class_id, user_id: studentId, role: 'student' })
+              .del();
+            affectedClassIds.add(oldLink.class_id);
+          }
+        }
+      }
+
+      // 2. For each selected teacher, ensure a class exists matching (teacher, school, grade, major)
+      //    and enroll the student in both `student_teacher_links` and `class_members`
+      for (const teacher of validatedTeachers) {
+        const teacherClasses = await trx('classes')
+          .where({
+            teacher_id: teacher.id,
+            school_id: student.school_id,
+            is_active: true,
+          });
+
+        // Exact match by grade & major first
+        let targetClass = teacherClasses.find((c) => {
+          const cGrade = String(c.grade || '').trim();
+          const cMajor = String(c.major || '').trim();
+          if (effectiveMajor) {
+            return cGrade === effectiveGrade && cMajor === effectiveMajor;
+          }
+          return cGrade === effectiveGrade && !cMajor;
+        });
+
+        // If teacher doesn't have a class for this grade+major yet, auto-create one cleanly
+        if (!targetClass) {
+          const joinCode = await generateUniqueClassJoinCode(trx);
+          const className = buildAutoClassTitle({
+            grade: effectiveGrade,
+            major: effectiveMajor,
+            teacherName: teacher.display_name,
+          });
+          const classId = generateId();
+          const newClassRow = {
+            id: classId,
+            name: className,
+            subject: teacher.job_title || teacher.department || 'عمومی',
+            grade: effectiveGrade,
+            major: effectiveMajor || null,
+            join_code: joinCode,
+            school_id: student.school_id,
+            teacher_id: teacher.id,
+            is_active: true,
+            created_at: timestamp,
+            updated_at: timestamp,
+          };
+          await trx('classes').insert(newClassRow);
+          targetClass = newClassRow;
+        }
+
+        affectedClassIds.add(targetClass.id);
+
+        // Enroll student in teacher's class roster
+        const existingMember = await trx('class_members')
+          .where({ class_id: targetClass.id, user_id: studentId })
+          .first();
+        if (!existingMember) {
+          await trx('class_members').insert({
+            id: generateId(),
+            class_id: targetClass.id,
+            user_id: studentId,
+            role: 'student',
+            joined_at: timestamp,
+          });
+        }
+
+        // Persist/update student <-> teacher subordinate link in DB
+        const prevLink = existingLinkMap.get(teacher.id);
+        if (prevLink) {
+          await trx('student_teacher_links')
+            .where({ id: prevLink.id })
+            .update({
+              class_id: targetClass.id,
+              education_level: effectiveEducationLevel || null,
+              grade: effectiveGrade,
+              major: effectiveMajor || null,
+              updated_at: timestamp,
+            });
+        } else {
+          await trx('student_teacher_links').insert({
+            id: generateId(),
+            school_id: student.school_id,
+            student_user_id: studentId,
+            teacher_user_id: teacher.id,
+            class_id: targetClass.id,
+            education_level: effectiveEducationLevel || null,
+            grade: effectiveGrade,
+            major: effectiveMajor || null,
+            created_at: timestamp,
+            updated_at: timestamp,
+          });
+        }
+
+        enrolledClasses.push({
+          id: targetClass.id,
+          name: targetClass.name,
+          grade: targetClass.grade,
+          major: targetClass.major || '',
+          subject: targetClass.subject,
+          teacher_id: teacher.id,
+          teacher_name: teacher.display_name,
+          teacher_username: teacher.username || '',
+        });
+
+        linkedTeachers.push({
+          id: teacher.id,
+          display_name: teacher.display_name,
+          username: teacher.username || '',
+          class_id: targetClass.id,
+          class_name: targetClass.name,
+        });
+      }
+
+      settings.school_name = effectiveSchoolName;
+      settings.education_level = effectiveEducationLevel;
+      settings.grade = effectiveGrade;
+      settings.major = effectiveMajor;
+      settings.selected_teacher_ids = validatedTeacherIds;
+      settings.is_onboarded = true;
+
+      await trx('users').where({ id: studentId }).update({
+        department: effectiveMajor ? `${effectiveGrade} - ${effectiveMajor}` : effectiveGrade,
+        settings: JSON.stringify(settings),
+        updated_at: timestamp,
+      });
+
+      // Keep persisted class roster groups synchronized in DB
+      for (const cid of affectedClassIds) {
+        await classService.syncClassRosterGroup(cid, trx);
+      }
+    });
+
     const updatedUser = await db('users').where({ id: studentId }).first();
     delete updatedUser.password_hash;
-    return updatedUser;
+    return {
+      user: updatedUser,
+      linked_teachers: linkedTeachers,
+      enrolled_classes: enrolledClasses,
+    };
   }
 
   async getTeacherSetupOptions(teacherId) {
