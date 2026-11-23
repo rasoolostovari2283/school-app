@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
 import toast from 'react-hot-toast';
@@ -17,62 +17,23 @@ import {
   HiOutlineShieldCheck,
   HiOutlineEye,
   HiOutlineCheck,
-  HiOutlinePlus,
 } from 'react-icons/hi2';
 import styles from './announcements.module.css';
 
-const DEFAULT_ANNOUNCEMENT_GRADES = [
-  'پایه دهم ریاضی',
-  'پایه دهم تجربی',
-  'پایه دهم انسانی',
-  'پایه یازدهم ریاضی',
-  'پایه یازدهم تجربی',
-  'پایه یازدهم انسانی',
-  'پایه دوازدهم ریاضی',
-  'پایه دوازدهم تجربی',
-  'پایه دوازدهم انسانی',
-  'پایه هفتم',
-  'پایه هشتم',
-  'پایه نهم',
-  'دبستان (ابتدایی)',
-  'هنرستان (فنی‌حرفه‌ای و کاردانش)',
-  'کلاس‌های کنکور و المپیاد',
-  'پایه دهم',
-  'پایه یازدهم',
-  'پایه دوازدهم',
-];
-
-const DEFAULT_ANNOUNCEMENT_SUBJECTS = [
-  'ریاضیات و حسابان',
-  'فیزیک',
-  'شیمی',
-  'زیست‌شناسی',
-  'هندسه و گسسته',
-  'ادبیات و زبان فارسی',
-  'زبان انگلیسی',
-  'عربی و زبان قرآن',
-  'دین و زندگی',
-  'تاریخ و جغرافیا',
-  'علوم تجربی',
-  'علوم اجتماعی و جامعه‌شناسی',
-  'فلسفه و منطق',
-  'روان‌شناسی',
-  'کامپیوتر و برنامه‌نویسی',
-  'هنر و گرافیک',
-  'تربیت بدنی و ورزش',
-  'کار و فناوری',
-];
+const INITIAL_FORM = {
+  title: '',
+  content: '',
+  priority: 'important', // normal | important | urgent
+  target_audience: 'all', // students | parents | all
+  target_class_ids: ['*'], // ['*'] or array of teacher's DB class UUIDs
+  is_mandatory: false,
+};
 
 export default function AnnouncementsPage() {
   const { user } = useAuthStore();
   const [announcements, setAnnouncements] = useState([]);
-  const [targetingOptions, setTargetingOptions] = useState({
-    grades: DEFAULT_ANNOUNCEMENT_GRADES,
-    subjects: DEFAULT_ANNOUNCEMENT_SUBJECTS,
-    classes: [],
-  });
-  const [customGradeInput, setCustomGradeInput] = useState('');
-  const [customSubjectInput, setCustomSubjectInput] = useState('');
+  const [teacherClasses, setTeacherClasses] = useState([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
 
@@ -81,303 +42,125 @@ export default function AnnouncementsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedStatsAnnouncement, setSelectedStatsAnnouncement] = useState(null);
   const [showStatsModal, setShowStatsModal] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-  // New Announcement Form State
-  const [form, setForm] = useState({
-    title: '',
-    content: '',
-    priority: 'important', // normal | important | urgent
-    target_audience: 'all', // all | students | parents
-    target_grades: ['*'], // ['*'] or array of grade strings
-    target_subjects: ['*'], // ['*'] or array of subject strings
-    target_class_ids: ['*'], // ['*'] or array of class UUIDs
-    is_mandatory: true,
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
 
-  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
+  const isTeacherOrAdmin =
+    user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
-  const myTaughtGrades = useMemo(() => {
-    try {
-      let settings = user?.settings;
-      if (!settings && typeof window !== 'undefined') {
-        const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
-        settings = cached?.settings;
-      }
-      const parsed = typeof settings === 'string' ? JSON.parse(settings) : (settings || {});
-      return Array.isArray(parsed.taught_grades) ? parsed.taught_grades : [];
-    } catch (e) {
-      return [];
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchAnnouncements();
-    fetchTargetingOptions();
-  }, [user]);
-
-  const fetchAnnouncements = async () => {
+  const fetchAnnouncements = useCallback(async () => {
     try {
       setLoading(true);
       const res = await api.get('/announcements');
       if (res.data?.success && Array.isArray(res.data.data?.announcements)) {
-        const list = res.data.data.announcements;
-        setAnnouncements(list);
-        try {
-          localStorage.setItem('educonnect_announcements_cache', JSON.stringify(list));
-        } catch (e) {}
+        setAnnouncements(res.data.data.announcements);
+      } else {
+        setAnnouncements([]);
       }
     } catch (err) {
       console.error('Error fetching announcements:', err);
-      try {
-        const saved = JSON.parse(localStorage.getItem('educonnect_announcements_cache') || '[]');
-        if (saved && saved.length > 0) {
-          setAnnouncements(saved);
-        }
-      } catch (e) {}
+      toast.error('خطا در دریافت لیست اطلاعیه‌ها');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchTargetingOptions = async () => {
-    let teacherGrades = [];
-    let teacherSubject = null;
+  const fetchTargetingClasses = useCallback(async () => {
+    if (!isTeacherOrAdmin) return;
     try {
-      let settings = user?.settings;
-      if (!settings && typeof window !== 'undefined') {
-        const cached = JSON.parse(localStorage.getItem('cached_user') || 'null');
-        settings = cached?.settings;
-      }
-      const parsedSettings = typeof settings === 'string' ? JSON.parse(settings) : (settings || {});
-      if (Array.isArray(parsedSettings.taught_grades)) {
-        teacherGrades = parsedSettings.taught_grades;
-      }
-      if (parsedSettings.subject) {
-        teacherSubject = parsedSettings.subject;
-      }
-    } catch (e) {}
-
-    try {
+      setLoadingClasses(true);
       const res = await api.get('/announcements/targeting-options');
-      if (res.data?.success && res.data.data) {
-        const fetched = res.data.data;
-        const mergedGrades = Array.from(new Set([
-          ...teacherGrades,
-          ...(fetched.grades || []),
-          ...DEFAULT_ANNOUNCEMENT_GRADES,
-        ]));
-        const mergedSubjects = Array.from(new Set([
-          ...(teacherSubject ? [teacherSubject] : []),
-          ...(fetched.subjects || []),
-          ...DEFAULT_ANNOUNCEMENT_SUBJECTS,
-        ]));
-        setTargetingOptions({
-          grades: mergedGrades,
-          subjects: mergedSubjects,
-          classes: fetched.classes || [],
-        });
-        return;
+      if (res.data?.success && Array.isArray(res.data.data?.classes)) {
+        setTeacherClasses(res.data.data.classes);
+      } else {
+        setTeacherClasses([]);
       }
     } catch (err) {
-      console.error('Error fetching targeting options:', err);
+      console.error('Error fetching teacher classes for announcements:', err);
+      setTeacherClasses([]);
+    } finally {
+      setLoadingClasses(false);
     }
+  }, [isTeacherOrAdmin]);
 
-    // Fallback if network or error
-    setTargetingOptions((prev) => ({
-      ...prev,
-      grades: Array.from(new Set([...teacherGrades, ...prev.grades, ...DEFAULT_ANNOUNCEMENT_GRADES])),
-      subjects: Array.from(new Set([...(teacherSubject ? [teacherSubject] : []), ...prev.subjects, ...DEFAULT_ANNOUNCEMENT_SUBJECTS])),
-    }));
+  useEffect(() => {
+    if (!user) return;
+    fetchAnnouncements();
+    if (isTeacherOrAdmin) {
+      fetchTargetingClasses();
+    }
+  }, [user, isTeacherOrAdmin, fetchAnnouncements, fetchTargetingClasses]);
+
+  const handleOpenCreateModal = () => {
+    setForm(INITIAL_FORM);
+    setShowCreateModal(true);
+    fetchTargetingClasses();
   };
 
-  const handleAddCustomGrade = () => {
-    if (!customGradeInput || !customGradeInput.trim()) return;
-    const clean = customGradeInput.trim();
-    if (!targetingOptions.grades.includes(clean)) {
-      setTargetingOptions((prev) => ({
-        ...prev,
-        grades: [clean, ...prev.grades],
-      }));
+  // Toggle class selection from teacher's DB classes
+  const toggleClassSelect = (classId) => {
+    if (classId === '*') {
+      setForm((prev) => ({ ...prev, target_class_ids: ['*'] }));
+      return;
     }
-    toggleGradeSelect(clean);
-    setCustomGradeInput('');
-    toast.success(`پایه «${clean}» اضافه و انتخاب شد 👍`);
-  };
 
-  const handleAddCustomSubject = () => {
-    if (!customSubjectInput || !customSubjectInput.trim()) return;
-    const clean = customSubjectInput.trim();
-    if (!targetingOptions.subjects.includes(clean)) {
-      setTargetingOptions((prev) => ({
-        ...prev,
-        subjects: [clean, ...prev.subjects],
-      }));
-    }
-    toggleSubjectSelect(clean);
-    setCustomSubjectInput('');
-    toast.success(`درس «${clean}» اضافه و انتخاب شد 👍`);
-  };
-
-  const selectOnlyTeacherGrades = (grades) => {
-    if (!grades || grades.length === 0) return;
-    setForm({ ...form, target_grades: [...grades] });
-    toast.success(`پایه‌های اختصاصی شما (${grades.length} پایه) انتخاب شدند 👍`);
+    setForm((prev) => {
+      let current = prev.target_class_ids.includes('*') ? [] : [...prev.target_class_ids];
+      if (current.includes(classId)) {
+        current = current.filter((id) => id !== classId);
+        if (current.length === 0) current = ['*'];
+      } else {
+        current.push(classId);
+      }
+      return { ...prev, target_class_ids: current };
+    });
   };
 
   const handleCreateAnnouncement = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!form.title.trim()) {
-      return toast.error('لطفاً عنوان اطلاعیه را بنویسید');
+    const cleanTitle = form.title.trim();
+    const cleanContent = form.content.trim();
+
+    if (!cleanTitle) {
+      return toast.error('لطفاً عنوان اطلاعیه را وارد کنید');
     }
-    if (!form.content.trim()) {
+    if (!cleanContent) {
       return toast.error('لطفاً متن پیام اطلاعیه را بنویسید');
+    }
+
+    if (!isAdmin && teacherClasses.length === 0) {
+      return toast.error('شما هنوز کلاسی در دیتابیس ثبت نکرده‌اید');
     }
 
     setSubmitting(true);
     try {
-      const res = await api.post('/announcements', form);
-      const createdAnn = res.data?.data?.announcement;
-
-      const newAnnouncementObj = createdAnn ? {
-        ...createdAnn,
-        teacher_name: user?.display_name || user?.name || 'دبیر محترم',
-        teacher_avatar: user?.avatar_url,
-        teacher_role: user?.role || 'teacher',
-        target_grades: Array.isArray(createdAnn.target_grades) ? createdAnn.target_grades : (typeof createdAnn.target_grades === 'string' ? JSON.parse(createdAnn.target_grades || '["*"]') : ['*']),
-        target_subjects: Array.isArray(createdAnn.target_subjects) ? createdAnn.target_subjects : (typeof createdAnn.target_subjects === 'string' ? JSON.parse(createdAnn.target_subjects || '["*"]') : ['*']),
-        target_class_ids: Array.isArray(createdAnn.target_class_ids) ? createdAnn.target_class_ids : (typeof createdAnn.target_class_ids === 'string' ? JSON.parse(createdAnn.target_class_ids || '["*"]') : ['*']),
-        is_mandatory: Boolean(createdAnn.is_mandatory),
-        is_pinned: Boolean(createdAnn.is_pinned),
-        acknowledged_count: 0,
-        acknowledgements: [],
-      } : {
-        id: `ann-${Date.now()}`,
-        teacher_id: user?.id,
-        teacher_name: user?.display_name || user?.name || 'دبیر محترم',
-        teacher_avatar: user?.avatar_url,
-        teacher_role: user?.role || 'teacher',
-        title: form.title.trim(),
-        content: form.content.trim(),
+      const payload = {
+        title: cleanTitle,
+        content: cleanContent,
         priority: form.priority,
         target_audience: form.target_audience,
-        target_grades: form.target_grades,
-        target_subjects: form.target_subjects,
         target_class_ids: form.target_class_ids,
         is_mandatory: form.is_mandatory,
-        created_at: new Date().toISOString(),
-        acknowledged_count: 0,
-        acknowledgements: [],
       };
 
-      setAnnouncements((prev) => [newAnnouncementObj, ...prev.filter((p) => p.id !== newAnnouncementObj.id)]);
-      try {
-        const saved = JSON.parse(localStorage.getItem('educonnect_announcements_cache') || '[]');
-        localStorage.setItem('educonnect_announcements_cache', JSON.stringify([newAnnouncementObj, ...saved.filter((p) => p.id !== newAnnouncementObj.id)]));
-      } catch (e) {}
-
-      toast.success('اطلاعیه با موفقیت صادر و منتشر شد 🎉', { duration: 4000 });
-      setShowCreateModal(false);
-      setForm({
-        title: '',
-        content: '',
-        priority: 'important',
-        target_audience: 'all',
-        target_grades: ['*'],
-        target_subjects: ['*'],
-        target_class_ids: ['*'],
-        is_mandatory: true,
-      });
-      fetchAnnouncements();
+      const res = await api.post('/announcements', payload);
+      if (res.data?.success) {
+        toast.success('اطلاعیه با موفقیت منتشر شد و در پنل مخاطبان انتخابی نمایش داده می‌شود', {
+          duration: 4000,
+        });
+        setShowCreateModal(false);
+        setForm(INITIAL_FORM);
+        await fetchAnnouncements();
+      } else {
+        toast.error(res.data?.message || 'خطا در انتشار اطلاعیه');
+      }
     } catch (err) {
-      console.warn('API announcement post failed or offline, using robust local session:', err);
-      const fallbackAnn = {
-        id: `ann-${Date.now()}`,
-        teacher_id: user?.id,
-        teacher_name: user?.display_name || user?.name || 'دبیر محترم',
-        teacher_avatar: user?.avatar_url,
-        teacher_role: user?.role || 'teacher',
-        title: form.title.trim(),
-        content: form.content.trim(),
-        priority: form.priority,
-        target_audience: form.target_audience,
-        target_grades: form.target_grades,
-        target_subjects: form.target_subjects,
-        target_class_ids: form.target_class_ids,
-        is_mandatory: form.is_mandatory,
-        created_at: new Date().toISOString(),
-        acknowledged_count: 0,
-        acknowledgements: [],
-      };
-      setAnnouncements((prev) => [fallbackAnn, ...prev.filter((p) => p.id !== fallbackAnn.id)]);
-      try {
-        const saved = JSON.parse(localStorage.getItem('educonnect_announcements_cache') || '[]');
-        localStorage.setItem('educonnect_announcements_cache', JSON.stringify([fallbackAnn, ...saved.filter((p) => p.id !== fallbackAnn.id)]));
-      } catch (e) {}
-
-      toast.success('اطلاعیه با موفقیت صادر و منتشر شد 🎉', { duration: 4000 });
-      setShowCreateModal(false);
-      setForm({
-        title: '',
-        content: '',
-        priority: 'important',
-        target_audience: 'all',
-        target_grades: ['*'],
-        target_subjects: ['*'],
-        target_class_ids: ['*'],
-        is_mandatory: true,
-      });
+      toast.error(err.response?.data?.message || 'خطا در برقراری ارتباط جهت انتشار اطلاعیه');
     } finally {
       setSubmitting(false);
     }
-  };
-
-  // Toggle grade selection
-  const toggleGradeSelect = (grade) => {
-    if (grade === '*') {
-      setForm({ ...form, target_grades: ['*'] });
-      return;
-    }
-    let current = form.target_grades.includes('*') ? [] : [...form.target_grades];
-    if (current.includes(grade)) {
-      current = current.filter((g) => g !== grade);
-      if (current.length === 0) current = ['*'];
-    } else {
-      current.push(grade);
-    }
-    setForm({ ...form, target_grades: current });
-  };
-
-  // Toggle subject selection
-  const toggleSubjectSelect = (subject) => {
-    if (subject === '*') {
-      setForm({ ...form, target_subjects: ['*'] });
-      return;
-    }
-    let current = form.target_subjects.includes('*') ? [] : [...form.target_subjects];
-    if (current.includes(subject)) {
-      current = current.filter((s) => s !== subject);
-      if (current.length === 0) current = ['*'];
-    } else {
-      current.push(subject);
-    }
-    setForm({ ...form, target_subjects: current });
-  };
-
-  // Toggle class selection in form
-  const toggleClassSelect = (classId) => {
-    if (classId === '*') {
-      setForm({ ...form, target_class_ids: ['*'] });
-      return;
-    }
-
-    let current = form.target_class_ids.includes('*') ? [] : [...form.target_class_ids];
-    if (current.includes(classId)) {
-      current = current.filter((id) => id !== classId);
-      if (current.length === 0) current = ['*'];
-    } else {
-      current.push(classId);
-    }
-    setForm({ ...form, target_class_ids: current });
   };
 
   const handleAcknowledge = async (id) => {
@@ -388,23 +171,28 @@ export default function AnnouncementsPage() {
         fetchAnnouncements();
       }
     } catch (err) {
-      console.error('Error acknowledging:', err);
-      toast.error(err.response?.data?.message || 'خطا در تایید پیام');
+      toast.error(err.response?.data?.message || 'خطا در تایید مطالعه اطلاعیه');
     }
   };
 
   const handleDeleteAnnouncement = async (id) => {
-    if (!window.confirm('آیا از حذف این اطلاعیه اطمینان دارید؟')) return;
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
 
     try {
       const res = await api.delete(`/announcements/${id}`);
       if (res.data?.success) {
         toast.success('اطلاعیه حذف گردید');
-        setAnnouncements(announcements.filter((a) => a.id !== id));
+        setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+      } else {
+        toast.error(res.data?.message || 'خطا در حذف اطلاعیه');
       }
     } catch (err) {
-      console.error('Error deleting announcement:', err);
-      toast.error('خطا در حذف اطلاعیه');
+      toast.error(err.response?.data?.message || 'خطا در حذف اطلاعیه');
+    } finally {
+      setConfirmDeleteId(null);
     }
   };
 
@@ -419,14 +207,12 @@ export default function AnnouncementsPage() {
         setShowStatsModal(true);
       }
     } catch (err) {
-      console.error('Error getting stats:', err);
       toast.error('خطا در دریافت آمار تاییدها');
     }
   };
 
-
-  // Filtered announcements
-  const isMgmtAnn = (a) => a.is_management || a.teacher_role === 'admin' || a.teacher_role === 'manager';
+  const isMgmtAnn = (a) =>
+    a.is_management || a.teacher_role === 'admin' || a.teacher_role === 'manager';
 
   const filteredList = announcements.filter((item) => {
     if (activeTab === 'urgent') return item.priority === 'urgent';
@@ -449,21 +235,23 @@ export default function AnnouncementsPage() {
         <div>
           <h1 className={styles.headerTitle}>
             <HiOutlineMegaphone style={{ color: '#6366f1' }} />
-            اطلاع‌رسانی و بخشنامه‌های هوشمند مدرسه
+            اطلاع‌رسانی و بخشنامه‌های مدرسه
           </h1>
           <p className={styles.headerSubtitle}>
-            ارسال پیام‌های رسمی با قابلیت پاپ‌آپ اجباری قبل از ورود به پنل، تفکیک مخاطبان (دانش‌آموزان / اولیا) و پایش لحظه‌ای تاییدها
+            انتشار هدفمند اطلاعیه‌ها بر اساس کلاس‌های ثبت‌شده، سطح اهمیت و گروه مخاطبان (دانش‌آموزان و اولیا) با نمایش فوری در داشبورد و بخش اطلاع‌رسانی
           </p>
         </div>
 
         {isTeacherOrAdmin && (
           <button
+            type="button"
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px' }}
-            onClick={() => setShowCreateModal(true)}
+            onClick={handleOpenCreateModal}
+            data-testid="open-create-announcement-btn"
           >
             <HiOutlinePlusCircle style={{ fontSize: '1.25rem' }} />
-            صدور اطلاعیه جدید
+            <span>صدور اطلاعیه جدید</span>
           </button>
         )}
       </div>
@@ -471,7 +259,7 @@ export default function AnnouncementsPage() {
       {/* Stats Summary Cards */}
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>
+          <div className={styles.statIcon} style={{ background: 'rgba(99, 102, 241, 0.12)', color: '#6366f1' }}>
             <HiOutlineMegaphone />
           </div>
           <div className={styles.statInfo}>
@@ -481,33 +269,37 @@ export default function AnnouncementsPage() {
         </div>
 
         <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+          <div className={styles.statIcon} style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444' }}>
             <HiOutlineExclamationTriangle />
           </div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>اطلاعیه‌های فوری و اضطراری</span>
+            <span className={styles.statLabel}>اطلاعیه‌های فوری</span>
             <span className={styles.statValue}>{totalUrgent}</span>
           </div>
         </div>
 
         <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(244, 63, 94, 0.15)', color: '#f43f5e' }}>
+          <div className={styles.statIcon} style={{ background: 'rgba(244, 63, 94, 0.12)', color: '#f43f5e' }}>
             <HiOutlineShieldCheck />
           </div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>دارای پاپ‌آپ اجباری</span>
+            <span className={styles.statLabel}>الزام به تایید مطالعه</span>
             <span className={styles.statValue}>{totalMandatory}</span>
           </div>
         </div>
 
         <div className={styles.statCard}>
-          <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+          <div className={styles.statIcon} style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}>
             <HiOutlineCheckCircle />
           </div>
           <div className={styles.statInfo}>
-            <span className={styles.statLabel}>وضعیت سیستم اطلاع‌رسانی</span>
-            <span className={styles.statValue} style={{ fontSize: '1rem', color: '#10b981' }}>
-              فعال و برخط
+            <span className={styles.statLabel}>
+              {isTeacherOrAdmin ? 'کلاس‌های قابل ارسال' : 'تاییدشده توسط شما'}
+            </span>
+            <span className={styles.statValue}>
+              {isTeacherOrAdmin
+                ? teacherClasses.length
+                : announcements.filter((a) => a.is_acknowledged).length}
             </span>
           </div>
         </div>
@@ -517,48 +309,47 @@ export default function AnnouncementsPage() {
       <div className={styles.tabsRow}>
         <div className={styles.filterTabs}>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'all' ? styles.activeTab : ''}`}
             onClick={() => setActiveTab('all')}
           >
             همه ({announcements.length})
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'management' ? styles.activeTab : ''}`}
             onClick={() => setActiveTab('management')}
-            style={totalManagement > 0 ? { borderColor: 'rgba(245, 158, 11, 0.5)', color: '#d97706', fontWeight: 700 } : {}}
           >
-            🏛️ بخشنامه‌های مدیریت مدرسه ({totalManagement})
+            بخشنامه‌های مدیریت ({totalManagement})
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'urgent' ? styles.activeTab : ''}`}
             onClick={() => setActiveTab('urgent')}
           >
-            فوری و اضطراری ({totalUrgent})
+            فوری ({totalUrgent})
           </button>
           <button
-            className={`${styles.tabBtn} ${activeTab === 'mandatory' ? styles.activeTab : ''}`}
-            onClick={() => setActiveTab('mandatory')}
-          >
-            پاپ‌آپ اجباری ({totalMandatory})
-          </button>
-          <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'students' ? styles.activeTab : ''}`}
             onClick={() => setActiveTab('students')}
           >
-            مخصوص دانش‌آموزان
+            دانش‌آموزان
           </button>
           <button
+            type="button"
             className={`${styles.tabBtn} ${activeTab === 'parents' ? styles.activeTab : ''}`}
             onClick={() => setActiveTab('parents')}
           >
-            مخصوص اولیا و خانواده‌ها
+            اولیاء
           </button>
           {!isTeacherOrAdmin && (
             <button
+              type="button"
               className={`${styles.tabBtn} ${activeTab === 'unacknowledged' ? styles.activeTab : ''}`}
               onClick={() => setActiveTab('unacknowledged')}
             >
-              در انتظار تایید من
+              خوانده‌نشده
             </button>
           )}
         </div>
@@ -567,53 +358,63 @@ export default function AnnouncementsPage() {
       {/* Announcements List */}
       {loading ? (
         <div className={styles.emptyState}>
-          <div className="spinner"></div>
+          <div className="spinner" />
           <p>در حال بارگذاری اطلاعیه‌ها...</p>
         </div>
       ) : filteredList.length === 0 ? (
-        <div className={styles.emptyState}>
+        <div className={styles.emptyState} data-testid="announcements-empty-state">
           <HiOutlineMegaphone style={{ fontSize: '3rem', opacity: 0.4 }} />
           <h3>هیچ اطلاعیه‌ای در این بخش یافت نشد</h3>
-          <p>در صورت صدور بخشنامه یا پیام جدید، در این قسمت نمایش داده خواهد شد.</p>
+          <p>در صورت انتشار اطلاعیه جدید برای کلاس‌های شما، بلافاصله در این بخش و داشبورد نمایش داده خواهد شد.</p>
         </div>
       ) : (
-        <div className={styles.cardsGrid}>
+        <div className={styles.cardsGrid} data-testid="announcements-list">
           {filteredList.map((ann) => {
-            const priorityBadgeClass = {
-              urgent: styles.badgeUrgent,
-              important: styles.badgeImportant,
-              normal: styles.badgeNormal,
-            }[ann.priority] || styles.badgeImportant;
+            const priorityBadgeClass =
+              {
+                urgent: styles.badgeUrgent,
+                important: styles.badgeImportant,
+                normal: styles.badgeNormal,
+              }[ann.priority] || styles.badgeImportant;
 
-            const priorityText = {
-              urgent: 'فوری و اضطراری',
-              important: 'مهم',
-              normal: 'عادی',
-            }[ann.priority] || 'مهم';
+            const priorityText =
+              {
+                urgent: 'فوری',
+                important: 'مهم',
+                normal: 'عادی',
+              }[ann.priority] || 'مهم';
 
-            const audienceText = {
-              all: '👥 همه (دانش‌آموزان و اولیا)',
-              students: '🎓 فقط دانش‌آموزان',
-              parents: '👨‍👩‍👧 فقط اولیا و خانواده‌ها',
-            }[ann.target_audience] || 'همه';
+            const audienceText =
+              {
+                all: 'دانش‌آموز و اولیاء',
+                students: 'فقط دانش‌آموزان',
+                parents: 'فقط اولیاء',
+              }[ann.target_audience] || 'دانش‌آموز و اولیاء';
 
+            const classNames = Array.isArray(ann.target_class_names)
+              ? ann.target_class_names
+              : [];
             const classTargetDisplay =
-              ann.target_class_ids?.includes('*') || !ann.target_class_ids?.length
-                ? '🏫 تمام کلاس‌های مدرسه'
-                : `🏫 ${ann.target_class_ids.length} کلاس انتخابی`;
+              classNames.length > 0
+                ? `کلاس‌ها: ${classNames.join('، ')}`
+                : ann.target_class_ids?.includes('*') || !ann.target_class_ids?.length
+                  ? 'همه کلاس‌ها'
+                  : `${ann.target_class_ids.length} کلاس انتخابی`;
 
             const isFromManagement = isMgmtAnn(ann);
+            const canDelete = isAdmin || ann.teacher_id === user?.id;
 
             return (
               <div
                 key={ann.id}
                 className={`${styles.noticeCard} ${isFromManagement ? styles.noticeCardManagement : ''}`}
+                data-testid={`announcement-card-${ann.id}`}
               >
                 <div className={styles.cardTopRow}>
                   <div className={styles.tagsCluster}>
                     {isFromManagement && (
                       <span className={`${styles.badge} ${styles.managementTag}`}>
-                        🏛️ پیام رسمی مدیریت مجتمع مدرسه
+                        بخشنامه مدیریت مدرسه
                       </span>
                     )}
 
@@ -623,20 +424,12 @@ export default function AnnouncementsPage() {
 
                     {ann.is_mandatory && (
                       <span className={`${styles.badge} ${styles.mandatoryTag}`}>
-                        <HiOutlineExclamationTriangle /> پاپ‌آپ اجباری قبل ورود
+                        <HiOutlineExclamationTriangle /> الزام تایید مطالعه
                       </span>
                     )}
 
                     <span className={`${styles.badge} ${styles.audienceTag}`}>
-                      {audienceText}
-                    </span>
-
-                    <span className={`${styles.badge} ${styles.audienceTag}`}>
-                      🎓 پایه: {ann.target_grades?.includes('*') || !ann.target_grades?.length ? 'تمام پایه‌ها' : ann.target_grades.join('، ')}
-                    </span>
-
-                    <span className={`${styles.badge} ${styles.audienceTag}`}>
-                      📖 درس: {ann.target_subjects?.includes('*') || !ann.target_subjects?.length ? 'تمام درس‌ها' : ann.target_subjects.join('، ')}
+                      مخاطب: {audienceText}
                     </span>
 
                     <span className={`${styles.badge} ${styles.audienceTag}`}>
@@ -644,94 +437,113 @@ export default function AnnouncementsPage() {
                     </span>
                   </div>
 
-                  {isTeacherOrAdmin && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ color: '#ef4444', padding: '6px 10px', fontSize: '0.8125rem' }}
-                      onClick={() => handleDeleteAnnouncement(ann.id)}
-                      title="حذف اطلاعیه"
-                    >
-                      <HiOutlineTrash style={{ fontSize: '1.1rem' }} />
-                      حذف
-                    </button>
+                  {canDelete && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {confirmDeleteId === ann.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            style={{ background: '#dc2626', color: '#fff', fontSize: '0.75rem', padding: '5px 10px' }}
+                            onClick={() => handleDeleteAnnouncement(ann.id)}
+                          >
+                            تایید حذف
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.75rem', padding: '5px 10px' }}
+                            onClick={() => setConfirmDeleteId(null)}
+                          >
+                            انصراف
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ color: '#ef4444', padding: '6px 10px', fontSize: '0.8125rem' }}
+                          onClick={() => handleDeleteAnnouncement(ann.id)}
+                          title="حذف اطلاعیه"
+                        >
+                          <HiOutlineTrash style={{ fontSize: '1.1rem' }} />
+                          <span>حذف</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
                 <h3 className={styles.noticeTitle}>{ann.title}</h3>
 
-                <div className={styles.noticeContent}>
-                  {ann.content}
-                </div>
+                <div className={styles.noticeContent}>{ann.content}</div>
 
                 <div className={styles.cardFooter}>
                   <div className={styles.metaAuthor}>
                     <div
                       className={styles.authorAvatar}
-                      style={isFromManagement ? { background: 'linear-gradient(135deg, #d97706, #b45309)', color: '#fff', fontSize: '1.1rem' } : {}}
+                      style={
+                        isFromManagement
+                          ? { background: '#d97706', color: '#fff', fontWeight: 800 }
+                          : {}
+                      }
                     >
-                      {isFromManagement ? '🏛️' : (ann.teacher_name?.charAt(0) || 'م')}
+                      {ann.teacher_name?.charAt(0) || 'م'}
                     </div>
                     <div>
                       <span style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>
-                        {ann.teacher_name || 'مدیریت مدرسه'}
-                        {isFromManagement && (
-                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#d97706', marginRight: '6px' }}>
-                            ({ann.teacher_job_title || 'مدیریت مجتمع آموزشی'})
-                          </span>
-                        )}
+                        {ann.teacher_name || 'کادر آموزشی مدرسه'}
                       </span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                         <HiOutlineClock style={{ verticalAlign: 'middle', marginLeft: '3px' }} />
-                        {new Date(ann.created_at).toLocaleDateString('fa-IR')} - {new Date(ann.created_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(ann.created_at).toLocaleDateString('fa-IR')} -{' '}
+                        {new Date(ann.created_at).toLocaleTimeString('fa-IR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </span>
                     </div>
                   </div>
 
-                  {/* Actions & Stats */}
                   <div className={styles.cardActions}>
                     {isTeacherOrAdmin ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-                          onClick={() => openStatsModal(ann)}
-                        >
-                          <HiOutlineEye />
-                          مشاهده تاییدها ({ann.acknowledged_count || 0} نفر)
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => openStatsModal(ann)}
+                      >
+                        <HiOutlineEye />
+                        <span>مشاهده تاییدها ({ann.acknowledged_count || 0} نفر)</span>
+                      </button>
+                    ) : ann.is_acknowledged ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(16, 185, 129, 0.12)',
+                          color: '#059669',
+                          fontWeight: 700,
+                          fontSize: '0.8125rem',
+                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                        }}
+                      >
+                        <HiOutlineCheckCircle style={{ fontSize: '1.1rem' }} />
+                        <span>مطالعه و تایید شد</span>
+                      </span>
                     ) : (
-                      <div>
-                        {ann.is_acknowledged ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '6px 14px',
-                              borderRadius: '20px',
-                              background: 'rgba(16, 185, 129, 0.15)',
-                              color: '#10b981',
-                              fontWeight: 700,
-                              fontSize: '0.8125rem',
-                              border: '1px solid rgba(16, 185, 129, 0.3)',
-                            }}
-                          >
-                            <HiOutlineCheckCircle style={{ fontSize: '1.1rem' }} />
-                            توسط شما تایید و خوانده شده
-                          </span>
-                        ) : (
-                          <button
-                            className="btn btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', background: '#10b981' }}
-                            onClick={() => handleAcknowledge(ann.id)}
-                          >
-                            <HiOutlineCheck style={{ fontSize: '1.1rem' }} />
-                            تایید مطالعه این اطلاعیه
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', background: '#059669', borderColor: '#059669' }}
+                        onClick={() => handleAcknowledge(ann.id)}
+                      >
+                        <HiOutlineCheck style={{ fontSize: '1.1rem' }} />
+                        <span>تایید مطالعه اطلاعیه</span>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -741,371 +553,242 @@ export default function AnnouncementsPage() {
         </div>
       )}
 
-      {/* Modal 1: Create Announcement */}
+      {/* Modal 1: Create Announcement (Clean, DB-Class-Targeted) */}
       {showCreateModal && (
-        <div className={styles.modalBackdrop} onClick={() => setShowCreateModal(false)}>
+        <div
+          className={styles.modalBackdrop}
+          onClick={() => setShowCreateModal(false)}
+          data-testid="create-announcement-modal"
+        >
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.3rem', color: '#6366f1' }}>📢</span>
-                <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>صدور و ارسال اطلاعیه جدید</h2>
+                <HiOutlineMegaphone style={{ fontSize: '1.35rem', color: '#4f46e5' }} />
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+                  صدور اطلاعیه جدید
+                </h2>
               </div>
-              <button className={styles.closeBtn} onClick={() => setShowCreateModal(false)}>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setShowCreateModal(false)}
+                aria-label="بستن"
+              >
                 <HiOutlineXMark />
               </button>
             </div>
 
-            <form onSubmit={handleCreateAnnouncement} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              {/* Title */}
+            <form
+              onSubmit={handleCreateAnnouncement}
+              noValidate
+              style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}
+            >
+              {/* 1. Title */}
               <div className="form-group">
-                <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '6px', display: 'block' }}>
+                <label
+                  htmlFor="ann_title_input"
+                  style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '6px', display: 'block' }}
+                >
                   عنوان اطلاعیه *
                 </label>
                 <input
+                  id="ann_title_input"
+                  data-testid="ann-title-input"
                   type="text"
                   className="input"
-                  placeholder="مثلاً: برگزاری جلسه فوری اولیا و مربیان یا تغییر ساعت آزمون"
+                  placeholder="مثلاً: زمان‌بندی آزمون میان‌ترم یا جلسه هماهنگی کلاس"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   required
+                  autoFocus
                 />
               </div>
 
-              {/* Priority Selection */}
+              {/* 2. Priority Level */}
               <div>
                 <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px', display: 'block' }}>
-                  سطح اهمیت و فوریت:
+                  سطح اهمیت:
                 </label>
                 <div className={styles.priorityGrid}>
-                  <div
-                    className={`${styles.priorityRadio} ${form.priority === 'urgent' ? styles.audienceSelected : ''}`}
-                    onClick={() => setForm({ ...form, priority: 'urgent' })}
-                  >
-                    <span>🔴</span>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>فوری و اضطراری</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>اعلان با نشان قرمز</div>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`${styles.priorityRadio} ${form.priority === 'important' ? styles.audienceSelected : ''}`}
-                    onClick={() => setForm({ ...form, priority: 'important' })}
-                  >
-                    <span>🟡</span>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>مهم</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>اعلان کهربایی استاندارد</div>
-                    </div>
-                  </div>
-
-                  <div
+                  <button
+                    type="button"
+                    data-testid="ann-priority-normal"
                     className={`${styles.priorityRadio} ${form.priority === 'normal' ? styles.audienceSelected : ''}`}
                     onClick={() => setForm({ ...form, priority: 'normal' })}
+                    style={{ textAlign: 'right' }}
                   >
-                    <span>🔵</span>
                     <div>
                       <div style={{ fontWeight: 700 }}>عادی</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>اطلاع‌رسانی عمومی</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>اطلاع‌رسانی عمومی</div>
                     </div>
-                  </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="ann-priority-important"
+                    className={`${styles.priorityRadio} ${form.priority === 'important' ? styles.audienceSelected : ''}`}
+                    onClick={() => setForm({ ...form, priority: 'important' })}
+                    style={{ textAlign: 'right' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>مهم</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>نمایش برجسته در پنل</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="ann-priority-urgent"
+                    className={`${styles.priorityRadio} ${form.priority === 'urgent' ? styles.audienceSelected : ''}`}
+                    onClick={() => setForm({ ...form, priority: 'urgent' })}
+                    style={{ textAlign: 'right' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, color: '#dc2626' }}>فوری</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>اعلان فوری و اولویت بالا</div>
+                    </div>
+                  </button>
                 </div>
               </div>
 
-              {/* Target Audience */}
+              {/* 3. Target Audience Group */}
               <div>
                 <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px', display: 'block' }}>
-                  مخاطبان هدف (چه کسانی دریافت کنند؟):
+                  گروه مخاطبان (به چه کسانی نمایش داده شود؟):
                 </label>
                 <div className={styles.audienceGrid}>
-                  <div
-                    className={`${styles.audienceOptionCard} ${form.target_audience === 'all' ? styles.audienceSelected : ''}`}
-                    onClick={() => setForm({ ...form, target_audience: 'all' })}
-                  >
-                    <HiOutlineUsers style={{ fontSize: '1.5rem' }} />
-                    <span>دانش‌آموزان و اولیا</span>
-                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>ارسال به هر دو گروه</span>
-                  </div>
-
-                  <div
+                  <button
+                    type="button"
+                    data-testid="ann-audience-students"
                     className={`${styles.audienceOptionCard} ${form.target_audience === 'students' ? styles.audienceSelected : ''}`}
                     onClick={() => setForm({ ...form, target_audience: 'students' })}
                   >
-                    <HiOutlineAcademicCap style={{ fontSize: '1.5rem' }} />
-                    <span>فقط دانش‌آموزان</span>
-                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>نمایش فقط در پنل دانش‌آموز</span>
-                  </div>
+                    <HiOutlineAcademicCap style={{ fontSize: '1.45rem' }} />
+                    <span>دانش‌آموز</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                      نمایش فقط برای دانش‌آموزان کلاس
+                    </span>
+                  </button>
 
-                  <div
+                  <button
+                    type="button"
+                    data-testid="ann-audience-parents"
                     className={`${styles.audienceOptionCard} ${form.target_audience === 'parents' ? styles.audienceSelected : ''}`}
                     onClick={() => setForm({ ...form, target_audience: 'parents' })}
                   >
-                    <HiOutlineUserGroup style={{ fontSize: '1.5rem' }} />
-                    <span>فقط اولیا و خانواده‌ها</span>
-                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>نمایش فقط در پنل اولیا</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Target Grades (پایه‌های تحصیلی) */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '0.875rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🎓</span>
-                    <span>پایه‌های تحصیلی هدف (کدام پایه‌ها دریافت کنند؟): *</span>
-                  </label>
-                  <span style={{ fontSize: '0.75rem', color: form.target_grades.includes('*') ? '#6366f1' : '#10b981', fontWeight: 700 }}>
-                    {form.target_grades.includes('*') ? '🌟 ارسال به تمام پایه‌ها (سراسری)' : `✅ ${form.target_grades.length} پایه انتخاب شده`}
-                  </span>
-                </div>
-
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: 0 }}>
-                  روی هر پایه که می‌خواهید کلیک کنید تا فعال شود (امکان انتخاب همزمان چند پایه وجود دارد):
-                </p>
-
-                {/* Quick Shortcuts for Teacher */}
-                {myTaughtGrades.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>انتخاب سریع:</span>
-                    <button
-                      type="button"
-                      onClick={() => selectOnlyTeacherGrades(myTaughtGrades)}
-                      className="btn btn-secondary btn-sm"
-                      style={{
-                        fontSize: '0.75rem',
-                        padding: '4px 10px',
-                        borderRadius: '12px',
-                        background: 'rgba(99, 102, 241, 0.1)',
-                        color: '#6366f1',
-                        border: '1px solid rgba(99, 102, 241, 0.3)',
-                        fontWeight: 700,
-                      }}
-                    >
-                      👨‍🏫 فقط پایه‌های تدریس من ({myTaughtGrades.length} پایه)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleGradeSelect('*')}
-                      className="btn btn-secondary btn-sm"
-                      style={{
-                        fontSize: '0.75rem',
-                        padding: '4px 10px',
-                        borderRadius: '12px',
-                      }}
-                    >
-                      🌟 تمام پایه‌های مدرسه
-                    </button>
-                  </div>
-                )}
-
-                {/* Grade Selection Chips */}
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '8px',
-                  maxHeight: '160px',
-                  overflowY: 'auto',
-                  padding: '8px',
-                  background: 'var(--bg-hover)',
-                  borderRadius: '12px',
-                  border: '1px solid var(--border-color)',
-                }}>
-                  <button
-                    type="button"
-                    className={`btn ${form.target_grades.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{
-                      fontSize: '0.8125rem',
-                      padding: '6px 14px',
-                      borderRadius: '20px',
-                      fontWeight: form.target_grades.includes('*') ? 800 : 600,
-                    }}
-                    onClick={() => toggleGradeSelect('*')}
-                  >
-                    🌟 تمام پایه‌ها (سراسری)
+                    <HiOutlineUserGroup style={{ fontSize: '1.45rem' }} />
+                    <span>اولیاء</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                      نمایش فقط در پنل اولیاء
+                    </span>
                   </button>
 
-                  {targetingOptions.grades?.map((g) => {
-                    const isSelected = !form.target_grades.includes('*') && form.target_grades.includes(g);
-                    const isMyGrade = myTaughtGrades.includes(g);
-                    return (
-                      <button
-                        key={g}
-                        type="button"
-                        className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{
-                          fontSize: '0.8125rem',
-                          padding: '6px 14px',
-                          borderRadius: '20px',
-                          fontWeight: isSelected ? 800 : (isMyGrade ? 700 : 500),
-                          borderColor: isSelected ? '#10b981' : (isMyGrade ? '#6366f1' : undefined),
-                          background: isSelected ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : (isMyGrade ? 'rgba(99, 102, 241, 0.08)' : undefined),
-                          color: isSelected ? '#ffffff' : (isMyGrade ? '#4f46e5' : undefined),
-                        }}
-                        onClick={() => toggleGradeSelect(g)}
-                        title={isMyGrade ? 'از پایه‌های تدریس شما' : ''}
-                      >
-                        {isSelected ? '✓ ' : ''}{g} {isMyGrade && !isSelected ? '⭐' : ''}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Add Custom Grade Input */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="افزودن پایه یا کلاس دیگر (مثلاً: دهم ریاضی ۲ یا نهم ب)..."
-                    value={customGradeInput}
-                    onChange={(e) => setCustomGradeInput(e.target.value)}
-                    style={{ flex: 1, fontSize: '0.78rem', padding: '6px 10px' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCustomGrade();
-                      }
-                    }}
-                  />
                   <button
                     type="button"
-                    className="btn btn-secondary"
-                    onClick={handleAddCustomGrade}
-                    style={{ fontSize: '0.75rem', padding: '6px 12px', whiteSpace: 'nowrap', fontWeight: 700 }}
+                    data-testid="ann-audience-all"
+                    className={`${styles.audienceOptionCard} ${form.target_audience === 'all' ? styles.audienceSelected : ''}`}
+                    onClick={() => setForm({ ...form, target_audience: 'all' })}
                   >
-                    <HiOutlinePlus style={{ verticalAlign: 'middle', marginLeft: '4px' }} />
-                    افزودن و انتخاب
+                    <HiOutlineUsers style={{ fontSize: '1.45rem' }} />
+                    <span>دانش‌آموز و اولیاء</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                      نمایش همزمان برای هر دو گروه
+                    </span>
                   </button>
                 </div>
               </div>
 
-              {/* Target Subjects (درس‌های هدف) */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '0.875rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>📖</span>
-                    <span>درس‌های هدف:</span>
-                  </label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                    {form.target_subjects.includes('*') ? 'ارسال به تمام درس‌ها' : `${form.target_subjects.length} درس انتخاب شده`}
-                  </span>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '8px',
-                  maxHeight: '140px',
-                  overflowY: 'auto',
-                  padding: '8px',
-                  background: 'var(--bg-hover)',
-                  borderRadius: '12px',
-                  border: '1px solid var(--border-color)',
-                }}>
-                  <button
-                    type="button"
-                    className={`btn ${form.target_subjects.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
-                    onClick={() => toggleSubjectSelect('*')}
-                  >
-                    📚 تمام درس‌ها
-                  </button>
-
-                  {targetingOptions.subjects?.map((s) => {
-                    const isSelected = !form.target_subjects.includes('*') && form.target_subjects.includes(s);
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{
-                          fontSize: '0.8125rem',
-                          padding: '6px 14px',
-                          borderRadius: '20px',
-                          fontWeight: isSelected ? 800 : 500,
-                          borderColor: isSelected ? '#10b981' : undefined,
-                          background: isSelected ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : undefined,
-                        }}
-                        onClick={() => toggleSubjectSelect(s)}
-                      >
-                        {isSelected ? '✓ ' : ''}{s}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Add Custom Subject Input */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="افزودن درس دلخواه دیگر (مثلاً: زیست المپیاد یا آزمایشگاه علوم)..."
-                    value={customSubjectInput}
-                    onChange={(e) => setCustomSubjectInput(e.target.value)}
-                    style={{ flex: 1, fontSize: '0.78rem', padding: '6px 10px' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCustomSubject();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleAddCustomSubject}
-                    style={{ fontSize: '0.75rem', padding: '6px 12px', whiteSpace: 'nowrap', fontWeight: 700 }}
-                  >
-                    <HiOutlinePlus style={{ verticalAlign: 'middle', marginLeft: '4px' }} />
-                    افزودن و انتخاب
-                  </button>
-                </div>
-              </div>
-
-              {/* Target Classes (کلاس‌های خاص - اختیاری) */}
-              <div>
+              {/* 4. Class Selection (Strictly from Teacher's DB-Registered Classes) */}
+              <div data-testid="ann-classes-selector">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                   <label style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0 }}>
-                    🏫 کلاس‌های دریافت‌کننده (اختیاری جهت تفکیک کلاسی):
+                    انتخاب کلاس‌ها {isAdmin ? '(کلاس‌های مدرسه)' : '(از کلاس‌های ثبت‌شده شما در دیتابیس)'}:
                   </label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                    {form.target_class_ids.includes('*') ? 'تمام کلاس‌ها' : `${form.target_class_ids.length} کلاس انتخاب شده`}
+                  <span style={{ fontSize: '0.75rem', color: '#4f46e5', fontWeight: 700 }}>
+                    {form.target_class_ids.includes('*')
+                      ? isAdmin
+                        ? 'همه کلاس‌های مدرسه'
+                        : `همه کلاس‌های من (${teacherClasses.length} کلاس)`
+                      : `${form.target_class_ids.length} کلاس انتخاب شده`}
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '120px', overflowY: 'auto', padding: '2px' }}>
-                  <button
-                    type="button"
-                    className={`btn ${form.target_class_ids.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
-                    onClick={() => toggleClassSelect('*')}
-                  >
-                    🏫 تمام کلاس‌های مدرسه
-                  </button>
 
-                  {targetingOptions.classes?.map((c) => {
-                    const isSelected = !form.target_class_ids.includes('*') && form.target_class_ids.includes(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`btn ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ fontSize: '0.8125rem', padding: '6px 14px', borderRadius: '20px' }}
-                        onClick={() => toggleClassSelect(c.id)}
-                      >
-                        {c.name} {c.grade ? `(${c.grade})` : ''}
-                      </button>
-                    );
-                  })}
-                </div>
+                {loadingClasses ? (
+                  <div style={{ padding: '14px', fontSize: '0.82rem', color: 'var(--text-tertiary)', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                    در حال بارگذاری کلاس‌های ثبت‌شده شما از دیتابیس...
+                  </div>
+                ) : teacherClasses.length === 0 ? (
+                  <div style={{ padding: '14px', fontSize: '0.82rem', color: '#b45309', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                    هنوز کلاسی برای شما در دیتابیس ثبت نشده است. لطفاً ابتدا از بخش «کلاس‌ها» یا «کارنامه‌ها» کلاس‌های خود را ایجاد کنید.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                      maxHeight: '165px',
+                      overflowY: 'auto',
+                      padding: '10px',
+                      background: 'var(--bg-surface)',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-color)',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-testid="ann-class-btn-all"
+                      className={`btn btn-sm ${form.target_class_ids.includes('*') ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ fontSize: '0.8rem', borderRadius: '8px', padding: '6px 12px' }}
+                      onClick={() => toggleClassSelect('*')}
+                    >
+                      {isAdmin ? 'همه کلاس‌های مدرسه' : `همه کلاس‌های من (${teacherClasses.length})`}
+                    </button>
+
+                    {teacherClasses.map((c) => {
+                      const isSelected =
+                        !form.target_class_ids.includes('*') &&
+                        form.target_class_ids.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          data-testid={`ann-class-btn-${c.id}`}
+                          className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{
+                            fontSize: '0.8rem',
+                            borderRadius: '8px',
+                            padding: '6px 12px',
+                            borderColor: isSelected ? '#059669' : undefined,
+                            background: isSelected ? '#059669' : undefined,
+                          }}
+                          onClick={() => toggleClassSelect(c.id)}
+                        >
+                          {isSelected ? '✓ ' : ''}
+                          {c.name}
+                          {c.grade ? ` — ${c.grade}` : ''}
+                          {c.student_count != null ? ` (${c.student_count} نفر)` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Content Body */}
+              {/* 5. Message Body */}
               <div className="form-group">
-                <label style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '6px', display: 'block' }}>
+                <label
+                  htmlFor="ann_content_input"
+                  style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '6px', display: 'block' }}
+                >
                   متن پیام اطلاعیه *
                 </label>
                 <textarea
+                  id="ann_content_input"
+                  data-testid="ann-content-input"
                   className="input"
                   rows={4}
-                  placeholder="متن کامل پیام یا دستورالعمل را در این قسمت یادداشت نمایید..."
+                  placeholder="متن کامل پیام اطلاعیه را در این قسمت بنویسید..."
                   value={form.content}
                   onChange={(e) => setForm({ ...form, content: e.target.value })}
                   required
@@ -1113,42 +796,37 @@ export default function AnnouncementsPage() {
                 />
               </div>
 
-              {/* Mandatory Modal Checkbox */}
-              <div
+              {/* Optional Mandatory Ack Checkbox */}
+              <label
                 style={{
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
-                  borderRadius: '12px',
-                  padding: '14px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: '12px',
+                  gap: '10px',
                   cursor: 'pointer',
                 }}
-                onClick={() => setForm((prev) => ({ ...prev, is_mandatory: !prev.is_mandatory }))}
               >
                 <input
                   type="checkbox"
                   checked={form.is_mandatory}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    setForm((prev) => ({ ...prev, is_mandatory: e.target.checked }));
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ width: '18px', height: '18px', marginTop: '2px', accentColor: '#ef4444', cursor: 'pointer' }}
+                  onChange={(e) => setForm((prev) => ({ ...prev, is_mandatory: e.target.checked }))}
+                  style={{ width: '17px', height: '17px', marginTop: '2px', accentColor: '#4f46e5' }}
                 />
-                <div onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#ef4444' }}>
-                    🚨 الزام به پاپ‌آپ تمام‌صفحه و تایید قبل از ورود به پنل
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                    الزام به تایید مطالعه توسط مخاطبان
                   </div>
-                  <div style={{ fontSize: '0.78125rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.5 }}>
-                    به محض ورود دانش‌آموز یا ولی به سامانه، این پیام روی کل صفحه‌شان ظاهر می‌شود و تا دکمه «تایید و خواندم» را نزنند امکان دسترسی به بخش‌های دیگر پنل را نخواهند داشت.
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    در صورت فعال بودن، مخاطبان هنگام ورود به سامانه این اطلاعیه را به صورت ویژه مشاهده و تایید می‌کنند.
                   </div>
                 </div>
-              </div>
+              </label>
 
               {/* Form Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -1158,12 +836,12 @@ export default function AnnouncementsPage() {
                 </button>
                 <button
                   type="submit"
-                  onClick={handleCreateAnnouncement}
                   className="btn btn-primary"
                   disabled={submitting}
-                  style={{ minWidth: '150px' }}
+                  style={{ minWidth: '140px' }}
+                  data-testid="publish-announcement-btn"
                 >
-                  {submitting ? 'در حال ارسال...' : 'انتشار و ارسال سراسری'}
+                  {submitting ? 'در حال انتشار...' : 'انتشار اطلاعیه'}
                 </button>
               </div>
             </form>
@@ -1177,23 +855,36 @@ export default function AnnouncementsPage() {
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
-                <h2 style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
                   لیست افراد تاییدکننده اطلاعیه
                 </h2>
                 <span style={{ fontSize: '0.8125rem', color: 'var(--text-tertiary)' }}>
                   «{selectedStatsAnnouncement.title}»
                 </span>
               </div>
-              <button className={styles.closeBtn} onClick={() => setShowStatsModal(false)}>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setShowStatsModal(false)}
+              >
                 <HiOutlineXMark />
               </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-subtle)', borderRadius: '12px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                background: 'var(--bg-subtle)',
+                borderRadius: '10px',
+              }}
+            >
               <span style={{ fontSize: '0.875rem', fontWeight: 700 }}>
                 تعداد کل تاییدیه‌های ثبت‌شده:
               </span>
-              <span style={{ fontSize: '1.2rem', fontWeight: 800, color: '#10b981' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#059669' }}>
                 {selectedStatsAnnouncement.statsData?.total_acknowledged || 0} نفر
               </span>
             </div>
@@ -1223,7 +914,7 @@ export default function AnnouncementsPage() {
                           width: '36px',
                           height: '36px',
                           borderRadius: '50%',
-                          background: ack.user_role === 'parent' ? '#f59e0b' : '#6366f1',
+                          background: ack.user_role === 'parent' ? '#d97706' : '#4f46e5',
                           color: '#fff',
                           display: 'flex',
                           alignItems: 'center',
@@ -1236,16 +927,15 @@ export default function AnnouncementsPage() {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>{ack.user_name}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                          نقش: {ack.user_role === 'parent' ? '👨‍👩‍👧 اولیا' : '🎓 دانش‌آموز'}
-                          {ack.student_code ? ` | کد: ${ack.student_code}` : ''}
-                          {ack.phone ? ` | شماره: ${ack.phone}` : ''}
+                          نقش: {ack.user_role === 'parent' ? 'اولیاء' : 'دانش‌آموز'}
+                          {ack.student_code ? ` · کد: ${ack.student_code}` : ''}
                         </div>
                       </div>
                     </div>
 
-                    <div style={{ textAlign: 'left', fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>
+                    <div style={{ textAlign: 'left', fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>
                       <HiOutlineCheckCircle style={{ verticalAlign: 'middle', marginLeft: '3px' }} />
-                      {new Date(ack.acknowledged_at).toLocaleDateString('fa-IR')} - {new Date(ack.acknowledged_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(ack.acknowledged_at).toLocaleDateString('fa-IR')}
                     </div>
                   </div>
                 ))
@@ -1253,7 +943,7 @@ export default function AnnouncementsPage() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowStatsModal(false)}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowStatsModal(false)}>
                 بستن
               </button>
             </div>
