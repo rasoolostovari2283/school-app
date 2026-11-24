@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const db = require('./config/database');
 const { isSchoolAdmin, assertOwnsClass } = require('./middleware/auth');
 const { loadClassroomSnapshot, scheduleSave, clearSession } = require('./services/classroomPersistence');
+const { registerSchoolWebinarSocket } = require('./modules/schoolMeetings/webinar.socket');
 
 // In-memory active live classrooms manager
 const activeClassrooms = new Map();
@@ -216,6 +217,9 @@ function initSocket(server, config) {
       socket.disconnect(true);
       return;
     }
+
+    // Register school webinar socket signaling and chat
+    registerSchoolWebinarSocket(io, socket, authUser);
 
     let currentClassId = null;
     let eventWindowStart = Date.now();

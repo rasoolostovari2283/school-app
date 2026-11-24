@@ -1,508 +1,700 @@
 'use client';
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import useAuthStore from '../../../stores/authStore';
+
+import { useState, useEffect, useCallback } from 'react';
+import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
   HiOutlineVideoCamera,
-  HiOutlineUserGroup,
-  HiOutlineAcademicCap,
-  HiOutlineUsers,
-  HiOutlineCalendar,
-  HiOutlineClock,
+  HiOutlinePhoto,
+  HiOutlineFilm,
+  HiOutlineDocumentText,
+  HiOutlineMegaphone,
   HiOutlinePlus,
-  HiOutlineXMark,
-  HiOutlineClipboardDocumentCheck,
   HiOutlineTrash,
-  HiOutlineCheckCircle,
-  HiOutlineSparkles,
-  HiOutlineBuildingOffice2,
+  HiOutlineArrowDownTray,
+  HiOutlinePlay,
+  HiOutlineXMark,
+  HiOutlineArrowPath,
+  HiOutlineBookmark,
 } from 'react-icons/hi2';
+import useAuthStore from '@/stores/authStore';
+import api, { getApiBaseUrl } from '@/lib/api';
+import LiveWebinarRoom from '@/components/schoolMeetings/LiveWebinarRoom';
 import styles from './schoolMeetings.module.css';
 
-const INITIAL_MEETINGS = [
-  {
-    id: 'meet-1',
-    title: 'جلسه مجمع عمومی اولیا و مربیان با مدیریت مدرسه',
-    audience: 'parents', // parents | teachers | students | general
-    audienceLabel: 'ویژه کلیه اولیا و خانواده‌ها',
-    host: 'دکتر علیرضا تقوی (مدیر مجتمع آموزشی)',
-    date: 'امروز • ۴ آبان',
-    time: 'ساعت ۱۸:۳۰ الی ۲۰:۰۰',
-    duration: '۹۰ دقیقه',
-    status: 'live', // live | upcoming | completed
-    agenda: 'بررسی روند تحصیلی ماه اول، گزارش انضباطی و هماهنگی آزمون‌های میان‌ترم آبان‌ماه',
-    link: '/dashboard/classes/1/live?type=parent_meeting',
-  },
-  {
-    id: 'meet-2',
-    title: 'شورای هماهنگی دبیران و کادر آموزشی مجتمع',
-    audience: 'teachers',
-    audienceLabel: 'ویژه دبیران و کادر مدرسه',
-    host: 'ستاد معاونت آموزشی و مدیر مجتمع',
-    date: 'فردا • ۵ آبان',
-    time: 'ساعت ۱۵:۰۰ الی ۱۶:۳۰',
-    duration: '۹۰ دقیقه',
-    status: 'upcoming',
-    agenda: 'ارزشیابی مستمر کلاسی، ثبت نمرات در کارنامه الکترونیکی و نظارت بر تکالیف',
-    link: '/dashboard/classes/1/live?type=teachers_council',
-  },
-  {
-    id: 'meet-3',
-    title: 'وبینار تخصصی هدایت تحصیلی و روش‌های تست‌زنی',
-    audience: 'students',
-    audienceLabel: 'ویژه دانش‌آموزان کلیه پایه‌ها',
-    host: 'مشاور ارشد تحصیلی و دبیران راهنما',
-    date: 'پنجشنبه • ۷ آبان',
-    time: 'ساعت ۱۰:۳۰ الی ۱۲:۰۰',
-    duration: '۹۰ دقیقه',
-    status: 'upcoming',
-    agenda: 'روش‌های مدیریت زمان در مطالعه، کنترل استرس آزمون و برنامه‌ریزی هفتگی',
-    link: '/dashboard/classes/1/live?type=student_webinar',
-  },
-  {
-    id: 'meet-4',
-    title: 'کارگاه آموزش خانواده: مدیریت فضای مجازی و تمرکز تحصیلی',
-    audience: 'parents',
-    audienceLabel: 'ویژه اولیای گرامی',
-    host: 'دکتر مشاور خانواده و مدیریت دبیرستان',
-    date: 'دوشنبه • ۱۱ آبان',
-    time: 'ساعت ۱۷:۰۰ الی ۱۸:۳۰',
-    duration: '۹۰ دقیقه',
-    status: 'upcoming',
-    agenda: 'راهکارهای همراهی اولیا با فرزندان در ایام امتحانات و برنامه‌ریزی درسی در منزل',
-    link: '/dashboard/classes/1/live?type=parent_workshop',
-  },
+const PRINCIPAL_ROLES = new Set(['admin', 'manager', 'principal', 'school_admin', 'super_admin']);
+
+const MEDIA_TABS = [
+  { key: 'video', label: 'فیلم‌ها و جلسات ضبط‌شده', icon: HiOutlineFilm, accept: 'video/*' },
+  { key: 'photo', label: 'عکس‌ها و تصاویر', icon: HiOutlinePhoto, accept: 'image/*' },
+  { key: 'file', label: 'فایل‌ها و مستندات', icon: HiOutlineDocumentText, accept: '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.txt' },
 ];
 
+function buildAuthedUrl(relativePath) {
+  if (!relativePath) return '';
+  if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) return relativePath;
+  const base = getApiBaseUrl().replace(/\/api\/v1\/?$/, '');
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : '';
+  const sep = relativePath.includes('?') ? '&' : '?';
+  return `${base}${relativePath}${token ? `${sep}token=${encodeURIComponent(token)}` : ''}`;
+}
+
 export default function SchoolMeetingsPage() {
-  const { user } = useAuthStore();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
-  const isTeacher = user?.role === 'teacher';
-  const isParent = user?.role === 'parent';
-  const isStudent = user?.role === 'student';
+  const user = useAuthStore((s) => s.user);
+  const role = String(user?.role || '').toLowerCase();
+  const isPrincipal = PRINCIPAL_ROLES.has(role);
 
-  // State
-  const [meetings, setMeetings] = useState([]);
-  const [activeTab, setActiveTab] = useState('all'); // all | parents | teachers | students
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newMeeting, setNewMeeting] = useState({
-    title: '',
-    audience: isParent ? 'parents' : isTeacher ? 'teachers' : isStudent ? 'students' : 'parents',
-    host: user?.display_name || 'مدیریت مجتمع آموزشی',
-    date: 'امروز',
-    time: 'ساعت ۱۸:۰۰',
-    duration: '۶۰ دقیقه',
-    agenda: '',
-  });
+  // Active live webinar
+  const [activeWebinar, setActiveWebinar] = useState(null);
+  const [inWebinarRoom, setInWebinarRoom] = useState(false);
+  const [webinarTitleInput, setWebinarTitleInput] = useState('');
+  const [startingWebinar, setStartingWebinar] = useState(false);
 
-  // Load from LocalStorage
-  useEffect(() => {
+  // Notice board (تابلو اعلانات)
+  const [notices, setNotices] = useState([]);
+  const [noticeTitle, setNoticeTitle] = useState('');
+  const [noticeContent, setNoticeContent] = useState('');
+  const [noticePinned, setNoticePinned] = useState(false);
+  const [postingNotice, setPostingNotice] = useState(false);
+
+  // Categorized media/files (photo | video | file)
+  const [activeTab, setActiveTab] = useState('video');
+  const [items, setItems] = useState([]);
+  const [counts, setCounts] = useState({ video: 0, photo: 0, file: 0 });
+  const [loadingItems, setLoadingItems] = useState(true);
+
+  // Upload modal
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadMediaType, setUploadMediaType] = useState('video');
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadGroup, setUploadGroup] = useState('عمومی');
+  const [uploadDesc, setUploadDesc] = useState('');
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Preview modal (video player or photo lightbox)
+  const [previewItem, setPreviewItem] = useState(null);
+
+  const fetchActiveWebinar = useCallback(async () => {
     try {
-      const saved = localStorage.getItem('school_online_meetings_list');
-      if (saved) {
-        setMeetings(JSON.parse(saved));
-      } else {
-        setMeetings(INITIAL_MEETINGS);
-        localStorage.setItem('school_online_meetings_list', JSON.stringify(INITIAL_MEETINGS));
-      }
-    } catch (e) {
-      setMeetings(INITIAL_MEETINGS);
+      const res = await api.get('/school-meetings/webinar/active');
+      setActiveWebinar(res.data?.data?.active_session || null);
+    } catch {
+      setActiveWebinar(null);
     }
   }, []);
 
-  // Filter meetings by tab and role
-  const filteredMeetings = meetings.filter((m) => {
-    if (activeTab === 'all') return true;
-    return m.audience === activeTab;
-  });
-
-  // Save New Meeting (Admin & Teacher)
-  const handleSaveMeeting = (e) => {
-    e.preventDefault();
-    if (!newMeeting.title.trim()) {
-      return toast.error('لطفاً عنوان وبینار یا جلسه را وارد کنید');
-    }
-
-    let audLabel = 'عمومی مدرسه';
-    if (newMeeting.audience === 'parents') audLabel = 'ویژه اولیای گرامی';
-    if (newMeeting.audience === 'teachers') audLabel = 'ویژه دبیران و کادر مدرسه';
-    if (newMeeting.audience === 'students') audLabel = 'ویژه دانش‌آموزان';
-
-    const created = {
-      id: `meet-${Date.now()}`,
-      title: newMeeting.title.trim(),
-      audience: newMeeting.audience,
-      audienceLabel: audLabel,
-      host: newMeeting.host.trim() || user?.display_name || 'مدیریت مدرسه',
-      date: newMeeting.date.trim() || 'به زودی',
-      time: newMeeting.time.trim() || 'ساعت ۱۸:۰۰',
-      duration: newMeeting.duration.trim() || '۶۰ دقیقه',
-      status: 'upcoming',
-      agenda: newMeeting.agenda.trim() || 'جلسه رسمی آنلاین از طرف مدرسه',
-      link: `/dashboard/classes/1/live?type=school_${newMeeting.audience}`,
-    };
-
-    const updated = [created, ...meetings];
-    setMeetings(updated);
+  const fetchNotices = useCallback(async () => {
     try {
-      localStorage.setItem('school_online_meetings_list', JSON.stringify(updated));
-    } catch (e) {}
+      const res = await api.get('/school-meetings/notices');
+      setNotices(res.data?.data?.notices || []);
+    } catch {
+      setNotices([]);
+    }
+  }, []);
 
-    toast.success('جلسه آنلاین جدید با موفقیت ثبت و به اطلاع مخاطبان رسید 🎉');
-    setShowCreateModal(false);
-    setNewMeeting({
-      title: '',
-      audience: 'parents',
-      host: user?.display_name || 'مدیریت مجتمع آموزشی',
-      date: 'فردا',
-      time: 'ساعت ۱۸:۰۰',
-      duration: '۶۰ دقیقه',
-      agenda: '',
+  const fetchItems = useCallback(async () => {
+    setLoadingItems(true);
+    try {
+      const res = await api.get('/school-meetings/items', { params: { media_type: activeTab } });
+      setItems(res.data?.data?.items || []);
+      if (res.data?.data?.counts) setCounts(res.data.data.counts);
+    } catch {
+      setItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    fetchActiveWebinar();
+    fetchNotices();
+  }, [fetchActiveWebinar, fetchNotices]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
+
+  // Real-time Socket listener so teachers see live webinar start/end & notices instantly
+  useEffect(() => {
+    const socketBaseUrl = getApiBaseUrl().replace(/\/api\/v1\/?$/, '');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : '';
+    if (!token) return undefined;
+
+    const socket = io(socketBaseUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
     });
-  };
 
-  // Delete Meeting
-  const handleDeleteMeeting = (id, title) => {
-    if (!window.confirm(`آیا از حذف وبینار «${title}» اطمینان دارید؟`)) return;
-    const updated = meetings.filter((m) => m.id !== id);
-    setMeetings(updated);
-    try {
-      localStorage.setItem('school_online_meetings_list', JSON.stringify(updated));
-    } catch (e) {}
-    toast.success('جلسه از تقویم وبینارها حذف شد');
-  };
+    socket.on('school_webinar_started', ({ session }) => {
+      if (session) {
+        setActiveWebinar(session);
+        toast.success(`وبینار زنده «${session.title}» توسط مدیر مدرسه آغاز شد!`);
+      }
+    });
 
-  // Copy Meeting Link
-  const handleCopyLink = (m) => {
-    const fullUrl = `${window.location.origin}${m.link}`;
-    navigator.clipboard.writeText(fullUrl);
-    toast.success('لینک ورود به جلسه کپی شد! 📋');
-  };
+    socket.on('school_webinar_ended', () => {
+      setActiveWebinar(null);
+    });
 
-  const getAudienceBadgeClass = (aud) => {
-    switch (aud) {
-      case 'parents': return styles.badgeParent;
-      case 'teachers': return styles.badgeTeacher;
-      case 'students': return styles.badgeStudent;
-      default: return styles.badgeGeneral;
+    socket.on('school_notice_updated', () => {
+      fetchNotices();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [fetchNotices]);
+
+  const handleStartOrEnterWebinar = async () => {
+    if (isPrincipal) {
+      if (activeWebinar) {
+        setInWebinarRoom(true);
+        return;
+      }
+      setStartingWebinar(true);
+      try {
+        const res = await api.post('/school-meetings/webinar/start', {
+          title: webinarTitleInput.trim() || 'جلسه وبینار زنده مدرسه',
+        });
+        const session = res.data?.data?.session;
+        if (session) {
+          setActiveWebinar(session);
+          setInWebinarRoom(true);
+          toast.success('اتاق وبینار زنده ایجاد شد؛ معلمان مدرسه اکنون می‌توانند وارد شوند.');
+        }
+      } catch (err) {
+        toast.error(err.response?.data?.message || 'خطا در شروع وبینار زنده');
+      } finally {
+        setStartingWebinar(false);
+      }
+    } else {
+      if (!activeWebinar) {
+        toast('در حال حاضر وبینار زنده‌ای توسط مدیر شروع نشده است.');
+        return;
+      }
+      setInWebinarRoom(true);
     }
+  };
+
+  const handleCreateNotice = async (e) => {
+    e.preventDefault();
+    if (!noticeContent.trim()) {
+      toast.error('لطفاً متن اعلان را وارد کنید.');
+      return;
+    }
+    setPostingNotice(true);
+    try {
+      await api.post('/school-meetings/notices', {
+        title: noticeTitle.trim(),
+        content: noticeContent.trim(),
+        is_pinned: noticePinned,
+      });
+      setNoticeTitle('');
+      setNoticeContent('');
+      setNoticePinned(false);
+      toast.success('یادداشت روی تابلو اعلانات ثبت شد و در پنل معلمان نمایش داده می‌شود.');
+      fetchNotices();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در ثبت اعلان');
+    } finally {
+      setPostingNotice(false);
+    }
+  };
+
+  const handleDeleteNotice = async (id) => {
+    if (!window.confirm('این یادداشت از تابلو اعلانات حذف شود؟')) return;
+    try {
+      await api.delete(`/school-meetings/notices/${id}`);
+      toast.success('اعلان حذف شد.');
+      fetchNotices();
+    } catch {
+      toast.error('خطا در حذف اعلان');
+    }
+  };
+
+  const handleUploadSubmit = async (e) => {
+    e.preventDefault();
+    if (!uploadFile) {
+      toast.error('لطفاً فایل مورد نظر را انتخاب کنید.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('media_type', uploadMediaType);
+    formData.append('title', uploadTitle.trim() || uploadFile.name);
+    formData.append('category_group', uploadGroup.trim() || 'عمومی');
+    formData.append('description', uploadDesc.trim());
+
+    setIsUploading(true);
+    setUploadProgress(0);
+    try {
+      await api.post('/school-meetings/items', formData, {
+        timeout: 10 * 60 * 1000,
+        onUploadProgress: (evt) => {
+          if (evt.total) setUploadProgress(Math.round((evt.loaded * 100) / evt.total));
+        },
+      });
+      toast.success('محتوا با موفقیت بارگذاری شد و در پنل معلمان مدرسه شما نمایش داده می‌شود.');
+      setShowUploadModal(false);
+      setUploadTitle('');
+      setUploadDesc('');
+      setUploadFile(null);
+      setActiveTab(uploadMediaType);
+      fetchItems();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در بارگذاری فایل');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteItem = async (item) => {
+    if (!window.confirm(`«${item.title}» حذف شود؟`)) return;
+    try {
+      await api.delete(`/school-meetings/items/${item.id}`);
+      toast.success('حذف شد.');
+      fetchItems();
+    } catch {
+      toast.error('خطا در حذف مورد');
+    }
+  };
+
+  const handleDownloadItem = async (item) => {
+    const toastId = toast.loading('در حال دانلود...');
+    try {
+      const res = await api.get(`/school-meetings/items/${item.id}/download`, {
+        responseType: 'blob',
+        timeout: 10 * 60 * 1000,
+      });
+      const blobUrl = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = item.file_name || item.title || 'download';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success('دانلود آغاز شد.', { id: toastId });
+    } catch {
+      toast.error('خطا در دانلود فایل', { id: toastId });
+    }
+  };
+
+  const openUploadForTab = (type) => {
+    setUploadMediaType(type);
+    setShowUploadModal(true);
   };
 
   return (
-    <div className={styles.container} dir="rtl">
-      {/* ── 1. Header Banner ── */}
-      <div className={styles.headerBanner}>
-        <div className={styles.headerInfo}>
-          <div className={styles.badgeLivePulse}>
-            <span className={styles.pulseDot} />
-            <span>اتاق وبینار و جلسات آنلاین مدرسه فعال است</span>
+    <div className={styles.pageContainer} dir="rtl">
+      {/* 1. TOP LIVE WEBINAR BANNER (ورود به اتاق وبینار زنده) */}
+      <section className={styles.webinarHero}>
+        <div className={styles.webinarHeroText}>
+          <div className={styles.heroTitleRow}>
+            <HiOutlineVideoCamera className={styles.heroIcon} />
+            <h1>جلسات آنلاین مدرسه</h1>
+            {activeWebinar && <span className={styles.livePill}>● وبینار زنده فعال است</span>}
           </div>
-          <h1 className={styles.title}>
-            <HiOutlineVideoCamera style={{ color: '#818cf8', fontSize: '2rem' }} />
-            <span>{isAdmin ? 'وبینارها و جلسات آنلاین مدرسه' : 'جلسات آنلاین و وبینارها از طرف مدرسه'}</span>
-          </h1>
-          <p className={styles.description}>
-            {isAdmin
-              ? 'سامانه برگزاری وبینارهای سراسری، جلسات هماهنگی انجمن اولیا و مربیان، شورای دبیران و همایش‌های مجازی دانش‌آموزان.'
-              : isParent
-              ? 'شرکت در جلسات آنلاین انجمن اولیا و مربیان، کارگاه‌های آموزش خانواده و ارتباط تصویری مستقیم با مدیریت و مشاوران مدرسه.'
-              : isTeacher
-              ? 'ورود به جلسات آنلاین شورای معلمان، نشست‌های اداری و وبینارهای آموزشی مدرسه با مدیریت مجتمع.'
-              : 'ورود به وبینارهای آموزشی، مشاوره‌ای و همایش‌های انگیزشی آنلاین برگزار شده از سوی مدرسه.'}
+          <p>
+            {isPrincipal
+              ? 'از اینجا اتاق وبینار زنده مدرسه را (مشابه اسکای‌روم) ایجاد کنید، جلسه را ضبط و ذخیره کنید و فایل‌ها، فیلم‌ها، عکس‌ها و اعلانات را برای معلمان مدرسه خود منتشر کنید.'
+              : 'به اتاق وبینار زنده مدرسه وارد شوید و به فیلم‌ها، جلسات ضبط‌شده، عکس‌ها، فایل‌ها و تابلو اعلانات مدیر مدرسه دسترسی داشته باشید.'}
           </p>
         </div>
 
-        <div className={styles.headerActions}>
-          {isAdmin && (
-            <button
-              type="button"
-              className={styles.createMeetingBtn}
-              onClick={() => setShowCreateModal(true)}
-            >
-              <HiOutlinePlus style={{ fontSize: '1.2rem' }} />
-              <span>تعریف جلسه یا وبینار جدید</span>
-            </button>
+        <div className={styles.webinarHeroActions}>
+          {isPrincipal && !activeWebinar && (
+            <input
+              type="text"
+              value={webinarTitleInput}
+              onChange={(e) => setWebinarTitleInput(e.target.value)}
+              placeholder="عنوان جلسه وبینار (مثلاً شورای دبیران)..."
+              className={styles.heroInput}
+            />
           )}
 
-          <Link
-            href="/dashboard/classes/1/live?type=school_webinar"
-            className={styles.joinLiveBtn}
-            title="ورود به اتاق زنده پخش و تخته هوشمند مدرسه"
+          <button
+            type="button"
+            className={`${styles.enterWebinarBtn} ${!isPrincipal && !activeWebinar ? styles.enterWebinarBtnDisabled : ''}`}
+            onClick={handleStartOrEnterWebinar}
+            disabled={startingWebinar || (!isPrincipal && !activeWebinar)}
           >
-            <HiOutlineVideoCamera style={{ fontSize: '1.25rem' }} />
-            <span>ورود به اتاق وبینار زنده (LIVE)</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* ── 2. Active Live Room Card ── */}
-      <div className={styles.liveRoomCard}>
-        <div className={styles.liveRoomHeader}>
-          <div className={styles.liveRoomIcon}>
             <HiOutlineVideoCamera />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.6875rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>
-                پخش زنده فعال
-              </span>
-              <h2 className={styles.liveRoomTitle} style={{ margin: 0 }}>
-                اتاق اختصاصی جلسات آنلاین مدرسه
-              </h2>
+            <span>
+              {startingWebinar
+                ? 'در حال ایجاد اتاق...'
+                : activeWebinar
+                ? `ورود به اتاق وبینار زنده (${activeWebinar.title})`
+                : isPrincipal
+                ? 'ورود به اتاق وبینار زنده (ساخت تماس)'
+                : 'ورود به اتاق وبینار زنده (در انتظار شروع مدیر)'}
+            </span>
+          </button>
+
+          {!isPrincipal && !activeWebinar && (
+            <button type="button" className={styles.refreshBtn} onClick={fetchActiveWebinar} title="بررسی مجدد">
+              <HiOutlineArrowPath />
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* 2. NOTICE BOARD (تابلو اعلانات) */}
+      <section className={styles.noticeBoardCard}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>
+            <HiOutlineMegaphone />
+            <span>تابلو اعلانات جلسات مدرسه</span>
+          </h2>
+        </div>
+
+        {isPrincipal && (
+          <form onSubmit={handleCreateNotice} className={styles.noticeForm}>
+            <div className={styles.noticeFormRow}>
+              <input
+                type="text"
+                value={noticeTitle}
+                onChange={(e) => setNoticeTitle(e.target.value)}
+                placeholder="عنوان کوتاه (اختیاری)..."
+                className={styles.textInput}
+              />
+              <label className={styles.pinCheckbox}>
+                <input
+                  type="checkbox"
+                  checked={noticePinned}
+                  onChange={(e) => setNoticePinned(e.target.checked)}
+                />
+                <span>سنجاق در بالا</span>
+              </label>
             </div>
-            <p className={styles.liveRoomDesc}>
-              مجهز به تخته هوشمند تعاملی، وبکم، میکروفون، اشتراک‌گذاری تصویر و اسلاید، و چت عمومی اعضا
-            </p>
-          </div>
-        </div>
+            <textarea
+              rows={2}
+              value={noticeContent}
+              onChange={(e) => setNoticeContent(e.target.value)}
+              placeholder="متن یادداشت یا اطلاعیه برای معلمان مدرسه را اینجا بنویسید..."
+              className={styles.textareaInput}
+              required
+            />
+            <div className={styles.noticeFormFooter}>
+              <button type="submit" className={styles.btnPrimary} disabled={postingNotice}>
+                <HiOutlinePlus />
+                <span>{postingNotice ? 'در حال ثبت...' : 'ثبت روی تابلو اعلانات'}</span>
+              </button>
+            </div>
+          </form>
+        )}
 
-        <div className={styles.liveRoomRight}>
-          <Link
-            href="/dashboard/classes/1/live?type=school_webinar"
-            className={styles.enterBtn}
-            style={{ padding: '12px 24px', fontSize: '0.9375rem' }}
-          >
-            <span>ورود به اتاق جلسه 🚀</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* ── 3. Tabs Navigation ── */}
-      <div className={styles.tabsContainer}>
-        <button
-          className={`${styles.tabBtn} ${activeTab === 'all' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveTab('all')}
-        >
-          <HiOutlineSparkles />
-          <span>همه جلسات ({meetings.length})</span>
-        </button>
-
-        <button
-          className={`${styles.tabBtn} ${activeTab === 'parents' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveTab('parents')}
-        >
-          <HiOutlineUserGroup />
-          <span>جلسات اولیا و مربیان ({meetings.filter((m) => m.audience === 'parents').length})</span>
-        </button>
-
-        <button
-          className={`${styles.tabBtn} ${activeTab === 'teachers' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveTab('teachers')}
-        >
-          <HiOutlineAcademicCap />
-          <span>شورای دبیران ({meetings.filter((m) => m.audience === 'teachers').length})</span>
-        </button>
-
-        <button
-          className={`${styles.tabBtn} ${activeTab === 'students' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveTab('students')}
-        >
-          <HiOutlineUsers />
-          <span>وبینار دانش‌آموزان ({meetings.filter((m) => m.audience === 'students').length})</span>
-        </button>
-      </div>
-
-      {/* ── 4. Meetings Grid ── */}
-      {filteredMeetings.length === 0 ? (
-        <div className={styles.emptyState}>
-          <div style={{ fontSize: '3rem', marginBottom: '12px' }}>📅</div>
-          <h3 style={{ margin: '0 0 6px 0', fontWeight: 800 }}>جلسه‌ای در این بخش یافت نشد</h3>
-          <p style={{ margin: 0, fontSize: '0.875rem' }}>
-            در حال حاضر وبیناری با این فیلتر تعریف نشده است.
-          </p>
-        </div>
-      ) : (
-        <div className={styles.meetingsGrid}>
-          {filteredMeetings.map((item) => (
-            <div key={item.id} className={styles.meetingCard}>
-              <div>
-                <div className={styles.cardTop}>
-                  <span className={`${styles.targetAudienceBadge} ${getAudienceBadgeClass(item.audience)}`}>
-                    {item.audience === 'parents' ? '👨‍👩‍👧 اولیا و مربیان' : item.audience === 'teachers' ? '👨‍🏫 شورای معلمان' : '🎓 دانش‌آموزان'}
-                  </span>
-
-                  {item.status === 'live' && (
-                    <span style={{ background: '#ef4444', color: '#ffffff', fontSize: '0.6875rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>
-                      🔴 در حال برگزاری
+        {notices.length === 0 ? (
+          <p className={styles.helperMuted}>هنوز یادداشتی روی تابلو اعلانات ثبت نشده است.</p>
+        ) : (
+          <div className={styles.noticeList}>
+            {notices.map((n) => (
+              <div key={n.id} className={`${styles.noticeItem} ${n.is_pinned ? styles.noticePinned : ''}`}>
+                <div className={styles.noticeItemTop}>
+                  <div className={styles.noticeTitleWrap}>
+                    {n.is_pinned && <HiOutlineBookmark className={styles.pinIcon} />}
+                    <strong>{n.title || 'اطلاعیه مدیریت'}</strong>
+                    <span className={styles.noticeDate}>
+                      {n.author_name ? `${n.author_name} • ` : ''}
+                      {new Date(n.created_at).toLocaleDateString('fa-IR')}
                     </span>
+                  </div>
+                  {isPrincipal && (
+                    <button
+                      type="button"
+                      className={styles.iconDangerBtn}
+                      onClick={() => handleDeleteNotice(n.id)}
+                      title="حذف اعلان"
+                    >
+                      <HiOutlineTrash />
+                    </button>
                   )}
                 </div>
+                <p className={styles.noticeContent}>{n.content}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
-                <h3 className={styles.cardTitle}>{item.title}</h3>
-                <div className={styles.cardHost}>
-                  <HiOutlineBuildingOffice2 style={{ color: '#0ea5e9' }} />
-                  <span>برگزارکننده: {item.host}</span>
-                </div>
+      {/* 3. ORGANIZED 3-GROUP MEDIA & FILES SECTION (فیلم | عکس | فایل) */}
+      <section className={styles.mediaSection}>
+        <div className={styles.mediaHeaderBar}>
+          <div className={styles.mediaTabsRow}>
+            {MEDIA_TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={`${styles.mediaTabBtn} ${activeTab === tab.key ? styles.mediaTabActive : ''}`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  <Icon />
+                  <span>{tab.label}</span>
+                  <span className={styles.tabCountBadge}>{counts[tab.key] || 0}</span>
+                </button>
+              );
+            })}
+          </div>
 
-                <div className={styles.cardMetaGrid}>
-                  <div className={styles.cardMetaRow}>
-                    <span><HiOutlineCalendar style={{ verticalAlign: 'middle', marginLeft: 4 }} /> زمان:</span>
-                    <span className={styles.cardMetaValue}>{item.date} • {item.time}</span>
-                  </div>
-                  <div className={styles.cardMetaRow}>
-                    <span><HiOutlineClock style={{ verticalAlign: 'middle', marginLeft: 4 }} /> مدت:</span>
-                    <span className={styles.cardMetaValue}>{item.duration}</span>
-                  </div>
-                  {item.agenda && (
-                    <div style={{ marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-tertiary, #64748b)', lineHeight: '1.5' }}>
-                      <strong>دستور جلسه:</strong> {item.agenda}
+          {isPrincipal && (
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => openUploadForTab(activeTab)}
+            >
+              <HiOutlinePlus />
+              <span>
+                {activeTab === 'video'
+                  ? 'آپلود فیلم جدید'
+                  : activeTab === 'photo'
+                  ? 'آپلود عکس جدید'
+                  : 'آپلود فایل جدید'}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {loadingItems ? (
+          <div className={styles.emptyBox}>در حال بارگذاری...</div>
+        ) : items.length === 0 ? (
+          <div className={styles.emptyBox}>
+            هنوز موردی در این دسته‌بندی بارگذاری نشده است.
+          </div>
+        ) : (
+          <div className={styles.itemsGrid}>
+            {items.map((item) => {
+              const streamSrc = buildAuthedUrl(item.stream_url);
+              return (
+                <article key={item.id} className={styles.itemCard}>
+                  {/* Thumbnail / Visual Area */}
+                  {item.media_type === 'photo' ? (
+                    <div className={styles.photoPreviewBox} onClick={() => setPreviewItem(item)}>
+                      <img src={streamSrc} alt={item.title} className={styles.photoThumb} />
+                    </div>
+                  ) : item.media_type === 'video' ? (
+                    <div className={styles.videoThumbBox} onClick={() => setPreviewItem(item)}>
+                      <span className={styles.playCircle}>
+                        <HiOutlinePlay />
+                      </span>
+                      {item.is_recording && (
+                        <span className={styles.recordedBadge}>ضبط‌شده از وبینار زنده</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className={styles.fileThumbBox}>
+                      <HiOutlineDocumentText className={styles.fileBigIcon} />
+                      <span className={styles.fileExtTag}>
+                        {(item.file_name || '').split('.').pop()?.toUpperCase() || 'FILE'}
+                      </span>
                     </div>
                   )}
-                </div>
-              </div>
 
-              <div className={styles.cardActions}>
-                <Link href={item.link} className={styles.enterBtn}>
-                  <HiOutlineVideoCamera />
-                  <span>{item.status === 'live' ? 'ورود به وبینار زنده' : 'ورود به اتاق جلسه'}</span>
-                </Link>
+                  {/* Body */}
+                  <div className={styles.itemCardBody}>
+                    <div className={styles.itemMetaTags}>
+                      <span className={styles.groupBadge}>{item.category_group || 'عمومی'}</span>
+                      <span className={styles.dateBadge}>
+                        {new Date(item.created_at).toLocaleDateString('fa-IR')}
+                      </span>
+                    </div>
+                    <h3 className={styles.itemTitle}>{item.title}</h3>
+                    {item.description && <p className={styles.itemDesc}>{item.description}</p>}
 
-                <button
-                  type="button"
-                  className={styles.copyLinkBtn}
-                  onClick={() => handleCopyLink(item)}
-                  title="کپی لینک دعوت به جلسه"
-                >
-                  <HiOutlineClipboardDocumentCheck />
-                </button>
+                    <div className={styles.itemCardActions}>
+                      {(item.media_type === 'video' || item.media_type === 'photo') && (
+                        <button
+                          type="button"
+                          className={styles.btnPrimarySm}
+                          onClick={() => setPreviewItem(item)}
+                        >
+                          <HiOutlinePlay />
+                          <span>{item.media_type === 'video' ? 'پخش آفلاین' : 'مشاهده'}</span>
+                        </button>
+                      )}
 
-                {isAdmin && (
-                  <button
-                    type="button"
-                    className={styles.deleteBtn}
-                    onClick={() => handleDeleteMeeting(item.id, item.title)}
-                    title="حذف جلسه"
-                  >
-                    <HiOutlineTrash />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                      <button
+                        type="button"
+                        className={styles.btnSecondarySm}
+                        onClick={() => handleDownloadItem(item)}
+                      >
+                        <HiOutlineArrowDownTray />
+                        <span>دانلود</span>
+                      </button>
 
-      {/* ── 5. Create Meeting Modal (Admin) ── */}
-      {showCreateModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowCreateModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                      {isPrincipal && (
+                        <button
+                          type="button"
+                          className={styles.iconDangerBtn}
+                          onClick={() => handleDeleteItem(item)}
+                          title="حذف"
+                        >
+                          <HiOutlineTrash />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Upload Modal (Principal/Manager) */}
+      {showUploadModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowUploadModal(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>
-                <HiOutlineVideoCamera style={{ color: '#6366f1' }} />
-                <span>تعریف وبینار و جلسه آنلاین جدید مدرسه</span>
-              </h3>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setShowCreateModal(false)}
-              >
+              <h3>بارگذاری در بخش جلسات آنلاین مدرسه</h3>
+              <button type="button" className={styles.iconCloseBtn} onClick={() => setShowUploadModal(false)}>
                 <HiOutlineXMark />
               </button>
             </div>
 
-            <form onSubmit={handleSaveMeeting} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form onSubmit={handleUploadSubmit} className={styles.modalForm}>
               <div className={styles.formGroup}>
-                <label className={styles.label}>عنوان وبینار / جلسه آنلاین *</label>
+                <label className={styles.formLabel}>گروه‌بندی محتوا *</label>
+                <div className={styles.typeRadioRow}>
+                  {MEDIA_TABS.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`${styles.typePill} ${uploadMediaType === t.key ? styles.typePillActive : ''}`}
+                      onClick={() => setUploadMediaType(t.key)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>عنوان *</label>
                 <input
                   type="text"
-                  className={styles.input}
-                  placeholder="مثال: مجمع عمومی اولیا و مربیان یا شورای دبیران پایه دهم"
-                  value={newMeeting.title}
-                  onChange={(e) => setNewMeeting({ ...newMeeting, title: e.target.value })}
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="عنوان عکس، فیلم یا فایل..."
+                  className={styles.textInput}
                   required
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label className={styles.label}>مخاطبان هدف این جلسه *</label>
-                <select
-                  className={styles.select}
-                  value={newMeeting.audience}
-                  onChange={(e) => setNewMeeting({ ...newMeeting, audience: e.target.value })}
-                >
-                  <option value="parents">👨‍👩‍👧 اولیا و خانواده‌ها (نشست آموزش خانواده / کارنامه)</option>
-                  <option value="teachers">👨‍🏫 کادر و دبیران (شورای معلمان / جلسات اداری)</option>
-                  <option value="students">🎓 دانش‌آموزان (وبینار کنکور، هدایت تحصیلی و انگیزشی)</option>
-                  <option value="general">📢 عمومی (کلیه اعضای مجتمع آموزشی)</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>تاریخ برگزاری</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    placeholder="مثال: دوشنبه ۱۰ آبان"
-                    value={newMeeting.date}
-                    onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>ساعت برگزاری</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    placeholder="مثال: ساعت ۱۸:۳۰"
-                    value={newMeeting.time}
-                    onChange={(e) => setNewMeeting({ ...newMeeting, time: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>مدت زمان جلسه</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    placeholder="مثال: ۹۰ دقیقه"
-                    value={newMeeting.duration}
-                    onChange={(e) => setNewMeeting({ ...newMeeting, duration: e.target.value })}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label className={styles.label}>میزبان یا سخنران</label>
-                  <input
-                    type="text"
-                    className={styles.input}
-                    placeholder="مثال: مدیریت مجتمع آموزشی"
-                    value={newMeeting.host}
-                    onChange={(e) => setNewMeeting({ ...newMeeting, host: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>دستور جلسه یا توضیحات</label>
-                <textarea
-                  className={styles.textarea}
-                  rows={3}
-                  placeholder="محورهای گفتگو و سرفصل‌های مطرح‌شده در وبینار..."
-                  value={newMeeting.agenda}
-                  onChange={(e) => setNewMeeting({ ...newMeeting, agenda: e.target.value })}
+                <label className={styles.formLabel}>زیرگروه (برای نظم بیشتر)</label>
+                <input
+                  type="text"
+                  value={uploadGroup}
+                  onChange={(e) => setUploadGroup(e.target.value)}
+                  placeholder="مثلاً: شورای دبیران، بخشنامه‌ها، کارگاه آموزشی"
+                  className={styles.textInput}
                 />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowCreateModal(false)}
-                >
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>توضیحات</label>
+                <textarea
+                  rows={2}
+                  value={uploadDesc}
+                  onChange={(e) => setUploadDesc(e.target.value)}
+                  className={styles.textareaInput}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>انتخاب فایل *</label>
+                <input
+                  type="file"
+                  accept={MEDIA_TABS.find((t) => t.key === uploadMediaType)?.accept || '*/*'}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setUploadFile(f);
+                    if (f && !uploadTitle.trim()) setUploadTitle(f.name.replace(/\.[^/.]+$/, ''));
+                  }}
+                  className={styles.textInput}
+                  required
+                />
+              </div>
+
+              {isUploading && (
+                <div className={styles.progressTrack}>
+                  <div className={styles.progressFill} style={{ width: `${uploadProgress}%` }} />
+                </div>
+              )}
+
+              <div className={styles.modalFooter}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowUploadModal(false)}>
                   انصراف
                 </button>
-                <button type="submit" className="btn btn-primary" style={{ fontWeight: 800 }}>
-                  <HiOutlineCheckCircle />
-                  <span>ثبت و ابلاغ وبینار</span>
+                <button type="submit" className={styles.btnPrimary} disabled={isUploading}>
+                  {isUploading ? `در حال آپلود (${uploadProgress}%)` : 'بارگذاری و نمایش برای معلمان'}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Offline Video / Photo Preview Modal */}
+      {previewItem && (
+        <div className={styles.modalOverlay} onClick={() => setPreviewItem(null)}>
+          <div className={styles.previewModalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>{previewItem.title}</h3>
+              <button type="button" className={styles.iconCloseBtn} onClick={() => setPreviewItem(null)}>
+                <HiOutlineXMark />
+              </button>
+            </div>
+            <div className={styles.previewBody}>
+              {previewItem.media_type === 'video' ? (
+                <video
+                  src={buildAuthedUrl(previewItem.stream_url)}
+                  controls
+                  autoPlay
+                  className={styles.previewVideoEl}
+                />
+              ) : (
+                <img
+                  src={buildAuthedUrl(previewItem.stream_url)}
+                  alt={previewItem.title}
+                  className={styles.previewImgEl}
+                />
+              )}
+              {previewItem.description && <p className={styles.previewDesc}>{previewItem.description}</p>}
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => handleDownloadItem(previewItem)}
+              >
+                <HiOutlineArrowDownTray /> دانلود فایل
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skyroom-Style Live Webinar Room Overlay */}
+      {inWebinarRoom && activeWebinar && (
+        <LiveWebinarRoom
+          session={activeWebinar}
+          user={user}
+          isPrincipal={isPrincipal}
+          onLeave={() => {
+            setInWebinarRoom(false);
+            fetchActiveWebinar();
+          }}
+          onRecordingSaved={() => {
+            setActiveTab('video');
+            fetchItems();
+          }}
+        />
       )}
     </div>
   );

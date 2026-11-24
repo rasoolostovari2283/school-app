@@ -175,7 +175,7 @@ export default function Sidebar({ isOpen, onClose }) {
   }, [user, pathname]);
 
   const normalizedRole =
-    user?.role === 'manager'
+    ['manager', 'principal', 'school_admin'].includes(user?.role)
       ? 'admin'
       : user?.role === 'accountant'
       ? 'financial_officer'

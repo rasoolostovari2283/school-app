@@ -47,6 +47,7 @@ const ticketRoutes = require('./modules/tickets/ticket.routes');
 const analyticsRoutes = require('./modules/analytics/analytics.routes');
 const announcementRoutes = require('./modules/announcements/announcement.routes');
 const schoolRoutes = require('./modules/school/school.routes');
+const schoolMeetingsRoutes = require('./modules/schoolMeetings/schoolMeetings.routes');
 
 const { initSocket, activeClassrooms } = require('./socket');
 const { startScheduledMaintenance, listBackups, createBackup, BACKUP_DIR } = require('./services/dbMaintenance');
@@ -565,6 +566,7 @@ app.use('/api/v1/tickets', ticketRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/announcements', announcementRoutes);
 app.use('/api/v1/school', schoolRoutes);
+app.use('/api/v1/school-meetings', schoolMeetingsRoutes);
 
 // ── Serve Built Web Frontend (Zero-Rebuild Live Web / PWA Hosting) ──
 const publicWebDir = path.join(__dirname, '..', 'public');
