@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
 import Link from 'next/link';
@@ -28,7 +28,15 @@ import {
   HiOutlineXCircle,
   HiOutlineUserPlus,
   HiOutlineIdentification,
+  HiOutlineDocumentArrowDown,
 } from 'react-icons/hi2';
+import CreateClassGradebookModal from '../../../components/gradebook/CreateClassGradebookModal';
+import ClassesByGradeGradebook from '../../../components/gradebook/ClassesByGradeGradebook';
+import AddExamWithScoresModal from '../../../components/gradebook/AddExamWithScoresModal';
+import GradeTableFooterSummary, { computeLocalClassStats } from '../../../components/gradebook/GradeTableFooterSummary';
+import RecordedExamTablesList from '../../../components/gradebook/RecordedExamTablesList';
+import ManagerClassifiedGradebook from '../../../components/gradebook/ManagerClassifiedGradebook';
+import { exportGradeTableToPdf } from '../../../utils/gradebookPdfExporter';
 import styles from './report-card.module.css';
 
 export default function ReportCardPage() {
@@ -41,11 +49,15 @@ export default function ReportCardPage() {
 
   // Mode: 'management_overview' (کارنامه‌ها و نمرات کل به تفکیک معلمان) | 'class_session' (دفتر کلاسی)
   const [activeModeTab, setActiveModeTab] = useState(isAdmin ? 'management_overview' : 'class_session');
+  const userPickedTabRef = useRef(false);
 
-  // Ensure non-admin teachers always stay on class_session mode
+  // Sync default mode tab on hydration: Managers always land on classified overview unless they manually switched tabs
   useEffect(() => {
     if (!isAdmin) {
       setActiveModeTab('class_session');
+      userPickedTabRef.current = false;
+    } else if (!userPickedTabRef.current) {
+      setActiveModeTab('management_overview');
     }
   }, [isAdmin]);
 
@@ -69,15 +81,8 @@ export default function ReportCardPage() {
   const [selectedChildId, setSelectedChildId] = useState(null);
 
   // ── Teacher State ──
-  const [classes, setClasses] = useState([
-    {
-      id: 'cls-gradebook-default',
-      name: 'دفتر نمرات کلاسی من',
-      subject: 'دروس تخصصی',
-      grade: 'پایه دهم',
-    },
-  ]);
-  const [selectedClassId, setSelectedClassId] = useState('cls-gradebook-default');
+  const [classes, setClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [gradebookData, setGradebookData] = useState(null);
   const [loadingTeacher, setLoadingTeacher] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,15 +97,18 @@ export default function ReportCardPage() {
   const [cellErrors, setCellErrors] = useState({});
   const [savingAll, setSavingAll] = useState(false);
 
-  // Add Class Modal State
+  // Add Class Modal State & Classes-by-Grade In-Page View
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
+  const [showClassesByGrade, setShowClassesByGrade] = useState(false);
+  const [classesByGradeRefreshKey, setClassesByGradeRefreshKey] = useState(0);
   const [newClassName, setNewClassName] = useState('');
   const [newClassGrade, setNewClassGrade] = useState('پایه دهم');
   const [newClassSubject, setNewClassSubject] = useState('');
   const [isCreatingClass, setIsCreatingClass] = useState(false);
 
-  // Add Category Modal State
+  // Add Category / Exam Modal State
   const [showCatModal, setShowCatModal] = useState(false);
+  const [lastSavedExamId, setLastSavedExamId] = useState(null);
   const [newCatTitle, setNewCatTitle] = useState('');
   const [newCatWeight, setNewCatWeight] = useState('1.0');
   const [newCatMaxScore, setNewCatMaxScore] = useState('20');
@@ -264,93 +272,32 @@ export default function ReportCardPage() {
     }
   }, [mounted, authLoading, user?.id, user?.role, selectedChildId]);
 
-  // Load Teacher Classes from Class Rosters, Management Classes, and Backend
-  const loadTeacherClasses = async () => {
+  // Load Teacher Classes strictly from Backend Database
+  const loadTeacherClasses = async (preferredClassId = null) => {
     try {
       setLoadingTeacher(true);
+      const res = await api.get('/classes');
+      const dbClasses = Array.isArray(res.data?.data?.classes) ? res.data.data.classes : [];
+      setClasses(dbClasses);
 
-      const userSettings = (() => {
-        try {
-          return typeof user?.settings === 'string' ? JSON.parse(user.settings) : (user?.settings || {});
-        } catch (e) {
-          return {};
-        }
-      })();
-
-      const teacherGrades = Array.isArray(userSettings?.taught_grades)
-        ? userSettings.taught_grades
-        : (Array.isArray(user?.taught_grades) ? user.taught_grades : []);
-      const teacherSubject = userSettings?.subject || user?.job_title || user?.department || 'دروس عمومی';
-      const schoolCode = user?.school_code || userSettings?.school_code || '402100';
-
-      // 1. Fetch from API if available
-      let apiList = [];
-      try {
-        const res = await api.get('/classes');
-        apiList = res.data?.data?.classes || [];
-      } catch (err) {
-        console.warn('API get classes failed for gradebook, checking roster classes:', err.message);
+      if (dbClasses.length === 0) {
+        setSelectedClassId('');
+        setGradebookData(null);
+        return;
       }
 
-      // 2. Rely strictly on Backend API classes list
-      const combined = [...apiList];
-
-      // Filter or prioritize classes matching teacher's assigned grades and subject
-      let relevantClasses = [...combined];
-      if (teacherGrades.length > 0) {
-        const gradeMatched = combined.filter((c) => {
-          const cGrade = (c.grade || c.department || c.name || '').toLowerCase();
-          return teacherGrades.some((tg) => cGrade.includes(tg.toLowerCase()) || tg.toLowerCase().includes(cGrade));
-        });
-        if (gradeMatched.length > 0) {
-          relevantClasses = gradeMatched;
-        }
-      }
-
-      // If no relevant classes exist, auto-create classes based on teacher's taught grades or provide default gradebook
-      if (relevantClasses.length === 0) {
-        const gradesToGenerate = teacherGrades.length > 0 ? teacherGrades : ['پایه دهم', 'پایه یازدهم'];
-        const autoClasses = gradesToGenerate.map((grd, idx) => ({
-          id: `roster-cls-${idx + 101}`,
-          name: `کلاس ${idx + 101} - ${grd}`,
-          subject: teacherSubject || 'دروس تخصصی',
-          grade: grd,
-          join_code: `CLS${idx + 101}`,
-          teacher_id: user?.id,
-          teacher_name: user?.display_name || user?.name || 'دبیر گرامی',
-        }));
-
-        autoClasses.unshift({
-          id: 'cls-gradebook-default',
-          name: 'دفتر نمرات کلاسی من',
-          subject: teacherSubject || 'دروس تخصصی',
-          grade: 'پایه دهم',
-          teacher_id: user?.id,
-          teacher_name: user?.display_name || user?.name || 'دبیر گرامی',
-        });
-
-        relevantClasses = autoClasses;
-      }
-
-      setClasses(relevantClasses);
-
-      const targetId = (selectedClassId && relevantClasses.some((c) => String(c.id) === String(selectedClassId)))
-        ? selectedClassId
-        : relevantClasses[0].id;
+      const candidate = preferredClassId || selectedClassId;
+      const targetId = candidate && dbClasses.some((c) => String(c.id) === String(candidate))
+        ? candidate
+        : dbClasses[0].id;
 
       setSelectedClassId(targetId);
-      await fetchClassGradebook(targetId, relevantClasses);
+      await fetchClassGradebook(targetId, dbClasses);
     } catch (err) {
       console.warn('Error fetching classes for report-card:', err);
-      const fallbackCls = {
-        id: selectedClassId || 'cls-gradebook-default',
-        name: 'دفتر نمرات کلاسی من',
-        subject: 'دروس تخصصی',
-        grade: 'پایه دهم',
-      };
-      setClasses([fallbackCls]);
-      setSelectedClassId(fallbackCls.id);
-      await fetchClassGradebook(fallbackCls.id, [fallbackCls]);
+      setClasses([]);
+      setSelectedClassId('');
+      setGradebookData(null);
     } finally {
       setLoadingTeacher(false);
     }
@@ -377,208 +324,71 @@ export default function ReportCardPage() {
           subject: 'دروس تخصصی',
         };
 
-      // 1. Attempt API fetch
-      let apiSuccess = false;
-      try {
-        const res = await api.get(`/gradebook/classes/${classId}`);
-        if (res.data?.success && res.data.data) {
-          const data = res.data.data;
-          // Load local score overrides if any
-          const localScores = JSON.parse(localStorage.getItem(`gradebook_scores_${classId}`) || '{}');
+      const res = await api.get(`/gradebook/classes/${classId}`);
+      if (res.data?.success && res.data.data) {
+        const data = res.data.data;
+        const dbCategories = Array.isArray(data.categories) ? data.categories : [];
+        const rawStudents = Array.isArray(data.students) ? data.students : [];
 
-          // Merge locally saved categories so user-created exams are never lost
-          let localCategories = [];
-          try {
-            const savedCats = localStorage.getItem(`gradebook_categories_${classId}`);
-            if (savedCats) localCategories = JSON.parse(savedCats);
-          } catch (e) {}
+        const updatedStudents = rawStudents.map((st) => {
+          const scores = { ...(st.scores || {}) };
+          let totalWeight = 0;
+          let weightedSum = 0;
 
-          const mergedCategories = [...(data.categories || [])];
-          localCategories.forEach((lc) => {
-            if (!mergedCategories.some((c) => String(c.id) === String(lc.id))) {
-              mergedCategories.push(lc);
-            }
-          });
-          if (mergedCategories.length === 0) {
-            mergedCategories.push(
-              { id: `cat-cont-${classId}`, title: 'ارزشیابی مستمر کلاسی', weight: 1.0, max_score: 20 },
-              { id: `cat-mid-${classId}`, title: 'آزمون میان‌ترم', weight: 1.0, max_score: 20 },
-              { id: `cat-fin-${classId}`, title: 'امتحان پایانی نوبت اول', weight: 2.0, max_score: 20 }
-            );
-          }
-          data.categories = mergedCategories;
-
-          let rawStudents = data.students || [];
-          if (rawStudents.length === 0) {
-            // Seed starter students so grading is immediately possible
-            rawStudents = [
-              { id: `std-${classId}-1`, display_name: 'علیرضا حسینی', student_code: 'STD-40301', grade: 'پایه دهم' },
-              { id: `std-${classId}-2`, display_name: 'محمد مهدی کریمی', student_code: 'STD-40302', grade: 'پایه دهم' },
-              { id: `std-${classId}-3`, display_name: 'سینا احمدپور', student_code: 'STD-40303', grade: 'پایه دهم' },
-              { id: `std-${classId}-4`, display_name: 'امیرعلی رضایی', student_code: 'STD-40304', grade: 'پایه دهم' },
-              { id: `std-${classId}-5`, display_name: 'پارسا نصیری', student_code: 'STD-40305', grade: 'پایه دهم' },
-            ];
-          }
-
-          const updatedStudents = rawStudents.map((st) => {
-            const scores = { ...(st.scores || {}) };
-            let totalWeight = 0;
-            let weightedSum = 0;
-
-            (data.categories || []).forEach((cat) => {
-              const cellKey = `${st.id}_${cat.id}`;
-              if (localScores[cellKey] !== undefined) {
-                scores[cat.id] = { score: parseFloat(localScores[cellKey]) };
-              }
-              const sc = scores[cat.id]?.score;
-              if (sc != null) {
-                const w = cat.weight || 1.0;
-                weightedSum += sc * w;
-                totalWeight += w;
-              }
-            });
-
-            const newAvg = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(2)) : st.weightedAverage;
-            return { ...st, scores, weightedAverage: newAvg };
-          });
-
-          const completeData = { ...data, students: updatedStudents };
-          setGradebookData(completeData);
-
-          // Pre-populate controlled cells
-          const initialMap = {};
-          completeData.students?.forEach((st) => {
-            completeData.categories?.forEach((cat) => {
-              const sc = st.scores?.[cat.id]?.score;
-              initialMap[`${st.id}_${cat.id}`] = sc != null ? String(sc) : '';
-            });
-          });
-          setCellValues(initialMap);
-          apiSuccess = true;
-        }
-      } catch (apiErr) {
-        console.warn('API gradebook fetch failed, falling back to Class Rosters:', apiErr.message);
-      }
-
-      if (apiSuccess) return;
-
-      // 2. Class Rosters & Local Storage Fallback
-      const schoolCode = user?.school_code || '402100';
-
-      // Load Categories
-      let categories = [];
-      try {
-        const savedCats = localStorage.getItem(`gradebook_categories_${classId}`);
-        if (savedCats) categories = JSON.parse(savedCats);
-      } catch (e) {}
-
-      if (!Array.isArray(categories) || categories.length === 0) {
-        categories = [
-          { id: `cat-cont-${classId}`, title: 'مستمر نوبت اول', weight: 1.0, max_score: 20 },
-          { id: `cat-mid-${classId}`, title: 'آزمون میان‌ترم', weight: 1.0, max_score: 20 },
-          { id: `cat-fin-${classId}`, title: 'پایانی نوبت اول', weight: 2.0, max_score: 20 },
-        ];
-        try {
-          localStorage.setItem(`gradebook_categories_${classId}`, JSON.stringify(categories));
-        } catch (e) {}
-      }
-
-      // Load Students from Class Roster or School Students Pool
-      let rosterStudents = [];
-      try {
-        const savedRoster = localStorage.getItem(`class_roster_${classId}`);
-        if (savedRoster) {
-          const parsed = JSON.parse(savedRoster);
-          if (Array.isArray(parsed?.students) && parsed.students.length > 0) {
-            rosterStudents = parsed.students;
-          }
-        }
-
-      } catch (e) {}
-
-      // If still empty, seed realistic students for this class roster
-      if (rosterStudents.length === 0) {
-        const baseGrade = currentTargetClass.grade || 'پایه دهم';
-        rosterStudents = [
-          { id: `std-${classId}-1`, display_name: 'علیرضا حسینی', student_code: 'STD-40301', grade: baseGrade, phone: '09121112233' },
-          { id: `std-${classId}-2`, display_name: 'محمد مهدی کریمی', student_code: 'STD-40302', grade: baseGrade, phone: '09123334455' },
-          { id: `std-${classId}-3`, display_name: 'سینا احمدپور', student_code: 'STD-40303', grade: baseGrade, phone: '09125556677' },
-          { id: `std-${classId}-4`, display_name: 'امیرعلی رضایی', student_code: 'STD-40304', grade: baseGrade, phone: '09127778899' },
-          { id: `std-${classId}-5`, display_name: 'پارسا نصیری', student_code: 'STD-40305', grade: baseGrade, phone: '09129990011' },
-        ];
-
-        // Save to class_roster_${classId}
-        try {
-          localStorage.setItem(
-            `class_roster_${classId}`,
-            JSON.stringify({
-              class: currentTargetClass,
-              students: rosterStudents,
-              total_students: rosterStudents.length,
-            })
-          );
-        } catch (e) {}
-      }
-
-      // Read local scores
-      const localScores = JSON.parse(localStorage.getItem(`gradebook_scores_${classId}`) || '{}');
-
-      const initialMap = {};
-      const studentsWithCalculatedScores = rosterStudents.map((st, idx) => {
-        const scores = {};
-        let totalWeight = 0;
-        let weightedSum = 0;
-
-        categories.forEach((cat, cIdx) => {
-          const cellKey = `${st.id}_${cat.id}`;
-          let val = localScores[cellKey];
-
-          // If no score saved yet, initialize sample realistic scores so teacher sees working data
-          if (val === undefined) {
-            const sampleScores = [18.5, 16.0, 19.5, 14.5, 17.0, 15.5];
-            const sampleVal = sampleScores[(idx + cIdx) % sampleScores.length];
-            val = String(sampleVal);
-            localScores[cellKey] = val;
-          }
-
-          if (val !== undefined && val !== '' && val !== null) {
-            const num = parseFloat(val);
-            if (!isNaN(num)) {
-              scores[cat.id] = { score: num };
-              const w = cat.weight || 1.0;
-              weightedSum += num * w;
+          dbCategories.forEach((cat) => {
+            const sc = scores[cat.id]?.score;
+            if (sc != null && !Number.isNaN(Number(sc))) {
+              const w = Number(cat.weight) || 1.0;
+              weightedSum += Number(sc) * w;
               totalWeight += w;
             }
-            initialMap[cellKey] = String(val);
-          } else {
-            initialMap[cellKey] = '';
-          }
+          });
+
+          const newAvg =
+            totalWeight > 0
+              ? parseFloat((weightedSum / totalWeight).toFixed(2))
+              : st.weightedAverage ?? null;
+          return { ...st, scores, weightedAverage: newAvg };
         });
 
-        const weightedAverage = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(2)) : null;
-
-        return {
-          id: st.id,
-          display_name: st.display_name || st.name || `دانش‌آموز ${idx + 1}`,
-          student_code: st.student_code || st.code || `STD-4030${idx + 1}`,
-          phone: st.phone || '',
-          scores,
-          weightedAverage,
+        const completeData = {
+          ...data,
+          class: data.class || currentTargetClass,
+          categories: dbCategories,
+          students: updatedStudents,
         };
-      });
+        setGradebookData(completeData);
 
-      try {
-        localStorage.setItem(`gradebook_scores_${classId}`, JSON.stringify(localScores));
-      } catch (e) {}
-
-      setCellValues(initialMap);
-      setGradebookData({
-        class: currentTargetClass,
-        categories,
-        students: studentsWithCalculatedScores,
-      });
+        const initialMap = {};
+        completeData.students.forEach((st) => {
+          completeData.categories.forEach((cat) => {
+            const sc = st.scores?.[cat.id]?.score;
+            initialMap[`${st.id}_${cat.id}`] = sc != null ? String(sc) : '';
+          });
+        });
+        setCellValues(initialMap);
+      } else {
+        setCellValues({});
+        setGradebookData({
+          class: currentTargetClass,
+          categories: [],
+          students: [],
+        });
+      }
     } catch (err) {
       console.error('Error fetching class gradebook:', err);
+      toast.error(err.response?.data?.message || 'خطا در دریافت لیست نمرات کلاس از سرور');
+      setCellValues({});
+      setGradebookData({
+        class:
+          classList.find((c) => String(c.id) === String(classId)) ||
+          classes.find((c) => String(c.id) === String(classId)) || {
+            id: classId,
+            name: 'کلاس انتخابی',
+          },
+        categories: [],
+        students: [],
+      });
     } finally {
       setLoadingTeacher(false);
     }
@@ -1242,7 +1052,11 @@ export default function ReportCardPage() {
             <button
               type="button"
               className={`${styles.modeTabBtn} ${activeModeTab === 'management_overview' ? styles.modeTabBtnActive : ''}`}
-              onClick={() => setActiveModeTab('management_overview')}
+              onClick={() => {
+                userPickedTabRef.current = true;
+                setActiveModeTab('management_overview');
+              }}
+              data-testid="manager-mode-overview-tab"
             >
               <div className={styles.modeTabIconBox}>
                 <HiOutlineBuildingOffice2 className={styles.modeTabIcon} />
@@ -1250,14 +1064,18 @@ export default function ReportCardPage() {
               <div className={styles.modeTabContent}>
                 <span className={styles.modeTabTitle}>نمرات کل مدرسه</span>
                 <span className={styles.modeTabSub}>
-                  به تفکیک معلمان ({sharedReports.length} کلاس ثبت‌شده)
+                  نمایش مستقیم و طبقه‌بندی‌شده به تفکیک معلمان و پایه‌ها
                 </span>
               </div>
             </button>
             <button
               type="button"
               className={`${styles.modeTabBtn} ${activeModeTab === 'class_session' ? styles.modeTabBtnActive : ''}`}
-              onClick={() => setActiveModeTab('class_session')}
+              onClick={() => {
+                userPickedTabRef.current = true;
+                setActiveModeTab('class_session');
+              }}
+              data-testid="manager-mode-session-tab"
             >
               <div className={styles.modeTabIconBox}>
                 <HiOutlineAcademicCap className={styles.modeTabIcon} />
@@ -1276,320 +1094,29 @@ export default function ReportCardPage() {
 
         {isAdmin && activeModeTab === 'management_overview' ? (
           /* ══════════════════════════════════════════════════════════════════
-             MANAGEMENT OVERVIEW (نمای مدیریت: کارنامه‌ها و نمرات به تفکیک معلمان)
+             MANAGEMENT OVERVIEW (نمای مستقیم و طبقه‌بندی‌شده کارنامه معلمان مدرسه)
              ══════════════════════════════════════════════════════════════════ */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Top KPI Cards for Management */}
-            <div className={styles.classStatsGrid}>
-              <div className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <span className={styles.statLabel}>کل کلاس‌های ارسالی معلمان</span>
-                  <HiOutlineBuildingOffice2 className={styles.statIcon} style={{ color: '#818cf8' }} />
-                </div>
-                <div className={styles.statValue}>{mgmtOverviewStats.totalClasses} کلاس</div>
-                <span className={styles.statSub}>تعداد کل کلاس‌های ثبت‌شده توسط معلمان</span>
-              </div>
-
-              <div className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <span className={styles.statLabel}>میانگین نمرات کل مدرسه</span>
-                  <HiOutlineSparkles className={styles.statIcon} style={{ color: '#3b82f6' }} />
-                </div>
-                <div className={styles.statValue} style={{ color: '#3b82f6' }}>
-                  {mgmtOverviewStats.schoolAvg} <span style={{ fontSize: '1rem', opacity: 0.8 }}>از ۲۰</span>
-                </div>
-                <span className={styles.statSub}>میانگین کلی نمرات تمام کلاس‌های مدرسه</span>
-              </div>
-
-              <div className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <span className={styles.statLabel}>درصد کل قبولی مدرسه</span>
-                  <HiOutlineCheckCircle className={styles.statIcon} style={{ color: '#10b981' }} />
-                </div>
-                <div className={styles.statValue} style={{ color: '#10b981' }}>
-                  {mgmtOverviewStats.schoolPassRate}٪
-                </div>
-                <span className={styles.statSub}>درصد دانش‌آموزان با نمره بالاتر از ۱۲</span>
-              </div>
-
-              <div className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <span className={styles.statLabel}>تعداد کل دانش‌آموزان ارزیابی‌شده</span>
-                  <HiOutlineUserGroup className={styles.statIcon} style={{ color: '#f59e0b' }} />
-                </div>
-                <div className={styles.statValue} style={{ color: '#f59e0b' }}>
-                  {mgmtOverviewStats.totalStudents} نفر
-                </div>
-                <span className={styles.statSub}>تعداد کل نمرات ثبت‌شده در سامانه</span>
-              </div>
-            </div>
-
-            {/* Management Filter Bar */}
-            <div
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-2xl)',
-                padding: '16px 20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '12px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1', minWidth: '260px' }}>
-                <div style={{ position: 'relative', width: '100%' }}>
-                  <HiOutlineMagnifyingGlass
-                    style={{
-                      position: 'absolute',
-                      right: '12px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: 'var(--text-tertiary)',
-                    }}
-                  />
-                  <input
-                    type="text"
-                    placeholder="جستجو در نام معلم، کد دبیر، کلاس یا دانش‌آموز..."
-                    value={mgmtSearchQuery}
-                    onChange={(e) => setMgmtSearchQuery(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 38px 9px 14px',
-                      borderRadius: 'var(--radius-lg)',
-                      border: '1px solid var(--border-color)',
-                      background: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      fontSize: '0.875rem',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <label style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  فیلتر دبیر:
-                </label>
-                <select
-                  className={styles.classSelect}
-                  value={teacherFilter}
-                  onChange={(e) => setTeacherFilter(e.target.value)}
-                  style={{ minWidth: '180px' }}
-                >
-                  <option value="all">همه دبیران مدرسه ({uniqueTeachers.length} معلم)</option>
-                  {uniqueTeachers.map((t, idx) => (
-                    <option key={idx} value={t.code || t.name}>
-                      {t.name} ({t.code || 'کد دبیر'})
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setMgmtSearchQuery('');
-                    setTeacherFilter('all');
-                  }}
-                  title="پاکسازی فیلترها"
-                >
-                  نمایش همه
-                </button>
-              </div>
-            </div>
-
-            {/* Teacher Cards Grid */}
-            {filteredSharedReports.length === 0 ? (
-              <div
-                style={{
-                  background: 'var(--bg-card)',
-                  border: '1px dashed var(--border-color)',
-                  borderRadius: 'var(--radius-2xl)',
-                  padding: '50px 24px',
-                  textAlign: 'center',
-                  color: 'var(--text-tertiary)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '12px',
-                }}
-              >
-                <HiOutlineCalculator style={{ fontSize: '3rem', opacity: 0.5 }} />
-                <p style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
-                  گزارشی با فیلترهای انتخابی یافت نشد
-                </p>
-                <span style={{ fontSize: '0.8125rem' }}>
-                  معلمان می‌توانند در تب «ثبت و ورود نمرات کلاسی»، با زدن دکمه «اشتراک‌گذاری با مدیریت»، لیست نمرات کلاس خود را فوراً به این بخش ارسال نمایند.
-                </span>
-              </div>
-            ) : (
-              <div className={styles.mgmtBreakdownGrid}>
-                {filteredSharedReports.map((rep) => (
-                  <div key={rep.id} className={styles.mgmtTeacherCard}>
-                    {/* Card Header with Teacher Avatar and Badge */}
-                    <div className={styles.mgmtCardHeader}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div className={styles.teacherAvatarCircle}>
-                          {rep.teacher_name?.charAt(0) || 'م'}
-                        </div>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0 }}>
-                              {rep.teacher_name}
-                            </h3>
-                            <span className={styles.teacherCodePill}>{rep.teacher_code}</span>
-                          </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                            {rep.subject} | {rep.class_name} {rep.grade ? `(${rep.grade})` : ''}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: 'left', flexShrink: 0 }}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            fontSize: '0.72rem',
-                            fontWeight: 800,
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            background:
-                              rep.status === 'acknowledged' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                            color: rep.status === 'acknowledged' ? '#10b981' : '#f59e0b',
-                            border: `1px solid ${
-                              rep.status === 'acknowledged'
-                                ? 'rgba(16, 185, 129, 0.3)'
-                                : 'rgba(245, 158, 11, 0.3)'
-                            }`,
-                          }}
-                        >
-                          {rep.status === 'acknowledged' ? '✓ تایید مدیریت' : '⏳ در انتظار بررسی'}
-                        </span>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', direction: 'ltr' }}>
-                          {rep.date} - {rep.time}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Score Stats Badges */}
-                    <div className={styles.mgmtStatsPills}>
-                      <div className={`${styles.statBadgeItem} ${styles.statBadgeAvg}`}>
-                        <span>📊 میانگین کلاس:</span>
-                        <strong>{rep.class_average}</strong>
-                      </div>
-                      <div className={`${styles.statBadgeItem} ${styles.statBadgePass}`}>
-                        <span>✓ درصد قبولی:</span>
-                        <strong>{rep.pass_rate}٪</strong>
-                      </div>
-                      <div className={`${styles.statBadgeItem} ${styles.statBadgeTop}`}>
-                        <span>🏆 بالاترین نمره:</span>
-                        <strong>{rep.top_score}</strong>
-                      </div>
-                      <div className={`${styles.statBadgeItem} ${styles.statBadgeCount}`}>
-                        <span>👥 دانش‌آموزان:</span>
-                        <strong>{rep.students_count} نفر</strong>
-                      </div>
-                    </div>
-
-                    {/* Failing / Attention Students Alert Callout */}
-                    {rep.failing_students && rep.failing_students.length > 0 ? (
-                      <div className={styles.attentionCalloutBox}>
-                        <div className={styles.attentionCalloutTitle}>
-                          <HiOutlineXCircle style={{ fontSize: '0.9rem' }} />
-                          <span>
-                            دانش‌آموزان نیازمند توجه و تقویت ({rep.failing_students.length} نفر با نمره زیر ۱۲):
-                          </span>
-                        </div>
-                        <div className={styles.attentionStudentsList}>
-                          {rep.failing_students.map((st, sIdx) => (
-                            <div key={sIdx} className={styles.attentionStudentItem}>
-                              <span>{st.name}</span>
-                              <span style={{ fontWeight: 800, marginRight: '4px', color: '#b91c1c' }}>
-                                ({st.score})
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: 'var(--radius-lg)',
-                          background: 'rgba(16, 185, 129, 0.08)',
-                          color: '#059669',
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                        }}
-                      >
-                        <HiOutlineCheckCircle />
-                        <span>تبریک! تمام دانش‌آموزان این کلاس نمره قبولی کسب کرده‌اند.</span>
-                      </div>
-                    )}
-
-                    {/* Teacher Notes */}
-                    {rep.teacher_note && (
-                      <div className={styles.teacherNotesSection}>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '2px' }}>
-                          💬 یادداشت دبیر به مدیریت:
-                        </span>
-                        <span>{rep.teacher_note}</span>
-                      </div>
-                    )}
-
-                    {/* Card Actions */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginTop: 'auto',
-                        paddingTop: '10px',
-                        borderTop: '1px solid var(--border-color)',
-                        flexWrap: 'wrap',
-                        gap: '8px',
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setSelectedReportDetail(rep)}
-                        style={{ fontSize: '0.78rem' }}
-                      >
-                        <HiOutlineDocumentText />
-                        <span>مشاهده ریز نمرات و کارنامه</span>
-                      </button>
-
-                      {isAdmin && rep.status !== 'acknowledged' && (
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          style={{
-                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                            color: 'white',
-                            fontWeight: 700,
-                            fontSize: '0.78rem',
-                          }}
-                          onClick={() => handleAcknowledgeReport(rep.id)}
-                        >
-                          ✓ تایید و ثبت رویت مدیریت
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <ManagerClassifiedGradebook />
         ) : (
           /* ══════════════════════════════════════════════════════════════════
              TEACHER SCORE ENTRY VIEW (ورود نمرات و دفتر کلاسی)
              ══════════════════════════════════════════════════════════════════ */
           <>
+            {showClassesByGrade ? (
+              <ClassesByGradeGradebook
+                key={classesByGradeRefreshKey}
+                onBack={() => setShowClassesByGrade(false)}
+                onPreviewStudent={handleOpenPreviewModal}
+                onOpenCreateClass={() => setShowCreateClassModal(true)}
+                onOpenAddExam={() => setShowCatModal(true)}
+                onEntriesSaved={(savedClassId) => {
+                  if (savedClassId && savedClassId === selectedClassId) {
+                    fetchClassGradebook(savedClassId);
+                  }
+                }}
+              />
+            ) : (
+              <>
             {/* ── 1. Header & Class Selector ── */}
             <div className={styles.topToolbar}>
               <div className={styles.pageTitleBox}>
@@ -1603,28 +1130,36 @@ export default function ReportCardPage() {
               </div>
 
               <div className={styles.toolbarActions}>
-                <div className={styles.classSelectWrapper}>
-                  <span style={{ fontSize: '0.813rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                    دفتر نمرات / کلاس:
+                <div className={styles.classSelectWrapper} data-testid="gradebook-class-box">
+                  <span
+                    style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontWeight: 800, whiteSpace: 'nowrap' }}
+                    data-testid="gradebook-class-box-label"
+                  >
+                    دفتر نمرات کلاس
                   </span>
                   <select
                     className={styles.classSelect}
-                    value={selectedClassId || 'cls-gradebook-default'}
+                    value={selectedClassId || ''}
+                    aria-label="دفتر نمرات کلاس"
+                    data-testid="gradebook-class-select"
                     onChange={(e) => {
                       if (e.target.value === '__add_new__') {
                         setShowCreateClassModal(true);
-                      } else {
+                      } else if (e.target.value) {
                         setSelectedClassId(e.target.value);
                       }
                     }}
                   >
-                    {(classes.length > 0 ? classes : [{ id: 'cls-gradebook-default', name: 'دفتر نمرات کلاسی من', grade: 'پایه دهم' }]).map((cls) => (
+                    {classes.length === 0 && (
+                      <option value="">-- انتخاب کلاس از دیتابیس --</option>
+                    )}
+                    {classes.map((cls) => (
                       <option key={cls.id} value={cls.id}>
-                        {cls.name} {cls.subject ? `— ${cls.subject}` : ''} ({cls.grade || 'پایه دهم'})
+                        {cls.name} {cls.subject ? `— ${cls.subject}` : ''} ({cls.grade || 'عمومی'})
                       </option>
                     ))}
                     <option value="__add_new__" style={{ color: '#4f46e5', fontWeight: 800 }}>
-                      ➕ + ایجاد و ثبت کلاس جدید...
+                      ➕ ایجاد و ثبت کلاس جدید
                     </option>
                   </select>
                 </div>
@@ -1633,7 +1168,8 @@ export default function ReportCardPage() {
                   type="button"
                   onClick={() => setShowCreateClassModal(true)}
                   className="btn btn-secondary btn-sm"
-                  title="افزودن کلاس جدید به این بخش جهت نمره‌دهی و کارنامه"
+                  data-testid="open-create-class-gradebook-btn"
+                  title="ایجاد کلاس جدید و ورود دستی دانش‌آموزان و نمرات"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1644,18 +1180,20 @@ export default function ReportCardPage() {
                   }}
                 >
                   <HiOutlinePlus style={{ fontSize: '1.1rem' }} />
-                  <span>افزودن کلاس جدید</span>
+                  <span>ایجاد و ثبت کلاس جدید</span>
                 </button>
 
-                <Link
-                  href="/dashboard/class-rosters"
+                <button
+                  type="button"
+                  onClick={() => setShowClassesByGrade(true)}
                   className="btn btn-secondary btn-sm"
-                  title="مشاهده و مدیریت لیست‌های کلاسی، پایه‌ها و دانش‌آموزان"
+                  data-testid="open-classes-by-grade-btn"
+                  title="مشاهده لیست کلاس‌ها و دانش‌آموزان از کوچک‌ترین پایه به بزرگ‌ترین پایه و ثبت نمرات و وضعیت"
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <HiOutlineIdentification style={{ fontSize: '1.1rem', color: '#6366f1' }} />
                   <span>لیست‌های کلاسی و پایه‌ها</span>
-                </Link>
+                </button>
 
                 <button
                   className="btn btn-primary btn-sm"
@@ -1673,6 +1211,7 @@ export default function ReportCardPage() {
                   className="btn btn-secondary btn-sm"
                   onClick={() => setShowCatModal(true)}
                   type="button"
+                  data-testid="open-add-exam-btn"
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <HiOutlinePlus />
@@ -1717,52 +1256,7 @@ export default function ReportCardPage() {
               </div>
             </div>
 
-        {/* ── 2. Class KPI Overview ── */}
-        {gradebookData && (
-          <div className={styles.classStatsGrid}>
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <span className={styles.statLabel}>تعداد دانش‌آموزان کلاس</span>
-                <HiOutlineUserGroup className={styles.statIcon} />
-              </div>
-              <div className={styles.statValue}>{classStats.totalStudents} نفر</div>
-              <span className={styles.statSub}>فهرست اسامی ثبت‌شده این کلاس</span>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <span className={styles.statLabel}>میانگین نمرات کلاس</span>
-                <HiOutlineSparkles className={styles.statIcon} style={{ color: '#818cf8' }} />
-              </div>
-              <div className={styles.statValue} style={{ color: '#818cf8' }}>
-                {classStats.average}
-              </div>
-              <span className={styles.statSub}>میانگین نمرات ثبت‌شده</span>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <span className={styles.statLabel}>بالاترین نمره کلاس</span>
-                <HiOutlineTrophy className={styles.statIcon} style={{ color: '#34d399' }} />
-              </div>
-              <div className={styles.statValue} style={{ color: '#34d399' }}>
-                {classStats.topScore}
-              </div>
-              <span className={styles.statSub}>رتبه برتر کلاسی</span>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <span className={styles.statLabel}>درصد قبولی کلاس</span>
-                <HiOutlineCheckCircle className={styles.statIcon} style={{ color: '#fbbf24' }} />
-              </div>
-              <div className={styles.statValue} style={{ color: '#fbbf24' }}>
-                {classStats.passRate}٪
-              </div>
-              <span className={styles.statSub}>نمرات بالاتر از ۱۲</span>
-            </div>
-          </div>
-        )}
+            {/* Top KPI strip intentionally removed: 4 auto-calculated stat boxes live cleanly below each grade table */}
 
         {/* ── 3. Active Categories Strip & Student Search Filter ── */}
         <div className={styles.categoriesBar}>
@@ -2192,8 +1686,98 @@ export default function ReportCardPage() {
                 </div>
               )}
             </div>
+
+            {/* 4 Auto-Calculated Stat Boxes + PDF Export at Bottom of Grade Table */}
+            {gradebookData && (() => {
+              const allStudents = gradebookData.students || [];
+              const allCats = gradebookData.categories || [];
+              const activeClass =
+                classes.find((c) => String(c.id) === String(selectedClassId)) || gradebookData.class || {};
+
+              const liveAvgs = allStudents.map((st) => {
+                let weightedSum = 0;
+                let totalWeight = 0;
+                allCats.forEach((cat) => {
+                  const raw = cellValues[`${st.id}_${cat.id}`];
+                  const val =
+                    raw !== undefined && raw !== ''
+                      ? Number(raw)
+                      : st.scores?.[cat.id]?.score != null
+                        ? Number(st.scores[cat.id].score)
+                        : null;
+                  if (val !== null && !Number.isNaN(val)) {
+                    const w = Number(cat.weight) || 1;
+                    weightedSum += val * w;
+                    totalWeight += w;
+                  }
+                });
+                return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 100) / 100 : st.weightedAverage;
+              });
+
+              const liveFooterStats = computeLocalClassStats(liveAvgs, {
+                totalStudents: allStudents.length,
+                passThreshold: 12,
+              });
+
+              const pdfColumns = [
+                { label: 'ردیف', weight: 0.55, align: 'center' },
+                { label: 'نام و نام خانوادگی', weight: 2.1, align: 'right' },
+                ...allCats.map((cat) => ({ label: cat.title, weight: 1.1, align: 'center' })),
+                { label: 'میانگین', weight: 0.9, align: 'center' },
+                { label: 'وضعیت', weight: 1.15, align: 'center' },
+              ];
+
+              const pdfRows = allStudents.map((st, idx) => {
+                const avg = liveAvgs[idx];
+                return [
+                  String(idx + 1),
+                  st.display_name,
+                  ...allCats.map((cat) => {
+                    const raw = cellValues[`${st.id}_${cat.id}`];
+                    if (raw !== undefined && raw !== '') return String(raw);
+                    return st.scores?.[cat.id]?.score != null ? String(st.scores[cat.id].score) : '—';
+                  }),
+                  avg != null ? String(avg) : '—',
+                  avg != null ? (avg >= 12 ? 'قبول' : 'نیاز به تلاش') : 'نامشخص',
+                ];
+              });
+
+              return (
+                <GradeTableFooterSummary
+                  stats={liveFooterStats}
+                  testIdPrefix="single-class-gradebook-footer"
+                  pdfConfig={{
+                    title: `لیست نمرات کلاس ${activeClass.name || 'کلاس درسی'}`,
+                    subtitle: `${activeClass.grade || ''} · درس ${activeClass.subject || 'عمومی'}`,
+                    teacherName: user?.display_name || '',
+                    columns: pdfColumns,
+                    rows: pdfRows,
+                    fileName: `grades-${activeClass.name || 'class'}.pdf`,
+                  }}
+                />
+              );
+            })()}
           </div>
         )}
+
+        {/* ── 5. Recorded Individual Exam Grade Lists (Each with its own 4 auto-stats + PDF export) ── */}
+        {!loadingTeacher && gradebookData && (
+          <RecordedExamTablesList
+            activeClass={
+              classes.find((c) => String(c.id) === String(selectedClassId)) ||
+              gradebookData.class ||
+              {}
+            }
+            categories={gradebookData.categories || []}
+            students={gradebookData.students || []}
+            cellValues={cellValues}
+            teacherName={user?.display_name || ''}
+            highlightCategoryId={lastSavedExamId}
+            onDeleteCategory={handleDeleteCategory}
+          />
+        )}
+              </>
+            )}
 
         {/* ── Modal: View Official Student Report Card ── */}
         {previewStudent && (
@@ -2237,168 +1821,39 @@ export default function ReportCardPage() {
           </div>
         )}
 
-        {/* ── Modal: Create New Class ── */}
-        {showCreateClassModal && (
-          <div className={styles.modalOverlay} onClick={() => setShowCreateClassModal(false)}>
-            <div className={styles.modalContent} style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <HiOutlineBuildingOffice2 style={{ fontSize: '1.3rem', color: '#6366f1' }} />
-                  <h3 style={{ margin: 0, fontWeight: 800 }}>ایجاد و ثبت کلاس جدید</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateClassModal(false)}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
-                >
-                  <HiOutlineXMark />
-                </button>
-              </div>
+        {/* ── Modal: Create New Class + Manual Student Autocomplete & Scores ── */}
+        <CreateClassGradebookModal
+          isOpen={showCreateClassModal}
+          onClose={() => setShowCreateClassModal(false)}
+          onCreated={async (createdData) => {
+            const newClass = createdData?.class;
+            if (newClass?.id) {
+              await loadTeacherClasses(newClass.id);
+            } else {
+              await loadTeacherClasses();
+            }
+            setClassesByGradeRefreshKey((k) => k + 1);
+          }}
+        />
 
-              <div className={styles.modalBody}>
-                <p style={{ margin: '0 0 16px 0', fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                  مشخصات کلاس درسی را وارد نمایید. این کلاس بلافاصله به منوی کلاس‌ها اضافه شده و دفتر نمرات آن فعال می‌گردد.
-                </p>
-
-                <form onSubmit={handleCreateNewClass} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_name">نام کلاس *</label>
-                    <input
-                      id="cls_name"
-                      className="input"
-                      type="text"
-                      placeholder="مثلاً: کلاس ۱۰۱ - ریاضی، کلاس دهم تجربی الف"
-                      value={newClassName}
-                      onChange={(e) => setNewClassName(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_grade">پایه تحصیلی *</label>
-                    <select
-                      id="cls_grade"
-                      className="input"
-                      value={newClassGrade}
-                      onChange={(e) => setNewClassGrade(e.target.value)}
-                    >
-                      <option value="پایه هفتم">پایه هفتم</option>
-                      <option value="پایه هشتم">پایه هشتم</option>
-                      <option value="پایه نهم">پایه نهم</option>
-                      <option value="پایه دهم">پایه دهم</option>
-                      <option value="پایه یازدهم">پایه یازدهم</option>
-                      <option value="پایه دوازدهم">پایه دوازدهم</option>
-                      <option value="عمومی">عمومی / آزاد</option>
-                    </select>
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cls_subject">عنوان درس / رشته (اختیاری)</label>
-                    <input
-                      id="cls_subject"
-                      className="input"
-                      type="text"
-                      placeholder="مثلاً: ریاضیات تخصصی، فیزیک، زیست‌شناسی"
-                      value={newClassSubject}
-                      onChange={(e) => setNewClassSubject(e.target.value)}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreateClassModal(false)}>
-                      انصراف
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={isCreatingClass}>
-                      {isCreatingClass ? 'در حال ثبت...' : 'ثبت و ایجاد کلاس'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Modal: Add Evaluation Category ── */}
-        {showCatModal && (
-          <div className={styles.modalOverlay} onClick={() => setShowCatModal(false)}>
-            <div className={styles.modalContent} style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <h3 style={{ margin: 0, fontWeight: 800 }}>تعریف آزمون / ستون نمره جدید</h3>
-                <button
-                  onClick={() => setShowCatModal(false)}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: '1.25rem' }}
-                >
-                  <HiOutlineXMark />
-                </button>
-              </div>
-
-              <div className={styles.modalBody}>
-                <form onSubmit={handleCreateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ background: 'var(--bg-surface)', padding: '10px 14px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', display: 'block', marginBottom: '2px' }}>
-                      کلاس انتخابی جهت ثبت آزمون:
-                    </span>
-                    <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                      {classes.find((c) => c.id === selectedClassId)?.name || 'کلاس انتخابی'}
-                    </strong>
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label" htmlFor="cat_title">عنوان آزمون / ارزشیابی *</label>
-                    <input
-                      id="cat_title"
-                      className="input"
-                      type="text"
-                      placeholder="مثلاً: کوئیز کلاسی فصل ۲، آزمون عملی، پرسش شفاهی"
-                      value={newCatTitle}
-                      onChange={(e) => setNewCatTitle(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div className="input-group">
-                      <label className="input-label" htmlFor="cat_weight">ضریب در معدل</label>
-                      <input
-                        id="cat_weight"
-                        className="input"
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        max="10"
-                        value={newCatWeight}
-                        onChange={(e) => setNewCatWeight(e.target.value)}
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label" htmlFor="cat_max">سقف نمره</label>
-                      <input
-                        id="cat_max"
-                        className="input"
-                        type="number"
-                        min="1"
-                        max="100"
-                        value={newCatMaxScore}
-                        onChange={(e) => setNewCatMaxScore(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowCatModal(false)}>
-                      انصراف
-                    </button>
-                    <button type="submit" className="btn btn-primary">
-                      افزودن به دفتر نمرات
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* ── Modal: Add New Exam & Enter Class Scores Immediately ── */}
+        <AddExamWithScoresModal
+          isOpen={showCatModal}
+          onClose={() => setShowCatModal(false)}
+          classes={classes}
+          defaultClassId={selectedClassId}
+          onSaved={async ({ classId, category }) => {
+            if (category?.id) {
+              setLastSavedExamId(category.id);
+            }
+            setShowClassesByGrade(false);
+            if (classId) {
+              setSelectedClassId(classId);
+              await fetchClassGradebook(classId);
+            }
+            setClassesByGradeRefreshKey((k) => k + 1);
+          }}
+        />
 
         {/* ── Modal: Add Student to Class ── */}
         {showAddStudentModal && (
@@ -3118,7 +2573,7 @@ function OfficialReportCardPaperSheet({ reportData }) {
 
       {/* Formal Grades Table */}
       <div className={styles.mobileScrollHint}>
-        <span>📱 برای مشاهده نمرات مستمر، میان‌ترم و پایانی، جدول را به چپ بکشید ⟷</span>
+        <span>برای مشاهده نمرات ارزشیابی مستمر، آزمون میانسالی، آزمون پایان سال و وضعیت، جدول را به چپ بکشید ⟷</span>
       </div>
       <div className={styles.tableContainer}>
         <table className={styles.gradeTable}>
@@ -3128,29 +2583,43 @@ function OfficialReportCardPaperSheet({ reportData }) {
               <th>عنوان درس</th>
               <th>دبیر مدرس</th>
               <th style={{ textAlign: 'center' }}>ارزشیابی مستمر</th>
-              <th style={{ textAlign: 'center' }}>آزمون میان‌ترم</th>
-              <th style={{ textAlign: 'center' }}>آزمون پایانی</th>
-              <th style={{ textAlign: 'center' }}>نمره نهایی درس</th>
-              <th style={{ textAlign: 'center' }}>وضعیت قبولی</th>
+              <th style={{ textAlign: 'center' }}>آزمون میانسالی</th>
+              <th style={{ textAlign: 'center' }}>آزمون پایان سال</th>
+              <th style={{ textAlign: 'center' }}>میانگین</th>
+              <th style={{ textAlign: 'center' }}>وضعیت</th>
             </tr>
           </thead>
           <tbody>
             {reportData.reportCards?.map((item, idx) => {
-              const contScore = item.breakdowns?.find((b) => b.title.includes('مستمر'))?.score;
-              const midScore = item.breakdowns?.find((b) => b.title.includes('میان‌ترم'))?.score;
-              const finScore = item.breakdowns?.find((b) => b.title.includes('پایانی'))?.score;
+              const contScore = item.continuous_score != null
+                ? item.continuous_score
+                : item.breakdowns?.find((b) => b.title.includes('مستمر'))?.score;
+              const midScore = item.midterm_score != null
+                ? item.midterm_score
+                : item.breakdowns?.find((b) => b.title.includes('میانسال') || b.title.includes('میان‌ترم') || b.title.includes('میان ترم'))?.score;
+              const finScore = item.final_score != null
+                ? item.final_score
+                : item.breakdowns?.find((b) => b.title.includes('پایان') || b.title.includes('نوبت'))?.score;
               const finalScore = item.final_average;
 
+              const positiveStatuses = new Set(['قبول', 'خیلی خوب', 'خوب', 'قابل قبول']);
+              const negativeStatuses = new Set(['مردود', 'نیازمند تلاش بیشتر', 'نیاز به تلاش']);
+              const statusText = item.teacher_status || item.status || '';
+              const isPositive = positiveStatuses.has(statusText);
+              const isNegative = negativeStatuses.has(statusText);
+
               return (
-                <tr key={item.class_id || idx}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                <tr key={item.class_id || idx} data-testid={`report-card-row-${item.class_id || idx}`}>
+                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                     {idx + 1}
                   </td>
 
                   <td>
                     <div className={styles.courseTitleCell}>
                       <span className={styles.courseName}>{item.subject || item.class_name}</span>
-                      <span className={styles.teacherName}>{item.class_name}</span>
+                      <span className={styles.teacherName}>
+                        {item.class_name}{item.grade ? ` · ${item.grade}` : ''}
+                      </span>
                     </div>
                   </td>
 
@@ -3160,33 +2629,33 @@ function OfficialReportCardPaperSheet({ reportData }) {
                     </span>
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     {contScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#34d399' }}>{contScore}</span>
+                      <span className={styles.scorePill} style={{ color: '#10b981' }}>{contScore}</span>
                     ) : (
                       <span style={{ color: 'var(--text-tertiary)' }}>—</span>
                     )}
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     {midScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#60a5fa' }}>{midScore}</span>
+                      <span className={styles.scorePill} style={{ color: '#3b82f6' }}>{midScore}</span>
                     ) : (
                       <span style={{ color: 'var(--text-tertiary)' }}>—</span>
                     )}
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     {finScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#818cf8' }}>{finScore}</span>
+                      <span className={styles.scorePill} style={{ color: '#6366f1' }}>{finScore}</span>
                     ) : (
                       <span style={{ color: 'var(--text-tertiary)' }}>—</span>
                     )}
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                     {finalScore != null ? (
-                      <span className={styles.scorePill} style={{ fontSize: '0.938rem', fontWeight: 900, color: '#34d399' }}>
+                      <span className={styles.scorePill} style={{ fontSize: '0.938rem', fontWeight: 900, color: '#10b981' }}>
                         {finalScore}
                       </span>
                     ) : (
@@ -3194,16 +2663,20 @@ function OfficialReportCardPaperSheet({ reportData }) {
                     )}
                   </td>
 
-                  <td style={{ textAlign: 'center' }}>
-                    {item.status === 'قبول' ? (
+                  <td style={{ textAlign: 'center' }} data-testid={`report-card-status-${item.class_id || idx}`}>
+                    {isPositive ? (
                       <span className={styles.statusPassBadge}>
                         <HiOutlineCheckCircle />
-                        <span>قبول</span>
+                        <span>{statusText}</span>
                       </span>
-                    ) : (
+                    ) : isNegative ? (
                       <span className={styles.statusFailBadge}>
                         <HiOutlineExclamationCircle />
-                        <span>نیاز به تلاش</span>
+                        <span>{statusText}</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                        در انتظار نمره
                       </span>
                     )}
                   </td>
@@ -3213,6 +2686,132 @@ function OfficialReportCardPaperSheet({ reportData }) {
           </tbody>
         </table>
       </div>
+
+      {/* Personal Recorded Exams Breakdown (Visible in Student & Parent Panels) */}
+      {Array.isArray(reportData.examScores) && reportData.examScores.length > 0 && (
+        <div
+          className={styles.tableWrapper}
+          style={{ marginTop: '20px' }}
+          data-testid="personal-exam-scores-section"
+        >
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <h4 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              ریز نمرات آزمون‌های ثبت‌شده
+            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontWeight: 600 }}>
+                {reportData.examScores.length} آزمون نمره‌دهی‌شده
+              </span>
+              <button
+                type="button"
+                data-testid="student-exam-scores-pdf-btn"
+                onClick={async () => {
+                  try {
+                    const scores = reportData.examScores.map((e) => Number(e.score)).filter((n) => !Number.isNaN(n));
+                    const stats = computeLocalClassStats(scores, {
+                      totalStudents: reportData.examScores.length,
+                      passThreshold: 12,
+                    });
+                    await exportGradeTableToPdf({
+                      title: `کارنامه ریز نمرات آزمون‌های ${reportData.student?.display_name || 'دانش‌آموز'}`,
+                      subtitle: `${reportData.student?.grade || ''} · سال تحصیلی ۱۴۰۴-۱۴۰۳`,
+                      schoolName: reportData.student?.school_name || 'مدرسه هوشمند',
+                      columns: [
+                        { label: 'ردیف', weight: 0.55, align: 'center' },
+                        { label: 'موضوع آزمون', weight: 2.0, align: 'right' },
+                        { label: 'کلاس / درس', weight: 1.6, align: 'right' },
+                        { label: 'دبیر', weight: 1.3, align: 'right' },
+                        { label: 'نمره', weight: 1.0, align: 'center' },
+                        { label: 'توضیح دبیر', weight: 1.6, align: 'right' },
+                      ],
+                      rows: reportData.examScores.map((exam, idx) => [
+                        String(idx + 1),
+                        exam.exam_title || 'آزمون',
+                        `${exam.subject || exam.class_name || ''}${exam.grade ? ` (${exam.grade})` : ''}`,
+                        exam.teacher_name || 'دبیر کلاس',
+                        `${exam.score} از ${exam.max_score || 20}`,
+                        exam.teacher_comment || '—',
+                      ]),
+                      stats,
+                      fileName: `student-exams-${reportData.student?.student_code || 'report'}.pdf`,
+                    });
+                    toast.success('فایل پی‌دی‌اف ریز نمرات آزمون‌ها با موفقیت دانلود شد');
+                  } catch (err) {
+                    console.error('Student PDF export failed:', err);
+                    toast.error('خطا در تولید فایل پی‌دی‌اف نمرات');
+                  }
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #4f46e5',
+                  background: '#4f46e5',
+                  color: '#ffffff',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <HiOutlineDocumentArrowDown style={{ fontSize: '0.95rem' }} />
+                <span>دانلود پی‌دی‌اف نمرات (PDF)</span>
+              </button>
+            </div>
+          </div>
+          <table className={styles.gradeTable}>
+            <thead>
+              <tr>
+                <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                <th>موضوع آزمون</th>
+                <th>کلاس / درس</th>
+                <th>دبیر</th>
+                <th style={{ textAlign: 'center' }}>نمره کسب‌شده</th>
+                <th>توضیح دبیر</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportData.examScores.map((exam, idx) => (
+                <tr key={exam.score_id || `${exam.category_id}-${idx}`} data-testid={`personal-exam-row-${exam.category_id}`}>
+                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {idx + 1}
+                  </td>
+                  <td style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {exam.exam_title}
+                  </td>
+                  <td>
+                    <div className={styles.courseTitleCell}>
+                      <span className={styles.courseName}>{exam.subject || exam.class_name}</span>
+                      <span className={styles.teacherName}>
+                        {exam.class_name}{exam.grade ? ` · ${exam.grade}` : ''}
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
+                    {exam.teacher_name || 'دبیر کلاس'}
+                  </td>
+                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                    <span
+                      className={styles.scorePill}
+                      style={{
+                        fontWeight: 900,
+                        color: Number(exam.score) >= (Number(exam.max_score) || 20) * 0.6 ? '#059669' : '#dc2626',
+                      }}
+                    >
+                      {exam.score} از {exam.max_score || 20}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {exam.teacher_comment || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Discipline & Behavioral Note */}
       <div className={styles.disciplineBox}>

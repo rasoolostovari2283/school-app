@@ -24,6 +24,8 @@ router.post('/:id/sync-external-recording', authorize('teacher', 'admin', 'manag
 
 // Class Rosters & Student Database Management
 router.get('/:id/roster', authorize('teacher', 'admin', 'manager'), classController.getClassRoster);
+router.get('/:id/students/search', authorize('teacher', 'admin', 'manager'), classController.searchSchoolStudents);
+router.post('/:id/roster/add-students', authorize('teacher', 'admin', 'manager'), classController.addRegisteredStudentsToRoster);
 router.post('/:id/students', authorize('teacher', 'admin', 'manager'), classController.addStudentToClass);
 router.post('/:id/students/batch', authorize('teacher', 'admin', 'manager'), classController.batchAddStudents);
 router.delete('/:id/students/:studentId', authorize('teacher', 'admin', 'manager'), classController.removeStudentFromClass);

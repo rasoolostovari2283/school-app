@@ -238,6 +238,31 @@ function initSocket(server, config) {
       avatar: authUser.avatar_url || null,
     };
 
+    // Automatically join personal room for real-time direct messaging notifications
+    socket.join(`user:${authUser.id}`);
+
+    // Verified subscription to school messaging group rooms
+    socket.on('join_message_group', async ({ groupId } = {}) => {
+      if (!groupId) return;
+      if (!(await isSessionStillValid(socket))) return;
+      try {
+        const group = await db('message_groups').where({ id: groupId }).first();
+        if (!group) return;
+        if (group.school_id && authUser.school_id && group.school_id !== authUser.school_id) return;
+        const isMember =
+          isSchoolAdmin(authUser) ||
+          group.created_by === authUser.id ||
+          Boolean(await db('message_group_members').where({ group_id: groupId, user_id: authUser.id }).first());
+        if (!isMember) return;
+        socket.join(`group:${groupId}`);
+      } catch (_e) {}
+    });
+
+    socket.on('leave_message_group', ({ groupId } = {}) => {
+      if (!groupId) return;
+      socket.leave(`group:${groupId}`);
+    });
+
     // ── Join a Class Room ──
     socket.on('join_class', async ({ classId } = {}) => {
       if (!classId) return;

@@ -59,7 +59,123 @@ function generateBaseUsername(displayName) {
 }
 
 /**
- * Generate a guaranteed unique username in the users table
+ * Determine whether a school level corresponds to High School (متوسطه دوم)
+ * where study majors (رشته‌های تحصیلی) apply.
+ */
+function isHighSchoolLevel(schoolLevel) {
+  if (!schoolLevel || typeof schoolLevel !== 'string') return false;
+  const normalized = schoolLevel.trim().toLowerCase();
+  return (
+    normalized.includes('متوسطه دوم') ||
+    normalized.includes('دوره دوم متوسطه') ||
+    normalized.includes('دبیرستان') ||
+    normalized.includes('high') ||
+    normalized.includes('هنرستان') ||
+    normalized.includes('مجتمع آموزشی')
+  );
+}
+
+/**
+ * Normalize majors list (array or comma-separated string) into deduplicated Persian labels.
+ * Only retains majors when the school level supports majors (متوسطه دوم / دبیرستان / هنرستان / مجتمع).
+ */
+function normalizeMajors(majors, schoolLevel) {
+  if (!isHighSchoolLevel(schoolLevel)) {
+    return [];
+  }
+
+  let rawList = [];
+  if (Array.isArray(majors)) {
+    rawList = majors;
+  } else if (typeof majors === 'string' && majors.trim()) {
+    const trimmed = majors.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) rawList = parsed;
+      } catch (_e) {
+        rawList = trimmed.split(/[،,]+/);
+      }
+    } else {
+      rawList = trimmed.split(/[،,]+/);
+    }
+  }
+
+  const seen = new Set();
+  const result = [];
+  for (const item of rawList) {
+    const clean = String(item || '').trim();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      result.push(clean);
+    }
+  }
+  return result;
+}
+
+/**
+ * Check if a username is already taken in users.username, schools.username, or students.username (case-insensitive)
+ */
+async function isUsernameTaken(db, candidate, { excludeUserId = null, excludeSchoolId = null } = {}) {
+  const lower = String(candidate || '').trim().toLowerCase();
+  if (!lower) return true;
+
+  let userQuery = db('users').whereRaw('LOWER(username) = ?', [lower]);
+  if (excludeUserId) {
+    userQuery = userQuery.andWhere('id', '!=', excludeUserId);
+  }
+  const userExists = await userQuery.first();
+  if (userExists) return true;
+
+  try {
+    let schoolQuery = db('schools').whereRaw('LOWER(username) = ?', [lower]);
+    if (excludeSchoolId) {
+      schoolQuery = schoolQuery.andWhere('id', '!=', excludeSchoolId);
+    }
+    const schoolExists = await schoolQuery.first();
+    if (schoolExists) return true;
+  } catch (_e) {
+    // Ignore if schools.username column has not been migrated yet
+  }
+
+  try {
+    let studentQuery = db('students').whereRaw('LOWER(username) = ?', [lower]);
+    if (excludeUserId) {
+      studentQuery = studentQuery.andWhere('user_id', '!=', excludeUserId);
+    }
+    const studentExists = await studentQuery.first();
+    if (studentExists) return true;
+  } catch (_e) {
+    // Ignore if students table has not been migrated yet
+  }
+
+  try {
+    let teacherQuery = db('teachers').whereRaw('LOWER(username) = ?', [lower]);
+    if (excludeUserId) {
+      teacherQuery = teacherQuery.andWhere('user_id', '!=', excludeUserId);
+    }
+    const teacherExists = await teacherQuery.first();
+    if (teacherExists) return true;
+  } catch (_e) {
+    // Ignore if teachers table has not been migrated yet
+  }
+
+  try {
+    let parentQuery = db('parents').whereRaw('LOWER(username) = ?', [lower]);
+    if (excludeUserId) {
+      parentQuery = parentQuery.andWhere('user_id', '!=', excludeUserId);
+    }
+    const parentExists = await parentQuery.first();
+    if (parentExists) return true;
+  } catch (_e) {
+    // Ignore if parents table has not been migrated yet
+  }
+
+  return false;
+}
+
+/**
+ * Generate a guaranteed unique username across both users and schools tables
  */
 async function generateUniqueUsername(db, displayName, excludeUserId = null) {
   const base = generateBaseUsername(displayName);
@@ -67,12 +183,39 @@ async function generateUniqueUsername(db, displayName, excludeUserId = null) {
   let counter = 1;
 
   while (true) {
-    let query = db('users').where({ username: candidate });
-    if (excludeUserId) {
-      query = query.andWhere('id', '!=', excludeUserId);
+    const taken = await isUsernameTaken(db, candidate, { excludeUserId });
+    if (!taken) {
+      return candidate;
     }
-    const exists = await query.first();
-    if (!exists) {
+    counter++;
+    candidate = `${base}_${counter}`;
+  }
+}
+
+/**
+ * Generate a guaranteed unique personal username for a school registrant (stored in both schools & users)
+ * Prefers personal transliterated adminName, falling back to schoolName.
+ */
+async function generateUniqueSchoolUsername(db, adminName, schoolName = '', excludeSchoolId = null) {
+  const adminBase = generateBaseUsername(adminName);
+  const schoolBase = generateBaseUsername(schoolName);
+
+  let base = adminBase && adminBase !== 'user' ? adminBase : schoolBase;
+  if (!base || base === 'user') {
+    base = 'school_admin';
+  }
+  // Keep readable length (min 3 chars, max 32 chars before suffix)
+  if (base.length < 3) {
+    base = `${base}_sch`;
+  }
+  base = base.slice(0, 32).replace(/_+$/, '') || 'school_admin';
+
+  let candidate = base;
+  let counter = 1;
+
+  while (true) {
+    const taken = await isUsernameTaken(db, candidate, { excludeSchoolId });
+    if (!taken) {
       return candidate;
     }
     counter++;
@@ -107,5 +250,9 @@ async function ensureUserHasUsername(userOrId, dbInstance = null) {
 module.exports = {
   generateBaseUsername,
   generateUniqueUsername,
+  generateUniqueSchoolUsername,
+  isHighSchoolLevel,
+  normalizeMajors,
   ensureUserHasUsername,
 };
+

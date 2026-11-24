@@ -37,21 +37,28 @@ test('smoke: every fixture role of both schools can log in and read its own prof
   }
 });
 
-test('smoke: a wrong password is rejected with 401', async () => {
+test('smoke: a wrong password is rejected with 401 and specifies password errorField', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: emailFor('a', 'teacher'), password: 'not-the-fixture-password' },
   });
 
   assert.equal(res.status, 401);
   assert.equal(res.body.success, false);
+  assert.equal(res.body.errorField, 'password');
+  assert.equal(res.body.errorCode, 'INVALID_PASSWORD');
+  assert.ok(String(res.body.message).includes('رمز عبور'));
 });
 
-test('smoke: an unknown identifier is rejected with 401', async () => {
+test('smoke: an unknown identifier is rejected with 401 and specifies username errorField', async () => {
   const res = await post(baseUrl, '/api/v1/auth/login', {
     body: { identifier: 'nobody@school.test', password: 'whatever' },
   });
 
   assert.equal(res.status, 401);
+  assert.equal(res.body.success, false);
+  assert.equal(res.body.errorField, 'username');
+  assert.equal(res.body.errorCode, 'INVALID_USERNAME');
+  assert.ok(String(res.body.message).includes('نام کاربری'));
 });
 
 test('smoke: an unauthenticated request to a protected route returns 401', async () => {

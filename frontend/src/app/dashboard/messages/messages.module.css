@@ -1540,3 +1540,223 @@
     font-size: 0.875rem;
   }
 }
+
+/* Principal Role Badge */
+.roleBadgePrincipal {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  font-size: 0.6875rem;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.groupHandleBadge {
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  font-weight: 700;
+  font-family: monospace, var(--font-family);
+  direction: ltr;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.groupHandleBadge:hover {
+  background: rgba(16, 185, 129, 0.28);
+}
+
+/* Live Search Section in Sidebar */
+.liveSearchSection {
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(14, 165, 233, 0.06);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.liveSearchHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.liveSearchResultItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  text-align: right;
+  width: 100%;
+}
+
+.liveSearchResultItem:hover {
+  border-color: var(--primary-500);
+  background: var(--bg-hover);
+}
+
+/* Inline Media Attachments */
+.mediaImageWrap {
+  max-width: 280px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.mediaImageBtn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.mediaImage {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  display: block;
+}
+
+.mediaVideoWrap {
+  max-width: 340px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: #000;
+}
+
+.mediaVideo {
+  width: 100%;
+  max-height: 220px;
+  display: block;
+  background: #000;
+}
+
+.mediaCaptionRow {
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mediaDownloadLink {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mediaDownloadLink:hover {
+  text-decoration: underline;
+}
+
+/* Composer Media Toolbar & Previews */
+.composerMediaTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.previewThumbCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: var(--radius-lg);
+  max-width: 220px;
+}
+
+.previewThumbImg {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.previewTypeIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.previewChipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewRemoveBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.previewRemoveBtn:hover {
+  color: #ef4444;
+}
+
+/* Image Lightbox */
+.lightboxBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(2, 6, 23, 0.88);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 12px;
+}
+
+.lightboxImg {
+  max-width: 90vw;
+  max-height: 78vh;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  object-fit: contain;
+}
+
+.lightboxBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #f8fafc;
+  font-size: 0.875rem;
+}

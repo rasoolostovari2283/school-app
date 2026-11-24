@@ -30,6 +30,9 @@ import {
   HiOutlineArrowRight,
 } from 'react-icons/hi2';
 import CallModal from '../../../components/communication/CallModal';
+import MessageAttachments from '../../../components/communication/MessageAttachments';
+import MessageComposer from '../../../components/communication/MessageComposer';
+import { getSocket } from '../../../lib/socket';
 import styles from './messages.module.css';
 
 // Helper to guarantee attachments is always an array
@@ -47,6 +50,20 @@ const parseAttachments = (attachments) => {
   return [];
 };
 
+const getLastMsgPreviewText = (lastMsg) => {
+  if (!lastMsg) return 'شروع گفتگوی خصوصی...';
+  if (lastMsg.content && String(lastMsg.content).trim()) return lastMsg.content;
+  const atts = parseAttachments(lastMsg.attachments);
+  if (atts.length > 0) {
+    const first = atts[0];
+    if (first.media_type === 'image' || first.mimetype?.startsWith('image/')) return '🖼️ تصویر';
+    if (first.media_type === 'video' || first.mimetype?.startsWith('video/')) return '🎬 ویدیو';
+    if (first.media_type === 'audio' || first.is_voice || first.mimetype?.startsWith('audio/')) return '🎙️ پیام صوتی';
+    return '📎 فایل پیوست';
+  }
+  return 'پیام جدید';
+};
+
 export default function MessagesPage() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
@@ -55,24 +72,31 @@ export default function MessagesPage() {
   // Active view tab: 'chats' | 'groups' | 'directory'
   const [activeTab, setActiveTab] = useState('chats');
 
-  // Chat Sub-Filter: 'all' | 'students' | 'parents' | 'staff' (تفکیک دانش‌آموزان و اولیا)
+  // Chat Sub-Filter: 'all' | 'students' | 'parents' | 'staff'
   const [chatRoleFilter, setChatRoleFilter] = useState('all');
 
-  // Role Badge Helper
-  const getRoleBadge = (role) => {
+  // Role Badge Helper (explicitly distinguishes School Principal vs Teacher vs Student vs Parent)
+  const getRoleBadge = (role, person = null) => {
+    if (person?.is_principal || role === 'admin' || role === 'manager') {
+      return { label: 'مدیر مدرسه', icon: '👑', className: styles.roleBadgePrincipal };
+    }
     if (role === 'student') {
       return { label: 'دانش‌آموز', icon: '🎓', className: styles.roleBadgeStudent };
     }
     if (role === 'parent') {
       return { label: 'ولی دانش‌آموز', icon: '👨‍👩‍👧', className: styles.roleBadgeParent };
     }
-    return { label: 'کادر مدرسه', icon: '👨‍🏫', className: styles.roleBadgeTeacher };
+    return { label: 'معلم', icon: '👨‍🏫', className: styles.roleBadgeTeacher };
   };
 
   // 1-on-1 Conversations
   const [conversations, setConversations] = useState([]);
   const [activePartner, setActivePartner] = useState(null);
   const [messages, setMessages] = useState([]);
+
+  // Live @username backend search in Chats tab
+  const [liveUserSearchResults, setLiveUserSearchResults] = useState([]);
+  const [searchingLiveUsers, setSearchingLiveUsers] = useState(false);
 
   // Groups
   const [groups, setGroups] = useState([]);
@@ -81,10 +105,17 @@ export default function MessagesPage() {
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [newGroupForm, setNewGroupForm] = useState({
     name: '',
+    group_handle: '',
     description: '',
-    category: 'council',
+    category: 'class',
     member_ids: [],
   });
+
+  // Group search by @handle / invite code / link / name
+  const [groupSearchQuery, setGroupSearchQuery] = useState('');
+  const [groupSearchResults, setGroupSearchResults] = useState([]);
+  const [searchingGroups, setSearchingGroups] = useState(false);
+  const [joiningGroupId, setJoiningGroupId] = useState(null);
 
   // Group Member Management & Invite Links Modals
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -103,10 +134,14 @@ export default function MessagesPage() {
   // Group Invite Link copy state
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedHandle, setCopiedHandle] = useState(false);
 
   // Join by Link state
   const [joinLinkInput, setJoinLinkInput] = useState('');
   const [joiningGroup, setJoiningGroup] = useState(false);
+
+  // Image Lightbox state
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   // In Create Group Modal: Added members list
   const [createGroupMembers, setCreateGroupMembers] = useState([]);
@@ -118,13 +153,19 @@ export default function MessagesPage() {
   const [createGroupDirFilter, setCreateGroupDirFilter] = useState('all');
 
   // Directory & School Database Integration
-  const [directory, setDirectory] = useState({ staff: [], students: [], parents: [], all: [] });
+  const [directory, setDirectory] = useState({
+    defaultContacts: [],
+    staff: [],
+    students: [],
+    parents: [],
+    all: [],
+  });
   const [dirSearchQuery, setDirSearchQuery] = useState('');
   const [dirRoleFilter, setDirRoleFilter] = useState('all');
   const [dirGradeFilter, setDirGradeFilter] = useState('all');
   const [schoolInfo, setSchoolInfo] = useState({
-    name: 'مجتمع آموزشی هوشمند علامه حلی',
-    code: 'SCH-4821',
+    name: user?.school_name || 'مدرسه هوشمند',
+    code: user?.school_code || '',
   });
 
   // Helper to extract grade string
@@ -169,7 +210,16 @@ export default function MessagesPage() {
   });
 
   const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const activePartnerRef = useRef(null);
+  const activeGroupRef = useRef(null);
+
+  useEffect(() => {
+    activePartnerRef.current = activePartner;
+  }, [activePartner]);
+
+  useEffect(() => {
+    activeGroupRef.current = activeGroup;
+  }, [activeGroup]);
 
   // Voice Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -184,6 +234,134 @@ export default function MessagesPage() {
     fetchGroups();
     fetchDirectory();
   }, []);
+
+  // Real-time Socket.IO subscription for incoming 1-on-1 and Group messages
+  useEffect(() => {
+    if (!user?.id) return;
+    let socket;
+    try {
+      socket = getSocket();
+    } catch (e) {
+      return;
+    }
+
+    const onDirectMessage = (incoming) => {
+      if (!incoming || !incoming.id) return;
+      const partner = activePartnerRef.current;
+      if (
+        partner &&
+        ((incoming.sender_id === partner.id && incoming.receiver_id === user.id) ||
+          (incoming.sender_id === user.id && incoming.receiver_id === partner.id))
+      ) {
+        const normalized = {
+          ...incoming,
+          attachments: parseAttachments(incoming.attachments),
+        };
+        setMessages((prev) =>
+          prev.some((m) => m.id === normalized.id) ? prev : [...prev, normalized]
+        );
+      }
+      fetchConversations();
+    };
+
+    const onGroupMessage = (payload) => {
+      const incoming = payload?.message;
+      const grpId = payload?.group_id || incoming?.group_id;
+      if (!incoming || !incoming.id) return;
+      if (activeGroupRef.current?.id === grpId) {
+        const normalized = {
+          ...incoming,
+          attachments: parseAttachments(incoming.attachments),
+        };
+        setGroupMessages((prev) =>
+          prev.some((m) => m.id === normalized.id) ? prev : [...prev, normalized]
+        );
+      }
+      fetchGroups();
+    };
+
+    socket.on('message:new', onDirectMessage);
+    socket.on('group:message:new', onGroupMessage);
+
+    return () => {
+      socket.off('message:new', onDirectMessage);
+      socket.off('group:message:new', onGroupMessage);
+    };
+  }, [user?.id]);
+
+  // Join/leave active Socket.IO group room
+  useEffect(() => {
+    const grpId = activeGroup?.id;
+    if (!grpId) return;
+    let socket;
+    try {
+      socket = getSocket();
+      socket.emit('join_message_group', { groupId: grpId });
+    } catch (e) {
+      return;
+    }
+    return () => {
+      try {
+        socket.emit('leave_message_group', { groupId: grpId });
+      } catch (e) {}
+    };
+  }, [activeGroup?.id]);
+
+  // Debounced live @username search across school users in Chats tab
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setLiveUserSearchResults([]);
+      setSearchingLiveUsers(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingLiveUsers(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get(`/messages/users/search?q=${encodeURIComponent(q)}`);
+        if (!cancelled) {
+          setLiveUserSearchResults(res.data?.data?.users || []);
+        }
+      } catch (err) {
+        if (!cancelled) setLiveUserSearchResults([]);
+      } finally {
+        if (!cancelled) setSearchingLiveUsers(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  // Debounced live group search by @group_handle, invite link, code, or name
+  useEffect(() => {
+    const q = groupSearchQuery.trim();
+    if (q.length < 2) {
+      setGroupSearchResults([]);
+      setSearchingGroups(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingGroups(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get(`/messages/groups/search?q=${encodeURIComponent(q)}`);
+        if (!cancelled) {
+          setGroupSearchResults(res.data?.data?.groups || []);
+        }
+      } catch (err) {
+        if (!cancelled) setGroupSearchResults([]);
+      } finally {
+        if (!cancelled) setSearchingGroups(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [groupSearchQuery]);
 
   useEffect(() => {
     if (targetUserId) {
@@ -226,12 +404,10 @@ export default function MessagesPage() {
   };
 
   const fetchDirectory = async () => {
-    const currentCode = user?.school_code || 'SCH-4821';
-    const currentName = user?.school_name || 'مجتمع آموزشی هوشمند علامه حلی';
-    setSchoolInfo({ code: currentCode, name: currentName });
+    const fallbackCode = user?.school_code || '';
+    const fallbackName = user?.school_name || 'مدرسه هوشمند';
 
-    // 1. Fetch Backend Directory
-    let backendData = { staff: [], students: [], parents: [], all: [] };
+    let backendData = { default_contacts: [], staff: [], students: [], parents: [], all: [], school: null };
     try {
       const res = await api.get('/messages/directory');
       if (res.data?.data) {
@@ -241,125 +417,50 @@ export default function MessagesPage() {
       console.error('Error fetching backend directory:', err);
     }
 
-    // 2. Backend directory (/messages/directory) is the single source of truth
-    const schoolTeachers = [];
-    const schoolStudents = [];
+    const currentName = backendData.school?.name || fallbackName;
+    const currentCode = backendData.school?.username ? `@${backendData.school.username}` : (backendData.school?.code || fallbackCode);
+    setSchoolInfo({ code: currentCode, name: currentName });
 
-    // 4. Merge Teachers Map (School Account + Backend Staff)
-    const teachersMap = new Map();
-    (backendData.staff || []).forEach((st) => {
-      teachersMap.set(st.id, {
+    // Preserve real roles (principal admin/manager vs teacher) from DB
+    const staffList = (backendData.staff || []).map((st) => {
+      const isPrincipal = Boolean(st.is_principal || st.role === 'admin' || st.role === 'manager');
+      return {
         ...st,
-        role: 'teacher',
+        role: st.role || 'teacher',
+        is_principal: isPrincipal,
+        role_label: st.role_label || (isPrincipal ? 'مدیر مدرسه' : 'معلم'),
         school_code: currentCode,
-      });
+      };
     });
 
-    schoolTeachers.forEach((tch) => {
-      let existingKey = null;
-      for (const [key, val] of teachersMap.entries()) {
-        if (
-          (tch.personnel_code && val.personnel_code && tch.personnel_code === val.personnel_code) ||
-          (tch.name && val.display_name && tch.name.trim() === val.display_name.trim()) ||
-          key === tch.id
-        ) {
-          existingKey = key;
-          break;
-        }
-      }
-
-      if (existingKey) {
-        const prev = teachersMap.get(existingKey);
-        teachersMap.set(existingKey, {
-          ...prev,
-          subject: tch.subject || prev.subject,
-          job_title: tch.subject ? `دبیر ${tch.subject}` : (prev.job_title || 'دبیر مدرسه'),
-          grades: tch.grades || prev.grades || ['پایه دهم', 'پایه یازدهم'],
-          personnel_code: tch.personnel_code || tch.code || prev.personnel_code,
-          department: tch.grades ? tch.grades.join('، ') : prev.department,
-          phone: tch.phone || prev.phone,
-          school_code: currentCode,
-        });
-      } else {
-        teachersMap.set(tch.id, {
-          id: tch.id,
-          display_name: tch.name,
-          role: 'teacher',
-          job_title: tch.subject ? `دبیر ${tch.subject}` : 'دبیر مدرسه',
-          subject: tch.subject,
-          personnel_code: tch.personnel_code || tch.code,
-          code: tch.code,
-          grades: tch.grades || ['پایه دهم', 'پایه یازدهم'],
-          department: tch.grades ? tch.grades.join('، ') : 'دپارتمان آموزشی',
-          phone: tch.phone,
-          school_code: currentCode,
-          is_school_registered: true,
-        });
-      }
+    // Sort principals first, then teachers alphabetically
+    staffList.sort((a, b) => {
+      if (a.is_principal && !b.is_principal) return -1;
+      if (!a.is_principal && b.is_principal) return 1;
+      return String(a.display_name || '').localeCompare(String(b.display_name || ''), 'fa');
     });
 
-    const allTeachers = Array.from(teachersMap.values());
-
-    // 5. Merge Students Map (School Account + Backend Students)
-    const studentsMap = new Map();
-    (backendData.students || []).forEach((st) => {
-      const g = st.grade || extractGrade(st.department) || 'پایه دهم';
-      studentsMap.set(st.id, {
+    const defaultContacts = (backendData.default_contacts && backendData.default_contacts.length > 0
+      ? backendData.default_contacts
+      : staffList
+    ).map((st) => {
+      const isPrincipal = Boolean(st.is_principal || st.role === 'admin' || st.role === 'manager');
+      return {
         ...st,
-        role: 'student',
-        grade: g,
-        school_code: currentCode,
-      });
+        is_principal: isPrincipal,
+        role_label: st.role_label || (isPrincipal ? 'مدیر مدرسه' : 'معلم'),
+      };
     });
 
-    schoolStudents.forEach((std) => {
-      let existingKey = null;
-      for (const [key, val] of studentsMap.entries()) {
-        if (
-          (std.code && val.student_code && std.code === val.student_code) ||
-          (std.name && val.display_name && std.name.trim() === val.display_name.trim()) ||
-          key === std.id
-        ) {
-          existingKey = key;
-          break;
-        }
-      }
+    const rawStudents = (backendData.students || []).map((st) => ({
+      ...st,
+      role: 'student',
+      grade: st.grade || extractGrade(st.department) || '',
+      school_code: currentCode,
+    }));
 
-      const stGrade = std.grade || extractGrade(std.class_name) || 'پایه دهم';
-      if (existingKey) {
-        const prev = studentsMap.get(existingKey);
-        studentsMap.set(existingKey, {
-          ...prev,
-          grade: stGrade,
-          class_name: std.class_name || prev.class_name,
-          department: `${stGrade} • ${std.class_name || 'کلاس درس'}`,
-          student_code: std.code || prev.student_code,
-          parent_phone: std.parent_phone || prev.parent_phone,
-          school_code: currentCode,
-        });
-      } else {
-        studentsMap.set(std.id, {
-          id: std.id,
-          display_name: std.name,
-          role: 'student',
-          job_title: 'دانش‌آموز',
-          grade: stGrade,
-          class_name: std.class_name,
-          department: `${stGrade} • ${std.class_name || 'کلاس درس'}`,
-          student_code: std.code,
-          code: std.code,
-          parent_phone: std.parent_phone,
-          school_code: currentCode,
-          is_school_registered: true,
-        });
-      }
-    });
-
-    const rawStudents = Array.from(studentsMap.values());
-
-    // 6. Merge Parents
     const rawParents = (backendData.parents || []).map((p) => {
-      const g = p.grade || p.student_grade || extractGrade(p.student_department) || 'پایه دهم';
+      const g = p.grade || p.student_grade || extractGrade(p.student_department) || '';
       return {
         ...p,
         role: 'parent',
@@ -369,29 +470,13 @@ export default function MessagesPage() {
       };
     });
 
-    // 7. Apply Strict Role-Based Grade Isolation
-    let filteredStaff = allTeachers;
-    let filteredStudents = rawStudents;
-    let filteredParents = rawParents;
-
-    if (user?.role === 'student') {
-      // Student sees ALL teachers of the school, but ONLY peers in their SAME GRADE
-      filteredStaff = allTeachers;
-      filteredStudents = rawStudents.filter((s) => s.grade === myUserGrade || s.department?.includes(myUserGrade));
-      filteredParents = rawParents.filter((p) => p.grade === myUserGrade || p.student_grade === myUserGrade);
-    } else if (user?.role === 'parent') {
-      // Parent sees ALL teachers of the school, but ONLY students and parents of their child's grade
-      filteredStaff = allTeachers;
-      filteredStudents = rawStudents.filter((s) => s.grade === myChildGrade || s.department?.includes(myChildGrade));
-      filteredParents = rawParents.filter((p) => p.grade === myChildGrade || p.student_grade === myChildGrade);
-    }
-
-    const allCombined = [...filteredStaff, ...filteredStudents, ...filteredParents];
+    const allCombined = [...staffList, ...rawStudents, ...rawParents];
 
     setDirectory({
-      staff: filteredStaff,
-      students: filteredStudents,
-      parents: filteredParents,
+      defaultContacts,
+      staff: staffList,
+      students: rawStudents,
+      parents: rawParents,
       all: allCombined,
       allGradesStudents: rawStudents,
       allGradesParents: rawParents,
@@ -522,24 +607,36 @@ export default function MessagesPage() {
 
   const handleCopyInviteCode = (code) => {
     if (!code) return;
-    navigator.clipboard.writeText(code);
+    navigator.clipboard?.writeText(code);
     setCopiedCode(true);
     toast.success(`کد دعوت «${code}» کپی شد 📋`);
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
-  const handleJoinGroupByLink = async (codeToJoin) => {
+  const handleCopyGroupHandle = (handle) => {
+    if (!handle) return;
+    const text = `@${handle.replace(/^@/, '')}`;
+    navigator.clipboard?.writeText(text);
+    setCopiedHandle(true);
+    toast.success(`آیدی گروه ${text} کپی شد 📋`);
+    setTimeout(() => setCopiedHandle(false), 2500);
+  };
+
+  const handleJoinGroupByLink = async (codeToJoin, groupIdForSpinner = null) => {
     const code = (codeToJoin || joinLinkInput).trim();
     if (!code) {
-      toast.error('لطفاً لینک یا کد دعوت گروه را وارد کنید');
+      toast.error('لطفاً لینک، کد دعوت یا @آیدی گروه را وارد کنید');
       return;
     }
 
     setJoiningGroup(true);
+    if (groupIdForSpinner) setJoiningGroupId(groupIdForSpinner);
     try {
       const res = await api.post('/messages/groups/join', { invite_code: code });
       toast.success(res.data.message || 'با موفقیت به گروه پیوستید 🎉');
       setJoinLinkInput('');
+      setGroupSearchQuery('');
+      setGroupSearchResults([]);
       setShowJoinGroupModal(false);
       await fetchGroups();
       if (res.data.data?.group) {
@@ -550,6 +647,7 @@ export default function MessagesPage() {
       toast.error(err.response?.data?.message || 'خطا در پیوستن به گروه');
     } finally {
       setJoiningGroup(false);
+      setJoiningGroupId(null);
     }
   };
 
@@ -713,14 +811,16 @@ export default function MessagesPage() {
 
         if (activeGroup) {
           const res = await api.post(`/messages/groups/${activeGroup.id}/messages`, {
-            content: '🎙️ پیام صوتی',
+            content: '',
             attachments: [uploadedFile],
           });
           const serverMsg = res.data.data.message;
           if (serverMsg) {
             serverMsg.attachments = parseAttachments(serverMsg.attachments);
+            setGroupMessages((prev) =>
+              prev.some((m) => m.id === serverMsg.id) ? prev : [...prev, serverMsg]
+            );
           }
-          setGroupMessages((prev) => [...prev, serverMsg]);
           fetchGroups();
           toast.success('ویس با موفقیت به گروه ارسال شد 🎙️');
         } else if (activePartner) {
@@ -728,7 +828,7 @@ export default function MessagesPage() {
             id: 'temp-' + Date.now(),
             sender_id: user?.id,
             receiver_id: activePartner.id,
-            content: '🎙️ پیام صوتی',
+            content: '',
             attachments: [uploadedFile],
             sent_at: new Date().toISOString(),
             is_read: false,
@@ -737,14 +837,19 @@ export default function MessagesPage() {
 
           const res = await api.post('/messages', {
             receiver_id: activePartner.id,
-            content: '🎙️ پیام صوتی',
+            content: '',
             attachments: [uploadedFile],
           });
           const serverMsg = res.data.data.message;
           if (serverMsg) {
             serverMsg.attachments = parseAttachments(serverMsg.attachments);
+            setMessages((prev) => {
+              const withoutTemp = prev.filter((m) => m.id !== optimisticMsg.id);
+              return withoutTemp.some((m) => m.id === serverMsg.id)
+                ? withoutTemp
+                : [...withoutTemp, serverMsg];
+            });
           }
-          setMessages((prev) => prev.map((m) => (m.id === optimisticMsg.id ? serverMsg : m)));
           fetchConversations();
           toast.success('ویس با موفقیت ارسال شد 🎙️');
         }
@@ -829,11 +934,13 @@ export default function MessagesPage() {
         const serverMsg = res.data.data.message;
         if (serverMsg) {
           serverMsg.attachments = parseAttachments(serverMsg.attachments);
+          setGroupMessages((prev) =>
+            prev.some((m) => m.id === serverMsg.id) ? prev : [...prev, serverMsg]
+          );
         }
-        setGroupMessages((prev) => [...prev, serverMsg]);
         fetchGroups();
       } catch (err) {
-        toast.error('خطا در ارسال پیام به گروه');
+        toast.error(err.response?.data?.message || 'خطا در ارسال پیام به گروه');
       } finally {
         setSending(false);
       }
@@ -886,13 +993,16 @@ export default function MessagesPage() {
         const serverMsg = res.data?.data?.message;
         if (serverMsg) {
           serverMsg.attachments = parseAttachments(serverMsg.attachments);
-          setMessages((prev) =>
-            prev.map((m) => (m.id === optimisticMsg.id ? serverMsg : m))
-          );
+          setMessages((prev) => {
+            const withoutOpt = prev.filter((m) => m.id !== optimisticMsg.id);
+            return withoutOpt.some((m) => m.id === serverMsg.id)
+              ? withoutOpt
+              : [...withoutOpt, serverMsg];
+          });
         }
         fetchConversations();
       } catch (err) {
-        console.warn('API message sync note (retained in local cache):', err);
+        toast.error(err.response?.data?.message || 'خطا در ارسال پیام');
       } finally {
         setSending(false);
       }
@@ -963,8 +1073,9 @@ export default function MessagesPage() {
 
       const res = await api.post('/messages/groups', {
         name: newGroupForm.name.trim(),
+        group_handle: newGroupForm.group_handle?.trim() || undefined,
         description: newGroupForm.description?.trim() || '',
-        category: newGroupForm.category || 'council',
+        category: newGroupForm.category || 'class',
         member_ids: memberIds,
         member_identifiers: memberIdentifiers,
       });
@@ -972,7 +1083,7 @@ export default function MessagesPage() {
       toast.success('گروه با موفقیت ساخته شد 🎉');
       setShowCreateGroupModal(false);
       setShowDirectoryPickerInCreate(false);
-      setNewGroupForm({ name: '', description: '', category: 'council', member_ids: [] });
+      setNewGroupForm({ name: '', group_handle: '', description: '', category: 'class', member_ids: [] });
       setCreateGroupMembers([]);
       setCreateGroupMemberInput('');
       setCreateGroupSearchResults([]);
@@ -1035,7 +1146,8 @@ export default function MessagesPage() {
 
   const renderConversationItem = (item) => {
     const isActive = activePartner?.id === item.user.id;
-    const badge = getRoleBadge(item.user.role);
+    const isPrincipal = Boolean(item.user.is_principal || item.user.role === 'admin' || item.user.role === 'manager');
+    const badge = getRoleBadge(item.user.role, item.user);
     return (
       <div
         key={item.user.id}
@@ -1048,7 +1160,13 @@ export default function MessagesPage() {
             width: '40px',
             height: '40px',
             fontSize: '0.9375rem',
-            background: item.user.role === 'student' ? '#059669' : (item.user.role === 'parent' ? '#d97706' : '#4f46e5'),
+            background: isPrincipal
+              ? 'linear-gradient(135deg, #b45309, #f59e0b)'
+              : item.user.role === 'student'
+              ? '#059669'
+              : item.user.role === 'parent'
+              ? '#d97706'
+              : '#4f46e5',
             color: 'white',
           }}
         >
@@ -1101,7 +1219,7 @@ export default function MessagesPage() {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
             <span className={styles.lastMsgPreview}>
-              {item.last_message ? item.last_message.content : 'شروع گفتگوی خصوصی...'}
+              {getLastMsgPreviewText(item.last_message)}
             </span>
             {item.unread_count > 0 && (
               <span className={styles.unreadBadge}>{item.unread_count}</span>
@@ -1114,7 +1232,12 @@ export default function MessagesPage() {
 
   // Filter Directory (including username / @handle / grades / subject)
   const filteredDirectoryUsers = (directory.all || []).filter((u) => {
-    if (dirRoleFilter !== 'all' && u.role !== dirRoleFilter) return false;
+    if (dirRoleFilter === 'teacher') {
+      const isStaff = u.is_principal || u.role === 'teacher' || u.role === 'admin' || u.role === 'manager';
+      if (!isStaff) return false;
+    } else if (dirRoleFilter !== 'all' && u.role !== dirRoleFilter) {
+      return false;
+    }
 
     // For teachers / admin / manager: apply grade filter if chosen
     if ((user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'manager') && dirGradeFilter !== 'all') {
@@ -1221,11 +1344,11 @@ export default function MessagesPage() {
               onClick={() => setActiveTab('directory')}
             >
               <HiOutlineIdentification />
-              <span>دفترچه مخاطبین</span>
+              <span>لیست مخاطبین</span>
             </button>
           </div>
 
-          {/* TAB 1: 1-on-1 Chats */}
+          {/* TAB 1: 1-on-1 Chats & Live @username Search */}
           {activeTab === 'chats' && (
             <>
               <div className={styles.searchBox}>
@@ -1234,9 +1357,10 @@ export default function MessagesPage() {
                     type="text"
                     className="input"
                     style={{ paddingRight: '36px', fontSize: '0.875rem' }}
-                    placeholder="جستجوی گفتگو..."
+                    placeholder="جستجو با @نام‌کاربری یا نام فرد..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    data-testid="chat-user-search-input"
                   />
                   <HiOutlineMagnifyingGlass
                     style={{
@@ -1250,7 +1374,55 @@ export default function MessagesPage() {
                 </div>
               </div>
 
-              {/* Sub-Filter Pills: تفکیک دانش‌آموزان و اولیا */}
+              {/* Live Backend @username Search Results */}
+              {searchQuery.trim().length >= 2 && (
+                <div className={styles.liveSearchSection} data-testid="live-user-search-results">
+                  <div className={styles.liveSearchHeader}>
+                    <span>🔎 نتایج جستجو با نام کاربری در مدرسه</span>
+                    {searchingLiveUsers && <span>در حال جستجو...</span>}
+                  </div>
+                  {!searchingLiveUsers && liveUserSearchResults.length === 0 ? (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      کاربری با این نام کاربری در مدرسه یافت نشد.
+                    </span>
+                  ) : (
+                    liveUserSearchResults.map((u) => {
+                      const badge = getRoleBadge(u.role, u);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          className={styles.liveSearchResultItem}
+                          onClick={() => {
+                            setSearchQuery('');
+                            setLiveUserSearchResults([]);
+                            handleStartDirectChat(u);
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {u.display_name}
+                              </span>
+                              <span className={badge.className}>{badge.icon} {badge.label}</span>
+                            </div>
+                            {u.username && (
+                              <span style={{ fontSize: '0.72rem', color: '#38bdf8', fontFamily: 'monospace', direction: 'ltr', textAlign: 'right' }}>
+                                @{u.username}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#818cf8', flexShrink: 0 }}>
+                            شروع گفتگو ←
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* Sub-Filter Pills */}
               <div className={styles.chatFilterPills}>
                 <button
                   type="button"
@@ -1260,6 +1432,16 @@ export default function MessagesPage() {
                 >
                   <span>همه</span>
                   <span className={styles.chatPillCount}>{allFilteredConversations.length}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`${styles.chatFilterPill} ${chatRoleFilter === 'staff' ? styles.chatFilterPillActive : ''}`}
+                  onClick={() => setChatRoleFilter('staff')}
+                  title="مدیر و معلمان مدرسه"
+                >
+                  <span>🏫 مدیر و معلمان</span>
+                  <span className={styles.chatPillCount}>{staffConversations.length}</span>
                 </button>
 
                 <button
@@ -1291,16 +1473,6 @@ export default function MessagesPage() {
                     {parentConversations.length}
                   </span>
                 </button>
-
-                <button
-                  type="button"
-                  className={`${styles.chatFilterPill} ${chatRoleFilter === 'staff' ? styles.chatFilterPillActive : ''}`}
-                  onClick={() => setChatRoleFilter('staff')}
-                  title="مشاهده گفتگوهای کادر و معلمان مدرسه"
-                >
-                  <span>👨‍🏫 کادر مدرسه</span>
-                  <span className={styles.chatPillCount}>{staffConversations.length}</span>
-                </button>
               </div>
 
               <div className={styles.contactList}>
@@ -1310,10 +1482,24 @@ export default function MessagesPage() {
                   </div>
                 ) : displayedConversations.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)' }}>
-                    گفتگویی در این بخش یافت نشد. از تب <strong>«دفترچه مخاطبین»</strong> فرد مورد نظر را برای شروع پیام انتخاب کنید.
+                    گفتگویی در این بخش یافت نشد. با وارد کردن <strong>@نام‌کاربری</strong> در کادر جستجو یا از تب <strong>«لیست مخاطبین»</strong> گفتگو را شروع کنید.
                   </div>
                 ) : chatRoleFilter === 'all' ? (
                   <>
+                    {staffConversations.length > 0 && (
+                      <>
+                        <div className={styles.categorySectionHeader} style={{ color: '#a5b4fc' }}>
+                          <div className={styles.categorySectionTitle}>
+                            <span>🏫 مدیر و معلمان مدرسه (مخاطبین پیش‌فرض)</span>
+                          </div>
+                          <span className={styles.categorySectionBadge} style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#a5b4fc' }}>
+                            {staffConversations.length} نفر
+                          </span>
+                        </div>
+                        {staffConversations.map(renderConversationItem)}
+                      </>
+                    )}
+
                     {studentConversations.length > 0 && (
                       <>
                         <div className={styles.categorySectionHeader} style={{ color: '#34d399' }}>
@@ -1341,20 +1527,6 @@ export default function MessagesPage() {
                         {parentConversations.map(renderConversationItem)}
                       </>
                     )}
-
-                    {staffConversations.length > 0 && (
-                      <>
-                        <div className={styles.categorySectionHeader} style={{ color: '#a5b4fc' }}>
-                          <div className={styles.categorySectionTitle}>
-                            <span>👨‍🏫 کادر مدرسه</span>
-                          </div>
-                          <span className={styles.categorySectionBadge} style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#a5b4fc' }}>
-                            {staffConversations.length} گفتگو
-                          </span>
-                        </div>
-                        {staffConversations.map(renderConversationItem)}
-                      </>
-                    )}
                   </>
                 ) : (
                   displayedConversations.map(renderConversationItem)
@@ -1367,7 +1539,7 @@ export default function MessagesPage() {
           {activeTab === 'groups' && (
             <>
               <div className={styles.groupHeaderAction}>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>کانال‌ها و کارگروه‌ها</span>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>گروه‌ها و کانال‌ها</span>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button
                     type="button"
@@ -1377,10 +1549,10 @@ export default function MessagesPage() {
                       setJoinLinkInput('');
                       setShowJoinGroupModal(true);
                     }}
-                    title="عضویت در گروه با لینک یا کد دعوت"
+                    title="عضویت در گروه با لینک، کد دعوت یا @آیدی"
                   >
                     <HiOutlineLink />
-                    <span>پیوستن با لینک</span>
+                    <span>پیوستن با لینک/آیدی</span>
                   </button>
                   <button
                     type="button"
@@ -1391,6 +1563,7 @@ export default function MessagesPage() {
                       setCreateGroupSearchResults([]);
                       setShowCreateGroupModal(true);
                     }}
+                    data-testid="open-create-group-btn"
                   >
                     <HiOutlinePlus />
                     <span>گروه جدید</span>
@@ -1398,35 +1571,126 @@ export default function MessagesPage() {
                 </div>
               </div>
 
-              <div className={styles.contactList}>
-                {groups.map((grp) => {
-                  const isActive = activeGroup?.id === grp.id;
-                  return (
-                    <div
-                      key={grp.id}
-                      className={`${styles.groupItem} ${isActive ? styles.groupItemActive : ''}`}
-                      onClick={() => selectGroup(grp)}
-                    >
-                      <div className={styles.groupAvatar}>
-                        {grp.category === 'council' ? '🏛️' : grp.category === 'parents' ? '🤝' : grp.category === 'olympiad' ? '🏆' : '📚'}
-                      </div>
-                      <div className={styles.contactDetails}>
-                        <div className={styles.contactNameRow}>
-                          <span className={styles.contactName}>{grp.name}</span>
-                          <span className={styles.contactCodePill}>{grp.members_count || 1} عضو</span>
+              {/* Group Search by @handle / Invite Link / Code / Name */}
+              <div className={styles.searchBox}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="input"
+                    style={{ paddingRight: '36px', fontSize: '0.8125rem' }}
+                    placeholder="جستجوی گروه با @آیدی، لینک، کد یا نام..."
+                    value={groupSearchQuery}
+                    onChange={(e) => setGroupSearchQuery(e.target.value)}
+                    data-testid="group-search-input"
+                  />
+                  <HiOutlineMagnifyingGlass
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-tertiary)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {groupSearchQuery.trim().length >= 2 && (
+                <div className={styles.liveSearchSection} data-testid="group-search-results">
+                  <div className={styles.liveSearchHeader}>
+                    <span>🔎 گروه‌های یافت‌شده در مدرسه</span>
+                    {searchingGroups && <span>در حال جستجو...</span>}
+                  </div>
+                  {!searchingGroups && groupSearchResults.length === 0 ? (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      گروهی با این آیدی یا لینک یافت نشد.
+                    </span>
+                  ) : (
+                    groupSearchResults.map((g) => (
+                      <div key={g.id} className={styles.liveSearchResultItem} style={{ cursor: 'default' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {g.name}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            {g.group_handle && (
+                              <span className={styles.groupHandleBadge}>@{g.group_handle}</span>
+                            )}
+                            <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>
+                              {g.members_count || 1} عضو
+                            </span>
+                          </div>
                         </div>
-                        <span className={styles.lastMsgPreview}>
-                          {grp.last_message ? `${grp.last_message.sender_name}: ${grp.last_message.content}` : grp.description || 'کانال رسمی مدرسه'}
-                        </span>
+                        {g.is_member ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.72rem', padding: '4px 10px', flexShrink: 0 }}
+                            onClick={() => {
+                              setGroupSearchQuery('');
+                              setGroupSearchResults([]);
+                              selectGroup(g);
+                            }}
+                          >
+                            ورود به گروه
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '0.72rem', padding: '4px 10px', flexShrink: 0 }}
+                            disabled={joiningGroupId === g.id}
+                            onClick={() => handleJoinGroupByLink(g.group_handle ? `@${g.group_handle}` : g.invite_code, g.id)}
+                          >
+                            {joiningGroupId === g.id ? 'در حال عضویت...' : '+ عضویت در گروه'}
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  );
-                })}
+                    ))
+                  )}
+                </div>
+              )}
+
+              <div className={styles.contactList}>
+                {groups.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
+                    هنوز در هیچ گروهی عضو نیستید. می‌توانید گروه جدید بسازید یا با <strong>@آیدی یا لینک گروه</strong> در آن عضو شوید.
+                  </div>
+                ) : (
+                  groups.map((grp) => {
+                    const isActive = activeGroup?.id === grp.id;
+                    return (
+                      <div
+                        key={grp.id}
+                        className={`${styles.groupItem} ${isActive ? styles.groupItemActive : ''}`}
+                        onClick={() => selectGroup(grp)}
+                      >
+                        <div className={styles.groupAvatar}>
+                          {grp.category === 'council' ? '🏛️' : grp.category === 'parents' ? '🤝' : grp.category === 'olympiad' ? '🏆' : '📚'}
+                        </div>
+                        <div className={styles.contactDetails}>
+                          <div className={styles.contactNameRow} style={{ gap: '6px', flexWrap: 'wrap' }}>
+                            <span className={styles.contactName}>{grp.name}</span>
+                            {grp.group_handle && (
+                              <span className={styles.groupHandleBadge}>@{grp.group_handle}</span>
+                            )}
+                            <span className={styles.contactCodePill}>{grp.members_count || 1} عضو</span>
+                          </div>
+                          <span className={styles.lastMsgPreview}>
+                            {grp.last_message
+                              ? `${grp.last_message.sender_name}: ${getLastMsgPreviewText(grp.last_message)}`
+                              : grp.description || 'کانال رسمی مدرسه'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </>
           )}
 
-          {/* TAB 3: School Directory & Personnel Codes */}
+          {/* TAB 3: School Contacts Directory */}
           {activeTab === 'directory' && (
             <>
               <div className={styles.searchBox}>
@@ -1435,7 +1699,7 @@ export default function MessagesPage() {
                     type="text"
                     className="input"
                     style={{ paddingRight: '36px', fontSize: '0.8125rem' }}
-                    placeholder="جستجو با نام، کد پرسنلی، دپارتمان..."
+                    placeholder="جستجو با @نام‌کاربری، نام یا کد..."
                     value={dirSearchQuery}
                     onChange={(e) => setDirSearchQuery(e.target.value)}
                   />
@@ -1463,7 +1727,7 @@ export default function MessagesPage() {
                   onClick={() => setDirRoleFilter('teacher')}
                   style={{ borderColor: dirRoleFilter === 'teacher' ? '#6366f1' : undefined }}
                 >
-                  👨‍🏫 معلمان و کادر ({directory.staff?.length || 0})
+                  🏫 مدیر و معلمان ({directory.staff?.length || 0})
                 </button>
                 <button
                   className={`${styles.dirFilterChip} ${dirRoleFilter === 'student' ? styles.dirFilterChipActive : ''}`}
@@ -1532,7 +1796,8 @@ export default function MessagesPage() {
 
               <div className={styles.contactList}>
                 {filteredDirectoryUsers.map((person) => {
-                  const badge = getRoleBadge(person.role);
+                  const isPrincipal = Boolean(person.is_principal || person.role === 'admin' || person.role === 'manager');
+                  const badge = getRoleBadge(person.role, person);
                   return (
                     <div key={person.id} className={styles.dirCard}>
                       <div className={styles.dirCardHeader}>
@@ -1541,12 +1806,13 @@ export default function MessagesPage() {
                           style={{
                             width: '38px',
                             height: '38px',
-                            background:
-                              person.role === 'student'
-                                ? 'linear-gradient(135deg, #059669, #10b981)'
-                                : person.role === 'parent'
-                                ? 'linear-gradient(135deg, #d97706, #f59e0b)'
-                                : 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                            background: isPrincipal
+                              ? 'linear-gradient(135deg, #b45309, #f59e0b)'
+                              : person.role === 'student'
+                              ? 'linear-gradient(135deg, #059669, #10b981)'
+                              : person.role === 'parent'
+                              ? 'linear-gradient(135deg, #d97706, #f59e0b)'
+                              : 'linear-gradient(135deg, #4f46e5, #6366f1)',
                             color: '#ffffff',
                           }}
                         >
@@ -1616,7 +1882,14 @@ export default function MessagesPage() {
                           )}
 
                           <span className={styles.dirTitle}>
-                            {person.job_title || (person.role === 'teacher' ? 'کادر آموزشی' : person.role === 'student' ? 'دانش‌آموز' : 'اولیا و خانواده')}
+                            {person.job_title ||
+                              (person.is_principal || ['admin', 'manager', 'principal'].includes(person.role)
+                                ? 'مدیریت مدرسه'
+                                : person.role === 'teacher'
+                                ? 'کادر آموزشی'
+                                : person.role === 'student'
+                                ? 'دانش‌آموز'
+                                : 'اولیا و خانواده')}
                             {person.class_name ? ` • ${person.class_name}` : (person.department && person.role !== 'parent' ? ` • ${person.department}` : '')}
                             {person.role === 'teacher' && person.grades && person.grades.length > 0 ? ` • پایه‌ها: ${person.grades.join('، ')}` : ''}
                           </span>
@@ -1679,7 +1952,20 @@ export default function MessagesPage() {
                     {activeGroup.category === 'council' ? '🏛️' : activeGroup.category === 'parents' ? '🤝' : '🏆'}
                   </div>
                   <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeGroup.name}</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {activeGroup.name}
+                      </h3>
+                      {activeGroup.group_handle && (
+                        <span
+                          className={styles.groupHandleBadge}
+                          title="آیدی قابل جستجوی گروه (کلیک جهت کپی)"
+                          onClick={() => handleCopyGroupHandle(activeGroup.group_handle)}
+                        >
+                          @{activeGroup.group_handle}
+                        </span>
+                      )}
+                    </div>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                       {activeGroup.members_count || 1} عضو • {activeGroup.description || 'کانال رسمی'}
                     </span>
@@ -1775,96 +2061,13 @@ export default function MessagesPage() {
                                 )}
                               </div>
                             )}
-                            <p>{msg.content}</p>
+                            {msg.content && String(msg.content).trim() ? <p>{msg.content}</p> : null}
 
-                            {/* Render Attachments */}
-                            {(() => {
-                              const atts = parseAttachments(msg.attachments);
-                              if (atts.length === 0) return null;
-                              return (
-                                <div style={{ marginTop: '8px' }}>
-                                  {atts.map((file, idx) => {
-                                    const isVideo =
-                                      file.is_video ||
-                                      file.mimetype?.startsWith('video') ||
-                                      (!file.is_voice && file.url?.match(/\.(mp4|mkv|mov)$/i)) ||
-                                      (file.url?.match(/\.webm$/i) && file.is_video);
-                                    const isAudio =
-                                      !isVideo &&
-                                      (file.is_voice ||
-                                        file.mimetype?.startsWith('audio') ||
-                                        file.url?.match(/\.(mp3|ogg|wav|m4a|aac)$/i) ||
-                                        (file.url?.match(/\.webm$/i) && file.is_voice));
-
-                                    if (isVideo) {
-                                      return (
-                                        <div
-                                          key={idx}
-                                          style={{
-                                            marginTop: '8px',
-                                            maxWidth: '340px',
-                                            borderRadius: '14px',
-                                            overflow: 'hidden',
-                                            border: '1px solid var(--border-color)',
-                                            background: '#000',
-                                          }}
-                                        >
-                                          <video
-                                            controls
-                                            src={file.url}
-                                            style={{ width: '100%', maxHeight: '220px', display: 'block', background: '#000' }}
-                                            preload="metadata"
-                                          />
-                                          <div
-                                            style={{
-                                              padding: '6px 10px',
-                                              fontSize: '0.75rem',
-                                              fontWeight: 700,
-                                              color: '#fff',
-                                              background: 'rgba(15, 23, 42, 0.85)',
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: '6px',
-                                            }}
-                                          >
-                                            <span>🎬 {file.name || file.originalname || 'ویدیوی تخته هوشمند'}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    }
-
-                                    if (isAudio) {
-                                      return (
-                                        <div key={idx} className={styles.voicePlayerCard}>
-                                          <div className={styles.voicePlayerHeader}>
-                                            <span className={styles.voicePlayerIcon}>🎙️</span>
-                                            <span className={styles.voicePlayerTitle}>پیام صوتی</span>
-                                          </div>
-                                          <audio
-                                            controls
-                                            src={file.url}
-                                            className={styles.voiceAudioElement}
-                                            preload="metadata"
-                                          />
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <a
-                                        key={idx}
-                                        href={file.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.attachmentCard}
-                                      >
-                                        <HiOutlineDocumentArrowDown style={{ fontSize: '1.25rem', color: '#38bdf8' }} />
-                                        <span>{file.originalname || file.name || 'فایل پیوست'}</span>
-                                      </a>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })()}
+                            <MessageAttachments
+                              attachments={parseAttachments(msg.attachments)}
+                              styles={styles}
+                              onPreviewImage={setLightboxImage}
+                            />
 
                             <div className={styles.messageMeta}>
                               {msg.is_edited && <span className={styles.editedTag}>(ویرایش شده)</span>}
@@ -1916,122 +2119,28 @@ export default function MessagesPage() {
               </div>
 
               {/* Input for Group */}
-              <div className={styles.inputBarContainer}>
-                {editingMessage && (
-                  <div className={styles.editingBanner}>
-                    <div className={styles.editingInfo}>
-                      <HiOutlinePencilSquare className={styles.editingIcon} />
-                      <span className={styles.editingLabel}>ویرایش پیام:</span>
-                      <span className={styles.editingPreview}>{editingMessage.content || '...'}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.cancelEditBtn}
-                      onClick={cancelEditing}
-                      title="انصراف از ویرایش"
-                    >
-                      <HiOutlineXMark />
-                      <span>انصراف</span>
-                    </button>
-                  </div>
-                )}
-                {attachedFiles.length > 0 && (
-                  <div className={styles.attachedFilesPreview}>
-                    {attachedFiles.map((f, i) => (
-                      <span key={i} className={styles.previewChip}>
-                        <span>{f.originalname}</span>
-                        <HiOutlineXMark style={{ cursor: 'pointer' }} onClick={() => removeAttachment(i)} />
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {isRecording ? (
-                  <div className={styles.recordingBar}>
-                    <div className={styles.recordingStatus}>
-                      <span className={styles.recordingDot} />
-                      <span className={styles.recordingTimer}>{formatDuration(recordingDuration)}</span>
-                      <span className={styles.recordingHint}>در حال ضبط ویس گروه...</span>
-                    </div>
-                    <div className={styles.recordingControls}>
-                      <button
-                        type="button"
-                        className={styles.cancelRecordBtn}
-                        onClick={cancelRecording}
-                        title="لغو ضبط ویس"
-                      >
-                        <HiOutlineTrash />
-                        <span>لغو</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.sendRecordBtn}
-                        onClick={stopAndSendRecording}
-                        disabled={isUploadingVoice}
-                        title="توقف و ارسال ویس"
-                      >
-                        <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                        <span>{isUploadingVoice ? 'در حال ارسال...' : 'ارسال ویس'}</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSendMessage} className={styles.inputBar}>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: 'none' }}
-                      multiple
-                      onChange={handleFileUpload}
-                    />
-                    <button
-                      type="button"
-                      className={styles.attachBtn}
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingFile || isRecording}
-                      title="پیوست فایل یا تصویر"
-                    >
-                      <HiOutlinePaperClip />
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.micBtn}
-                      onClick={startRecording}
-                      disabled={uploadingFile || isUploadingVoice}
-                      title="ضبط و ارسال پیام صوتی (ویس)"
-                    >
-                      <HiOutlineMicrophone />
-                    </button>
-                    <input
-                      type="text"
-                      className={styles.messageInput}
-                      placeholder={
-                        editingMessage
-                          ? 'ویرایش متن پیام...'
-                          : `ارسال پیام به گروه ${activeGroup.name}...`
-                      }
-                      value={newMessageText}
-                      onChange={(e) => setNewMessageText(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className={styles.sendBtn}
-                      disabled={sending}
-                      title={editingMessage ? 'ذخیره تغییرات' : 'ارسال پیام'}
-                      style={
-                        editingMessage
-                          ? { background: 'linear-gradient(135deg, #10b981, #059669)' }
-                          : {}
-                      }
-                    >
-                      {editingMessage ? (
-                        <HiOutlineCheck style={{ fontSize: '1.25rem' }} />
-                      ) : (
-                        <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                      )}
-                    </button>
-                  </form>
-                )}
-              </div>
+              <MessageComposer
+                styles={styles}
+                editingMessage={editingMessage}
+                cancelEditing={cancelEditing}
+                attachedFiles={attachedFiles}
+                removeAttachment={removeAttachment}
+                isRecording={isRecording}
+                recordingDuration={recordingDuration}
+                formatDuration={formatDuration}
+                cancelRecording={cancelRecording}
+                stopAndSendRecording={stopAndSendRecording}
+                isUploadingVoice={isUploadingVoice}
+                uploadingFile={uploadingFile}
+                startRecording={startRecording}
+                onUploadFiles={handleFileUpload}
+                newMessageText={newMessageText}
+                setNewMessageText={setNewMessageText}
+                onSubmit={handleSendMessage}
+                sending={sending}
+                placeholder={`ارسال پیام، عکس، ویدیو یا ویس به گروه ${activeGroup.name}...`}
+                recordingHint="در حال ضبط ویس گروه..."
+              />
             </>
           ) : activePartner ? (
             /* 1-on-1 CHAT VIEW */
@@ -2050,7 +2159,8 @@ export default function MessagesPage() {
                     <HiOutlineArrowRight />
                   </button>
                   {(() => {
-                    const badge = getRoleBadge(activePartner.role);
+                    const isPrincipal = Boolean(activePartner.is_principal || activePartner.role === 'admin' || activePartner.role === 'manager');
+                    const badge = getRoleBadge(activePartner.role, activePartner);
                     return (
                       <>
                         <div
@@ -2059,12 +2169,13 @@ export default function MessagesPage() {
                             width: '40px',
                             height: '40px',
                             minWidth: '40px',
-                            background:
-                              activePartner.role === 'student'
-                                ? 'linear-gradient(135deg, #059669, #10b981)'
-                                : activePartner.role === 'parent'
-                                ? 'linear-gradient(135deg, #d97706, #f59e0b)'
-                                : 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                            background: isPrincipal
+                              ? 'linear-gradient(135deg, #b45309, #f59e0b)'
+                              : activePartner.role === 'student'
+                              ? 'linear-gradient(135deg, #059669, #10b981)'
+                              : activePartner.role === 'parent'
+                              ? 'linear-gradient(135deg, #d97706, #f59e0b)'
+                              : 'linear-gradient(135deg, #4f46e5, #6366f1)',
                             color: '#ffffff',
                           }}
                         >
@@ -2129,6 +2240,8 @@ export default function MessagesPage() {
                           >
                             {activePartner.role === 'parent'
                               ? `🎓 اولیا و خانواده • فرزند: ${activePartner.student_name || 'دانش‌آموز مدرسه'} ${activePartner.student_department ? `(${activePartner.student_department})` : ''}`
+                              : activePartner.is_principal || ['admin', 'manager', 'principal'].includes(activePartner.role)
+                              ? 'مدیریت مدرسه'
                               : activePartner.job_title ||
                                 (activePartner.role === 'teacher'
                                   ? `دبیر محترم ${activePartner.department ? `• ${activePartner.department}` : ''}`
@@ -2178,96 +2291,13 @@ export default function MessagesPage() {
                       >
                         <div className={styles.messageBubbleWrapper}>
                           <div className={styles.messageBubble}>
-                            <p>{msg.content}</p>
+                            {msg.content && String(msg.content).trim() ? <p>{msg.content}</p> : null}
 
-                            {/* Render Attachments */}
-                            {(() => {
-                              const atts = parseAttachments(msg.attachments);
-                              if (atts.length === 0) return null;
-                              return (
-                                <div style={{ marginTop: '8px' }}>
-                                  {atts.map((file, idx) => {
-                                    const isVideo =
-                                      file.is_video ||
-                                      file.mimetype?.startsWith('video') ||
-                                      (!file.is_voice && file.url?.match(/\.(mp4|mkv|mov)$/i)) ||
-                                      (file.url?.match(/\.webm$/i) && file.is_video);
-                                    const isAudio =
-                                      !isVideo &&
-                                      (file.is_voice ||
-                                        file.mimetype?.startsWith('audio') ||
-                                        file.url?.match(/\.(mp3|ogg|wav|m4a|aac)$/i) ||
-                                        (file.url?.match(/\.webm$/i) && file.is_voice));
-
-                                    if (isVideo) {
-                                      return (
-                                        <div
-                                          key={idx}
-                                          style={{
-                                            marginTop: '8px',
-                                            maxWidth: '340px',
-                                            borderRadius: '14px',
-                                            overflow: 'hidden',
-                                            border: '1px solid var(--border-color)',
-                                            background: '#000',
-                                          }}
-                                        >
-                                          <video
-                                            controls
-                                            src={file.url}
-                                            style={{ width: '100%', maxHeight: '220px', display: 'block', background: '#000' }}
-                                            preload="metadata"
-                                          />
-                                          <div
-                                            style={{
-                                              padding: '6px 10px',
-                                              fontSize: '0.75rem',
-                                              fontWeight: 700,
-                                              color: '#fff',
-                                              background: 'rgba(15, 23, 42, 0.85)',
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: '6px',
-                                            }}
-                                          >
-                                            <span>🎬 {file.name || file.originalname || 'ویدیوی تخته هوشمند'}</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    }
-
-                                    if (isAudio) {
-                                      return (
-                                        <div key={idx} className={styles.voicePlayerCard}>
-                                          <div className={styles.voicePlayerHeader}>
-                                            <span className={styles.voicePlayerIcon}>🎙️</span>
-                                            <span className={styles.voicePlayerTitle}>پیام صوتی</span>
-                                          </div>
-                                          <audio
-                                            controls
-                                            src={file.url}
-                                            className={styles.voiceAudioElement}
-                                            preload="metadata"
-                                          />
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <a
-                                        key={idx}
-                                        href={file.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.attachmentCard}
-                                      >
-                                        <HiOutlineDocumentArrowDown style={{ fontSize: '1.25rem', color: '#38bdf8' }} />
-                                        <span>{file.originalname || file.name || 'فایل پیوست'}</span>
-                                      </a>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })()}
+                            <MessageAttachments
+                              attachments={parseAttachments(msg.attachments)}
+                              styles={styles}
+                              onPreviewImage={setLightboxImage}
+                            />
 
                             <div className={styles.messageMeta}>
                               {msg.is_edited && <span className={styles.editedTag}>(ویرایش شده)</span>}
@@ -2327,122 +2357,28 @@ export default function MessagesPage() {
               </div>
 
               {/* Bottom Input */}
-              <div className={styles.inputBarContainer}>
-                {editingMessage && (
-                  <div className={styles.editingBanner}>
-                    <div className={styles.editingInfo}>
-                      <HiOutlinePencilSquare className={styles.editingIcon} />
-                      <span className={styles.editingLabel}>ویرایش پیام:</span>
-                      <span className={styles.editingPreview}>{editingMessage.content || '...'}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.cancelEditBtn}
-                      onClick={cancelEditing}
-                      title="انصراف از ویرایش"
-                    >
-                      <HiOutlineXMark />
-                      <span>انصراف</span>
-                    </button>
-                  </div>
-                )}
-                {attachedFiles.length > 0 && (
-                  <div className={styles.attachedFilesPreview}>
-                    {attachedFiles.map((f, i) => (
-                      <span key={i} className={styles.previewChip}>
-                        <span>{f.originalname}</span>
-                        <HiOutlineXMark style={{ cursor: 'pointer' }} onClick={() => removeAttachment(i)} />
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {isRecording ? (
-                  <div className={styles.recordingBar}>
-                    <div className={styles.recordingStatus}>
-                      <span className={styles.recordingDot} />
-                      <span className={styles.recordingTimer}>{formatDuration(recordingDuration)}</span>
-                      <span className={styles.recordingHint}>در حال ضبط پیام صوتی (ویس)...</span>
-                    </div>
-                    <div className={styles.recordingControls}>
-                      <button
-                        type="button"
-                        className={styles.cancelRecordBtn}
-                        onClick={cancelRecording}
-                        title="لغو ضبط ویس"
-                      >
-                        <HiOutlineTrash />
-                        <span>لغو</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.sendRecordBtn}
-                        onClick={stopAndSendRecording}
-                        disabled={isUploadingVoice}
-                        title="توقف و ارسال ویس"
-                      >
-                        <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                        <span>{isUploadingVoice ? 'در حال ارسال...' : 'ارسال ویس'}</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSendMessage} className={styles.inputBar}>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: 'none' }}
-                      multiple
-                      onChange={handleFileUpload}
-                    />
-                    <button
-                      type="button"
-                      className={styles.attachBtn}
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingFile || isRecording}
-                      title="پیوست فایل، عکس یا جزوه"
-                    >
-                      <HiOutlinePaperClip />
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.micBtn}
-                      onClick={startRecording}
-                      disabled={uploadingFile || isUploadingVoice}
-                      title="ضبط و ارسال پیام صوتی (ویس)"
-                    >
-                      <HiOutlineMicrophone />
-                    </button>
-                    <input
-                      type="text"
-                      className={styles.messageInput}
-                      placeholder={
-                        editingMessage
-                          ? 'ویرایش متن پیام...'
-                          : `ارسال پیام امن به ${activePartner.display_name}...`
-                      }
-                      value={newMessageText}
-                      onChange={(e) => setNewMessageText(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className={styles.sendBtn}
-                      disabled={sending}
-                      title={editingMessage ? 'ذخیره تغییرات' : 'ارسال پیام'}
-                      style={
-                        editingMessage
-                          ? { background: 'linear-gradient(135deg, #10b981, #059669)' }
-                          : {}
-                      }
-                    >
-                      {editingMessage ? (
-                        <HiOutlineCheck style={{ fontSize: '1.25rem' }} />
-                      ) : (
-                        <HiOutlinePaperAirplane style={{ transform: 'rotate(180deg)' }} />
-                      )}
-                    </button>
-                  </form>
-                )}
-              </div>
+              <MessageComposer
+                styles={styles}
+                editingMessage={editingMessage}
+                cancelEditing={cancelEditing}
+                attachedFiles={attachedFiles}
+                removeAttachment={removeAttachment}
+                isRecording={isRecording}
+                recordingDuration={recordingDuration}
+                formatDuration={formatDuration}
+                cancelRecording={cancelRecording}
+                stopAndSendRecording={stopAndSendRecording}
+                isUploadingVoice={isUploadingVoice}
+                uploadingFile={uploadingFile}
+                startRecording={startRecording}
+                onUploadFiles={handleFileUpload}
+                newMessageText={newMessageText}
+                setNewMessageText={setNewMessageText}
+                onSubmit={handleSendMessage}
+                sending={sending}
+                placeholder={`ارسال پیام، عکس، ویدیو یا ویس به ${activePartner.display_name}...`}
+                recordingHint="در حال ضبط پیام صوتی (ویس)..."
+              />
             </>
           ) : (
             <div className={styles.emptyChat}>
@@ -2483,7 +2419,23 @@ export default function MessagesPage() {
                   placeholder="مثلاً: کارگروه مسابقات فیزیک"
                   value={newGroupForm.name}
                   onChange={(e) => setNewGroupForm({ ...newGroupForm, name: e.target.value })}
+                  data-testid="create-group-name-input"
                   required
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                  آیدی قابل جستجوی گروه (اختیاری)
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  style={{ direction: 'ltr', textAlign: 'left' }}
+                  placeholder="مثلاً: math_10a (در صورت خالی بودن خودکار ساخته می‌شود)"
+                  value={newGroupForm.group_handle}
+                  onChange={(e) => setNewGroupForm({ ...newGroupForm, group_handle: e.target.value })}
+                  data-testid="create-group-handle-input"
                 />
               </div>
 
@@ -2866,10 +2818,34 @@ export default function MessagesPage() {
             </div>
 
             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: '1.6' }}>
-              افرادی که این لینک یا کد دعوت را داشته باشند، می‌توانند با یک کلیک یا وارد کردن کد مستقیماً به این گروه ملحق شوند:
+              اعضای مدرسه می‌توانند با جستجوی <strong>آیدی گروه</strong>، <strong>لینک دعوت</strong> یا <strong>کد عضویت</strong> به این گروه بپیوندند:
             </p>
 
             <div className={styles.inviteLinkCard}>
+              {activeGroup.group_handle && (
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                    آیدی قابل جستجوی گروه:
+                  </label>
+                  <div className={styles.inviteCodeBadgeBox}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>آیدی:</span>
+                      <span className={styles.inviteCodeText} style={{ direction: 'ltr' }}>
+                        @{activeGroup.group_handle}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                      onClick={() => handleCopyGroupHandle(activeGroup.group_handle)}
+                    >
+                      {copiedHandle ? 'کپی شد ✓' : 'کپی آیدی'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
                   لینک اختصاصی دعوت:
@@ -2937,7 +2913,7 @@ export default function MessagesPage() {
         </div>
       )}
 
-      {/* Modal 3: Join Group By Link / Code Modal */}
+      {/* Modal 3: Join Group By Link / Code / @Handle Modal */}
       {showJoinGroupModal && (
         <div className={styles.modalBackdrop} onClick={() => setShowJoinGroupModal(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
@@ -2945,7 +2921,7 @@ export default function MessagesPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '1.25rem' }}>🚪</span>
                 <h2 style={{ fontSize: '1.0625rem', fontWeight: 700, margin: 0 }}>
-                  پیوستن به گروه با لینک یا کد دعوت
+                  پیوستن به گروه با آیدی، لینک یا کد دعوت
                 </h2>
               </div>
               <button className={styles.closeBtn} onClick={() => setShowJoinGroupModal(false)}>
@@ -2954,7 +2930,7 @@ export default function MessagesPage() {
             </div>
 
             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: '1.6' }}>
-              لینک دعوتی که دریافت کرده‌اید یا کد عضویت گروه (مثلاً <code>GRP-XXXX</code>) را در کادر زیر وارد نمایید:
+              آیدی گروه (مثلاً <code>@math_10a</code>)، لینک دعوت یا کد عضویت (مثلاً <code>GRP-XXXX</code>) را در کادر زیر وارد نمایید:
             </p>
 
             <form
@@ -2967,7 +2943,7 @@ export default function MessagesPage() {
                 <input
                   type="text"
                   className="input"
-                  placeholder="لینک کامل دعوت یا کد اختصاصی گروه..."
+                  placeholder="@آیدی گروه، لینک دعوت یا کد اختصاصی..."
                   value={joinLinkInput}
                   onChange={(e) => setJoinLinkInput(e.target.value)}
                   style={{ direction: 'ltr', textAlign: 'left' }}
@@ -3170,6 +3146,41 @@ export default function MessagesPage() {
                 حذف قطعی پیام
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Lightbox Modal */}
+      {lightboxImage && (
+        <div
+          className={styles.lightboxBackdrop}
+          onClick={() => setLightboxImage(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="پیش‌نمایش تصویر"
+        >
+          <img
+            src={lightboxImage.url}
+            alt={lightboxImage.title || 'تصویر'}
+            className={styles.lightboxImg}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div className={styles.lightboxBar} onClick={(e) => e.stopPropagation()}>
+            <span>{lightboxImage.title || 'تصویر'}</span>
+            <a
+              href={lightboxImage.url}
+              download={lightboxImage.title || 'image'}
+              className="btn btn-primary btn-sm"
+            >
+              دانلود تصویر
+            </a>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setLightboxImage(null)}
+            >
+              بستن
+            </button>
           </div>
         </div>
       )}

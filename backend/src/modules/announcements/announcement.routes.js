@@ -8,19 +8,22 @@ router.use(authenticate);
 
 // Invalidate announcement cache on mutations (scoped to caller's school)
 const invalidateAnnouncementCache = (req, res, next) => {
-  const schoolPrefix = req.user?.school_id ? `${req.user.school_id}:` : '*';
-  cache.delByPattern(`${schoolPrefix}*announcement*`);
+  if (req.user?.school_id) {
+    cache.delBySchool(req.user.school_id, '*announcement*');
+  } else {
+    cache.delByPattern('*announcement*');
+  }
   next();
 };
 
 // Get pending mandatory announcements (for the popup overlay on login)
 router.get('/pending-mandatory', announcementController.getPendingMandatory);
 
-// Get available targeting options (grades, subjects, classes)
-router.get('/targeting-options', authorize('teacher', 'admin', 'manager'), cacheMiddleware(120), announcementController.getTargetingOptions);
+// Get available targeting options (always live DB classes owned by teacher / school)
+router.get('/targeting-options', authorize('teacher', 'admin', 'manager'), announcementController.getTargetingOptions);
 
-// Get all announcements for current user (cached for 45 seconds for ultra-fast dashboard loading)
-router.get('/', cacheMiddleware(45), announcementController.getAll);
+// Get all announcements for current user
+router.get('/', announcementController.getAll);
 
 // Create announcement (teacher/admin)
 router.post('/', authorize('teacher', 'admin', 'manager'), invalidateAnnouncementCache, announcementController.create);

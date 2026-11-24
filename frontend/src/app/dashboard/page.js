@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import useAuthStore from '../../stores/authStore';
 import useClassStore from '../../stores/classStore';
 import api from '../../lib/api';
@@ -31,6 +32,7 @@ import SchoolWebsiteModal from '../../components/school/SchoolWebsiteModal';
 import styles from './dashboard.module.css';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, setUser } = useAuthStore();
   const { classes, fetchClasses, isLoading } = useClassStore();
   const [notifications, setNotifications] = useState({ unread_count: 0 });
@@ -40,6 +42,7 @@ export default function DashboardPage() {
   const [schoolWebsiteUrl, setSchoolWebsiteUrl] = useState('');
   const [showWebsiteModal, setShowWebsiteModal] = useState(false);
   const [schoolMemberCounts, setSchoolMemberCounts] = useState({ teachers: 6, students: 4 });
+  const [recentAnnouncements, setRecentAnnouncements] = useState([]);
 
   const isTeacher = user?.role === 'teacher' || user?.role === 'counselor';
   const isStudent = user?.role === 'student';
@@ -57,18 +60,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user && user.role === 'student') {
-      const st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      let st = {};
+      try {
+        st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      } catch (_e) {
+        st = {};
+      }
       if (!st?.is_onboarded) {
-        setShowStudentSetup(true);
+        router.replace('/dashboard/select-teachers/');
+        return;
       }
     }
     if (user && user.role === 'teacher') {
-      const st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      let st = {};
+      try {
+        st = typeof user.settings === 'string' ? JSON.parse(user.settings || '{}') : (user.settings || {});
+      } catch (_e) {
+        st = {};
+      }
       if (!st?.is_teacher_onboarded) {
         setShowTeacherSetup(true);
       }
     }
-  }, [user]);
+  }, [user, router]);
 
   // Parent specific state
   const [children, setChildren] = useState([]);
@@ -102,6 +116,17 @@ export default function DashboardPage() {
       }
       dynamicKeysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
+
+    if (user) {
+      api
+        .get('/announcements')
+        .then((res) => {
+          if (res.data?.success && Array.isArray(res.data.data?.announcements)) {
+            setRecentAnnouncements(res.data.data.announcements);
+          }
+        })
+        .catch(() => {});
+    }
 
     if (isParent) {
       fetchParentData();
@@ -414,6 +439,75 @@ export default function DashboardPage() {
               گفتگو با دبیران، مدیریت، معاونت و انجمن اولیا
             </span>
           </div>
+        </div>
+
+        {/* ── 2.5 Live Announcements for Parents ── */}
+        <div
+          className={styles.parentCard}
+          style={{ marginBottom: '20px' }}
+          data-testid="dashboard-announcements-section"
+        >
+          <div className={styles.parentCardHeader}>
+            <div className={styles.parentCardTitle}>
+              <HiOutlineMegaphone style={{ color: '#4f46e5', fontSize: '1.25rem' }} />
+              <span>آخرین اطلاعیه‌ها و بخشنامه‌ها ({recentAnnouncements.length})</span>
+            </div>
+            <Link href="/dashboard/announcements/" className="btn btn-secondary btn-sm">
+              <span>مشاهده همه اطلاعیه‌ها ←</span>
+            </Link>
+          </div>
+
+          {recentAnnouncements.length === 0 ? (
+            <div className={styles.parentEmptyNotice}>
+              در حال حاضر اطلاعیه جدیدی برای کلاس‌های فرزند شما منتشر نشده است.
+            </div>
+          ) : (
+            <div className={styles.parentItemList}>
+              {recentAnnouncements.slice(0, 4).map((ann) => (
+                <div key={ann.id} className={styles.parentItemRow} data-testid={`dashboard-ann-item-${ann.id}`}>
+                  <div className={styles.parentItemTop}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <strong className={styles.parentItemTitle}>{ann.title}</strong>
+                      {Array.isArray(ann.target_class_names) && ann.target_class_names.length > 0 && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', padding: '2px 8px', borderRadius: '6px' }}>
+                          {ann.target_class_names.join('، ')}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        background:
+                          ann.priority === 'urgent'
+                            ? 'rgba(239, 68, 68, 0.12)'
+                            : ann.priority === 'important'
+                              ? 'rgba(245, 158, 11, 0.12)'
+                              : 'rgba(99, 102, 241, 0.12)',
+                        color:
+                          ann.priority === 'urgent'
+                            ? '#dc2626'
+                            : ann.priority === 'important'
+                              ? '#b45309'
+                              : '#4f46e5',
+                      }}
+                    >
+                      {ann.priority === 'urgent' ? 'فوری' : ann.priority === 'important' ? 'مهم' : 'عادی'}
+                    </span>
+                  </div>
+                  <p style={{ margin: '6px 0 4px', fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    {ann.content}
+                  </p>
+                  <div className={styles.parentItemMeta}>
+                    <span>فرستنده: {ann.teacher_name || 'کادر مدرسه'}</span>
+                    <span>{new Date(ann.created_at).toLocaleDateString('fa-IR')}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── 3. Bento Grid: Assignments on Right, Exams on Left ── */}
@@ -821,32 +915,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <button
-            type="button"
+          <Link
+            href="/dashboard/select-teachers/"
             className="btn btn-secondary btn-sm"
-            onClick={() => setShowStudentSetup(true)}
-            style={{ fontWeight: 700 }}
+            style={{ fontWeight: 700, textDecoration: 'none' }}
           >
             <span>انتخاب و ویرایش معلمان من ✏️</span>
-          </button>
+          </Link>
         </div>
-      )}
-
-      {/* ── Student Onboarding & Teachers Selection Modal ── */}
-      {isStudent && (
-        <StudentSetupModal
-          isOpen={showStudentSetup}
-          onClose={() => setShowStudentSetup(false)}
-          onSuccess={(updatedUser) => {
-            setUser(updatedUser);
-            fetchClasses();
-          }}
-          initialData={{
-            school_name: userSettings?.school_name,
-            grade: userSettings?.grade || user?.department,
-            selected_teacher_ids: userSettings?.selected_teacher_ids,
-          }}
-        />
       )}
 
       {/* ── Teacher School & Classes Connection Banner ── */}
@@ -1015,7 +1091,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className={styles.kpiValueRow}>
-                <span className={styles.kpiValue}>۸ بخشنامه</span>
+                <span className={styles.kpiValue}>{recentAnnouncements.length.toLocaleString('fa-IR')} اطلاعیه</span>
               </div>
               <span className={styles.kpiLabel}>بخشنامه‌ها و اطلاعیه‌های فعال</span>
             </div>
@@ -1182,8 +1258,81 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Right Column: Today's Schedule & AI Insights */}
+        {/* Right Column: Live Announcements, Today's Schedule & AI Insights */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Live Announcements Widget */}
+          <div className={styles.timelineCard} data-testid="dashboard-announcements-section">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <HiOutlineMegaphone style={{ color: '#4f46e5' }} />
+                <span>آخرین اطلاعیه‌ها</span>
+              </h3>
+              <Link href="/dashboard/announcements/" style={{ fontSize: '0.78rem', fontWeight: 700, color: '#4f46e5', textDecoration: 'none' }}>
+                مشاهده همه ←
+              </Link>
+            </div>
+
+            {recentAnnouncements.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {recentAnnouncements.slice(0, 4).map((ann) => (
+                  <Link
+                    key={ann.id}
+                    href="/dashboard/announcements/"
+                    className={styles.timelineItem}
+                    style={{ textDecoration: 'none', color: 'inherit', alignItems: 'flex-start' }}
+                    data-testid={`dashboard-ann-item-${ann.id}`}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <strong style={{ fontSize: '0.86rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ann.title}
+                        </strong>
+                        <span
+                          style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: '6px',
+                            flexShrink: 0,
+                            background:
+                              ann.priority === 'urgent'
+                                ? 'rgba(239, 68, 68, 0.12)'
+                                : ann.priority === 'important'
+                                  ? 'rgba(245, 158, 11, 0.12)'
+                                  : 'rgba(99, 102, 241, 0.12)',
+                            color:
+                              ann.priority === 'urgent'
+                                ? '#dc2626'
+                                : ann.priority === 'important'
+                                  ? '#b45309'
+                                  : '#4f46e5',
+                          }}
+                        >
+                          {ann.priority === 'urgent' ? 'فوری' : ann.priority === 'important' ? 'مهم' : 'عادی'}
+                        </span>
+                      </div>
+                      <p style={{ margin: '4px 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {ann.content}
+                      </p>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <span>{ann.teacher_name || 'کادر مدرسه'}</span>
+                        <span>
+                          {Array.isArray(ann.target_class_names) && ann.target_class_names.length > 0
+                            ? ann.target_class_names.join('، ')
+                            : new Date(ann.created_at).toLocaleDateString('fa-IR')}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '18px 12px', color: 'var(--text-tertiary)', fontSize: '0.82rem' }}>
+                هنوز اطلاعیه‌ای ثبت نشده است.
+              </div>
+            )}
+          </div>
+
           {/* Today's Schedule Widget */}
           <div className={styles.timelineCard}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

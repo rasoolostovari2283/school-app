@@ -513,6 +513,353 @@
   line-height: 1.5;
 }
 
+/* Inline Manual Student Adder at bottom of each class roster */
+.manualAdderSection {
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  padding: 16px 20px 20px;
+}
+
+.manualAdderHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.manualAdderToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: right;
+}
+
+.manualAdderIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-lg);
+  background: rgba(99, 102, 241, 0.14);
+  color: #6366f1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.manualAdderTitleWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manualAdderTitle {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.manualAdderSubtitle {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.manualAdderChevron {
+  color: var(--text-tertiary);
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dbGroupBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #059669;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+}
+
+.manualAdderBody {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.manualSearchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.manualSearchInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.manualSearchIcon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 1.1rem;
+  pointer-events: none;
+}
+
+.manualSearchInput {
+  width: 100%;
+  height: 42px;
+  padding: 0 38px 0 34px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.manualSearchInput:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+}
+
+.manualSearchClear {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+}
+
+.notFoundAlert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-radius: var(--radius-lg);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.notFoundIcon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.manualResultsBox {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.manualResultsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.manualResultsHint {
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.manualResultsList {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.manualResultItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  text-align: right;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.manualResultItem:last-child {
+  border-bottom: none;
+}
+
+.manualResultItem:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.manualResultItemSelected {
+  background: rgba(99, 102, 241, 0.09);
+}
+
+.manualResultItemEnrolled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.manualResultCheck {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: white;
+}
+
+.manualResultItemSelected .manualResultCheck {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+.manualResultItemEnrolled .manualResultCheck {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+.manualResultInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.manualResultName {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.manualResultMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manualResultHandle {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: #0284c7;
+  font-weight: 600;
+}
+
+.manualResultGrade {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.manualResultStatus {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+
+.manualResultItemEnrolled .manualResultStatus {
+  color: #059669;
+}
+
+.manualFooterRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.selectedChipsWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 200px;
+}
+
+.selectedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.selectedChipHandle {
+  font-family: monospace;
+  font-size: 0.74rem;
+  color: #0284c7;
+}
+
+.selectedChipRemove {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+}
+
+.selectedChipRemove:hover {
+  color: #ef4444;
+}
+
+.manualFooterHint {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
 /* Printable Roster Sheet Container (Hidden on screen, styled for print) */
 .printableRosterSheet {
   display: none;
@@ -525,6 +872,7 @@
   .statsGrid,
   .toolbar,
   .tableCard,
+  .manualAdderSection,
   .dbNoticeBanner,
   .modalBackdrop,
   .actionBtns {

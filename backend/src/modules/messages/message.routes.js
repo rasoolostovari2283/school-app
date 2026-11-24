@@ -11,11 +11,13 @@ router.get('/users/search', messageController.searchUserByIdentifier);
 
 // Group Chats
 router.get('/groups', messageController.getGroups);
+router.get('/groups/search', messageController.searchGroups);
 router.post('/groups', messageController.createGroup);
-router.delete('/groups/:groupId', messageController.deleteGroup);
 router.post('/groups/join', messageController.joinGroupByLinkOrCode);
+router.delete('/groups/:groupId', messageController.deleteGroup);
 router.get('/groups/:groupId/members', messageController.getGroupMembers);
 router.post('/groups/:groupId/members', messageController.addMemberToGroup);
+router.delete('/groups/:groupId/members/:userId', messageController.removeGroupMember);
 router.get('/groups/:groupId/invite-link', messageController.getGroupInviteLink);
 router.get('/groups/:groupId/messages', messageController.getGroupMessages);
 router.post('/groups/:groupId/messages', messageController.sendGroupMessage);

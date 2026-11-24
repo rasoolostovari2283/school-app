@@ -22,6 +22,7 @@ import {
   HiOutlineDocumentDuplicate,
   HiOutlineSparkles,
 } from 'react-icons/hi2';
+import ManualStudentAdder from '../../../components/rosters/ManualStudentAdder';
 import styles from './rosters.module.css';
 
 export default function ClassRostersPage() {
@@ -83,23 +84,15 @@ export default function ClassRostersPage() {
         const res = await api.get('/classes');
         list = res.data?.data?.classes || [];
       } catch (apiErr) {
-        console.warn('API get classes failed, checking local storage:', apiErr);
+        console.warn('API get classes failed:', apiErr);
       }
 
-      const combined = [...list];
-
-      if (combined.length === 0) {
-        const defaultClasses = [
-          { id: 'cls-101', name: 'کلاس ۱۰۱ - ریاضی و حسابان', subject: 'ریاضیات', grade: 'پایه دهم', join_code: 'MATH10' },
-          { id: 'cls-102', name: 'کلاس ۱۰۲ - شیمی و آزمایشگاه', subject: 'شیمی', grade: 'پایه دهم', join_code: 'CHEM10' },
-          { id: 'cls-201', name: 'کلاس ۲۰۱ - فیزیک تحلیلی', subject: 'فیزیک', grade: 'پایه یازدهم', join_code: 'PHYS11' },
-        ];
-        combined.push(...defaultClasses);
-      }
-
-      setClasses(combined);
-      if (combined.length > 0 && !selectedClassId) {
-        setSelectedClassId(combined[0].id);
+      setClasses(list);
+      if (list.length > 0 && !selectedClassId) {
+        setSelectedClassId(list[0].id);
+      } else if (list.length === 0) {
+        setSelectedClassId('');
+        setRosterData(null);
       }
     } catch (err) {
       console.warn('fetchClasses fallback:', err);
@@ -744,12 +737,13 @@ export default function ClassRostersPage() {
   // Filter students
   const filteredStudents = (rosterData?.students || []).filter((s) => {
     if (!searchQuery.trim()) return true;
-    const clean = searchQuery.trim().toLowerCase();
+    const clean = searchQuery.trim().replace(/^@+/, '').toLowerCase();
     const name = (s.display_name || '').toLowerCase();
+    const username = (s.username || '').toLowerCase();
     const code = (s.student_code || '').toLowerCase();
-    const dept = (s.department || '').toLowerCase();
+    const dept = `${s.grade || ''} ${s.major || ''} ${s.department || ''}`.toLowerCase();
     const phone = (s.phone || s.parent_phone || '').toLowerCase();
-    return name.includes(clean) || code.includes(clean) || dept.includes(clean) || phone.includes(clean);
+    return name.includes(clean) || username.includes(clean) || code.includes(clean) || dept.includes(clean) || phone.includes(clean);
   });
 
   const activeClass = rosterData?.class || classes.find((c) => c.id === selectedClassId);
@@ -965,9 +959,10 @@ export default function ClassRostersPage() {
       </div>
 
       {/* Class Selector Tabs */}
-      <div className={styles.classSelectorBar}>
+      <div className={styles.classSelectorBar} data-testid="class-rosters-tabs">
         {classes.map((cls) => {
           const isActive = cls.id === selectedClassId;
+          const countVal = isActive && rosterData ? rosterData.total_students : (cls.students_count ?? 0);
           return (
             <button
               key={cls.id}
@@ -977,9 +972,12 @@ export default function ClassRostersPage() {
             >
               <HiOutlineAcademicCap />
               <span>{cls.name}</span>
-              {isActive && rosterData && (
-                <span className={styles.classTabBadge}>{rosterData.total_students} نفر</span>
+              {cls.grade && (
+                <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>
+                  ({cls.grade}{cls.major ? ` • ${cls.major}` : ''})
+                </span>
               )}
+              <span className={styles.classTabBadge}>{countVal} نفر</span>
             </button>
           );
         })}
@@ -1095,8 +1093,16 @@ export default function ClassRostersPage() {
               ({filteredStudents.length} نفر)
             </span>
           </h3>
-          {activeClass?.subject && (
-            <span className={styles.deptBadge}>درس: {activeClass.subject} • {activeClass.grade || 'پایه'}</span>
+          {activeClass && (
+            <span className={styles.deptBadge}>
+              {[
+                activeClass.grade ? `پایه: ${activeClass.grade}` : null,
+                activeClass.major ? `رشته: ${activeClass.major}` : null,
+                activeClass.teacher_name ? `معلم: ${activeClass.teacher_name}` : null,
+              ]
+                .filter(Boolean)
+                .join(' • ')}
+            </span>
           )}
         </div>
 
@@ -1106,7 +1112,7 @@ export default function ClassRostersPage() {
               <div className={styles.emptyIcon}>📋</div>
               <h4>هنوز دانش‌آموزی به لیست این کلاس اضافه نشده است</h4>
               <p>
-                برای تکمیل پایگاه داده این کلاس، با زدن دکمه «افزودن تکی دانش‌آموز» یا «افزودن دسته‌جمعی» اسامی را وارد نمایید.
+                دانش‌آموزانی که شما را در صفحه «انتخاب معلمان» برگزینند به‌صورت خودکار در لیست کلاسی پایه و رشته مربوطه نمایش داده می‌شوند؛ همچنین می‌توانید دستی دانش‌آموز اضافه کنید.
               </p>
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                 <button
@@ -1128,13 +1134,13 @@ export default function ClassRostersPage() {
               </div>
             </div>
           ) : (
-            <table className={styles.rosterTable}>
+            <table className={styles.rosterTable} data-testid="class-roster-table">
               <thead>
                 <tr>
                   <th style={{ width: '50px' }}>ردیف</th>
-                  <th>نام و نام خانوادگی</th>
+                  <th>نام و نام خانوادگی / آیدی</th>
                   <th>کد دانش‌آموزی</th>
-                  <th>رشته / مقطع</th>
+                  <th>پایه و رشته</th>
                   <th>ولی دانش‌آموز</th>
                   <th>تاریخ عضویت</th>
                   <th style={{ textAlign: 'center' }}>عملیات</th>
@@ -1151,7 +1157,14 @@ export default function ClassRostersPage() {
                         <div className={styles.studentAvatar}>
                           {st.display_name?.charAt(0) || 'د'}
                         </div>
-                        <span className={styles.studentName}>{st.display_name}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span className={styles.studentName}>{st.display_name}</span>
+                          {st.username && (
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.76rem', color: '#0284c7' }} dir="ltr">
+                              @{st.username}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>
@@ -1161,7 +1174,8 @@ export default function ClassRostersPage() {
                     </td>
                     <td>
                       <span className={styles.deptBadge}>
-                        {st.department || activeClass?.grade || 'عمومی'}
+                        {st.grade || activeClass?.grade || st.department || 'عمومی'}
+                        {st.major || activeClass?.major ? ` — ${st.major || activeClass?.major}` : ''}
                       </span>
                     </td>
                     <td>
@@ -1218,6 +1232,24 @@ export default function ClassRostersPage() {
             </table>
           )}
         </div>
+
+        {selectedClassId && (
+          <ManualStudentAdder
+            classId={selectedClassId}
+            classNameTitle={activeClass?.name}
+            rosterGroup={rosterData?.roster_group || null}
+            onStudentsAdded={async () => {
+              await fetchClassRoster(selectedClassId);
+              try {
+                const res = await api.get('/classes');
+                const updatedList = res.data?.data?.classes || [];
+                if (updatedList.length > 0) {
+                  setClasses(updatedList);
+                }
+              } catch (_e) {}
+            }}
+          />
+        )}
       </div>
 
       {/* Modal 1: Add Single Student */}

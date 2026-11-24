@@ -17,9 +17,55 @@ const { v4: uuidv4 } = require('uuid');
 const os = require('os');
 const crypto = require('crypto');
 const { cacheMiddleware, cache } = require('../../utils/cache');
+const config = require('../../config');
+const {
+  normalizeVideoAudience,
+  canUserAccessVideo,
+  resolveSafeUploadPath,
+} = require('../../utils/videoAccessHelper');
+
+function getUploadsRootDir() {
+  return path.isAbsolute(config.upload.dir)
+    ? config.upload.dir
+    : path.resolve(__dirname, '..', '..', '..', 'uploads');
+}
 
 // All video & conversion endpoints require authentication (#15/F9)
 router.use(authenticate);
+
+/**
+ * Helper: load linked teacher IDs & enrolled class IDs for a student.
+ * Includes BOTH `student_teacher_links` and `class_members` -> `classes.teacher_id`.
+ */
+async function getStudentTeacherContext(studentId) {
+  const enrolledClassIds = new Set(
+    await db('class_members').where({ user_id: studentId }).pluck('class_id')
+  );
+  const linkedTeacherIds = new Set();
+
+  if (enrolledClassIds.size > 0) {
+    const classTeachers = await db('classes')
+      .whereIn('id', Array.from(enrolledClassIds))
+      .pluck('teacher_id');
+    classTeachers.forEach((tid) => {
+      if (tid) linkedTeacherIds.add(tid);
+    });
+  }
+
+  try {
+    const hasLinks = await db.schema.hasTable('student_teacher_links');
+    if (hasLinks) {
+      const directTeachers = await db('student_teacher_links')
+        .where({ student_user_id: studentId })
+        .pluck('teacher_user_id');
+      directTeachers.forEach((tid) => {
+        if (tid) linkedTeacherIds.add(tid);
+      });
+    }
+  } catch (_e) {}
+
+  return { linkedTeacherIds, enrolledClassIds };
+}
 
 const MAX_CONCURRENT_CONVERSIONS = 1;
 const CONVERSION_TIMEOUT_MS = 30000;
@@ -266,9 +312,18 @@ router.get('/stream/:filename', async (req, res, next) => {
     if (videoRecord && videoRecord.teacher_school_id) {
       assertSameSchool(req.user, { school_id: videoRecord.teacher_school_id });
     }
+    if (videoRecord) {
+      const ctx = req.user.role === 'student' ? await getStudentTeacherContext(req.user.id) : {};
+      if (!canUserAccessVideo(req.user, videoRecord, ctx)) {
+        return res.status(403).json({ success: false, message: 'شما مجاز به مشاهده این ویدیو نیستید' });
+      }
+    }
 
-    const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
-    const filePath = path.join(uploadsDir, cleanName);
+    const uploadsDir = getUploadsRootDir();
+    const filePath = resolveSafeUploadPath(uploadsDir, cleanName);
+    if (!filePath) {
+      return res.status(400).json({ success: false, message: 'نام فایل نامعتبر است' });
+    }
     streamMediaFile(req, res, filePath);
   } catch (err) {
     next(err);
@@ -290,9 +345,17 @@ router.get('/:id/stream', async (req, res, next) => {
       assertSameSchool(req.user, teacher);
     }
 
+    const ctx = req.user.role === 'student' ? await getStudentTeacherContext(req.user.id) : {};
+    if (!canUserAccessVideo(req.user, video, ctx)) {
+      return res.status(403).json({ success: false, message: 'شما مجاز به مشاهده این ویدیو نیستید' });
+    }
+
     const filename = path.basename(video.file_url);
-    const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
-    const filePath = path.join(uploadsDir, filename);
+    const uploadsDir = getUploadsRootDir();
+    const filePath = resolveSafeUploadPath(uploadsDir, filename);
+    if (!filePath) {
+      return res.status(400).json({ success: false, message: 'مسیر فایل نامعتبر است' });
+    }
 
     db('videos').where({ id: req.params.id }).increment('views_count', 1).catch(() => {});
 
@@ -305,40 +368,54 @@ router.get('/:id/stream', async (req, res, next) => {
 /**
  * GET /api/v1/videos/folders — list folders in requester's school
  */
-router.get('/folders', cacheMiddleware(30, () => 'video_folders'), async (req, res, next) => {
+router.get('/folders', async (req, res, next) => {
   try {
+    const ctx = req.user.role === 'student' ? await getStudentTeacherContext(req.user.id) : {};
+
     let customFolders = [];
     try {
-      customFolders = await db('video_folders')
+      let folderQuery = db('video_folders')
         .leftJoin('users', 'users.id', 'video_folders.teacher_id')
         .where('users.school_id', req.user.school_id)
         .select('video_folders.*')
         .orderBy('video_folders.name', 'asc');
+
+      if (req.user.role === 'teacher') {
+        folderQuery = folderQuery.where('video_folders.teacher_id', req.user.id);
+      } else if (req.user.role === 'student') {
+        const linkedIds = Array.from(ctx.linkedTeacherIds || []);
+        if (linkedIds.length > 0) {
+          folderQuery = folderQuery.whereIn('video_folders.teacher_id', linkedIds);
+        } else {
+          folderQuery = folderQuery.whereRaw('1 = 0');
+        }
+      }
+      customFolders = await folderQuery;
     } catch (_e) {}
 
-    let videoFolderCounts = [];
+    // Count only videos that this user is actually allowed to view
+    let allSchoolVideos = [];
     try {
-      videoFolderCounts = await db('videos')
+      allSchoolVideos = await db('videos')
         .join('users', 'users.id', 'videos.teacher_id')
         .where('users.school_id', req.user.school_id)
-        .select('videos.folder_name')
-        .count('videos.id as count')
-        .groupBy('videos.folder_name');
+        .select('videos.id', 'videos.teacher_id', 'videos.class_id', 'videos.folder_name', 'videos.target_audience', 'videos.is_published');
     } catch (_e) {}
 
     const countMap = {};
-    videoFolderCounts.forEach((item) => {
-      const name = item.folder_name || 'عمومی';
-      countMap[name] = (countMap[name] || 0) + Number(item.count || 0);
+    allSchoolVideos.forEach((v) => {
+      if (!canUserAccessVideo(req.user, v, ctx)) return;
+      const name = v.folder_name || 'عمومی';
+      countMap[name] = (countMap[name] || 0) + 1;
     });
 
-    const folderNamesSet = new Set(['عمومی', ...customFolders.map((f) => f.name), ...Object.keys(countMap)]);
+    const folderNamesSet = new Set(['عمومی', 'تخته هوشمند', ...customFolders.map((f) => f.name), ...Object.keys(countMap)]);
     const folders = Array.from(folderNamesSet).map((name) => {
       const found = customFolders.find((f) => f.name === name);
       return {
         id: found?.id || name,
         name,
-        color: found?.color || '#6366f1',
+        color: found?.color || (name === 'تخته هوشمند' ? '#8b5cf6' : '#6366f1'),
         count: countMap[name] || 0,
       };
     });
@@ -408,6 +485,8 @@ router.delete('/folders/:name', authorize('teacher', 'admin', 'manager'), async 
  */
 router.get('/', async (req, res, next) => {
   try {
+    const ctx = req.user.role === 'student' ? await getStudentTeacherContext(req.user.id) : {};
+
     let query = db('videos')
       .join('users', 'users.id', 'videos.teacher_id')
       .leftJoin('classes', 'classes.id', 'videos.class_id')
@@ -415,43 +494,11 @@ router.get('/', async (req, res, next) => {
       .select(
         'videos.*',
         'users.display_name as teacher_name',
+        'users.username as teacher_username',
         'classes.name as class_name',
         'classes.subject as class_subject'
       )
       .orderBy('videos.created_at', 'desc');
-
-    if (req.user.role === 'teacher') {
-      query = query.where(function () {
-        this.where('videos.teacher_id', req.user.id)
-          .orWhere('videos.target_audience', 'all')
-          .orWhere('videos.target_audience', 'teachers')
-          .orWhere('videos.target_audience', 'students')
-          .orWhereNull('videos.target_audience');
-      });
-    } else if (req.user.role === 'student') {
-      const classIds = await db('class_members')
-        .where({ user_id: req.user.id })
-        .pluck('class_id');
-
-      query = query.where(function () {
-        this.where('videos.teacher_id', req.user.id);
-        this.orWhere('videos.target_audience', 'all');
-        this.orWhere('videos.target_audience', 'students');
-        this.orWhereNull('videos.target_audience');
-        if (classIds.length > 0) {
-          this.orWhere(function () {
-            this.whereIn('videos.class_id', classIds)
-              .where('videos.is_published', true);
-          });
-        }
-      });
-    } else if (req.user.role === 'parent') {
-      query = query.where(function () {
-        this.where('videos.target_audience', 'all')
-          .orWhere('videos.target_audience', 'parents')
-          .orWhereNull('videos.target_audience');
-      });
-    }
 
     if (req.query.folder && req.query.folder !== 'all') {
       query = query.where('videos.folder_name', req.query.folder);
@@ -461,8 +508,9 @@ router.get('/', async (req, res, next) => {
       query = query.where('videos.target_audience', req.query.audience);
     }
 
-    const videos = await query;
-    const enrichedVideos = videos.map((v) => ({
+    const rows = await query;
+    const visibleVideos = rows.filter((v) => canUserAccessVideo(req.user, v, ctx));
+    const enrichedVideos = visibleVideos.map((v) => ({
       ...v,
       stream_url: v.file_url ? `/api/v1/videos/stream/${path.basename(v.file_url)}` : null,
     }));
@@ -483,6 +531,7 @@ router.get('/:id', async (req, res, next) => {
       .select(
         'videos.*',
         'users.display_name as teacher_name',
+        'users.username as teacher_username',
         'users.school_id as teacher_school_id',
         'classes.name as class_name'
       )
@@ -494,6 +543,10 @@ router.get('/:id', async (req, res, next) => {
     }
 
     assertSameSchool(req.user, { school_id: video.teacher_school_id });
+    const ctx = req.user.role === 'student' ? await getStudentTeacherContext(req.user.id) : {};
+    if (!canUserAccessVideo(req.user, video, ctx)) {
+      return res.status(403).json({ success: false, message: 'شما مجاز به مشاهده این ویدیو نیستید' });
+    }
 
     await db('videos').where('id', req.params.id).increment('views_count', 1);
     video.views_count += 1;
@@ -572,7 +625,7 @@ router.post(
         teacher_id: currentUserId,
         folder_name: folderName,
         category: req.body.category || 'تدریس',
-        target_audience: req.body.target_audience || 'all',
+        target_audience: normalizeVideoAudience(req.body.target_audience || 'all'),
         file_url: `/uploads/${mainFile.filename}`,
         video_url: `/uploads/${mainFile.filename}`,
         thumbnail_url: thumbnailFile ? `/uploads/${thumbnailFile.filename}` : null,
@@ -585,6 +638,7 @@ router.post(
       };
 
       await db('videos').insert(videoData);
+      cache.delBySchool(req.user?.school_id, '*video_folders*');
 
       res.status(201).json({
         success: true,

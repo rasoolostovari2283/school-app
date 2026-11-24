@@ -9,6 +9,12 @@ const {
   forbiddenError,
   notFoundError,
 } = require('../../middleware/auth');
+const {
+  matchSchoolStudent,
+  isExactStudentMatch,
+  buildRosterGroupSnapshot,
+  parseRosterGroupRow,
+} = require('../../utils/classRosterHelper');
 
 function sanitizeClassSecrets(cls) {
   if (!cls) return cls;
@@ -28,7 +34,7 @@ class ClassService {
     return code;
   }
 
-  async createClass(actorOrId, { name, subject, grade, school_id, teacher_name }) {
+  async createClass(actorOrId, { name, subject, grade, major, school_id, teacher_name }) {
     const actor = typeof actorOrId === 'object' && actorOrId !== null
       ? actorOrId
       : await db('users').where({ id: actorOrId }).first();
@@ -67,6 +73,7 @@ class ClassService {
       name,
       subject: subject || 'عمومی',
       grade: grade || 'عمومی',
+      major: major ? String(major).trim() : null,
       join_code: joinCode,
       school_id: effectiveSchoolId,
       teacher_id: validTeacherId,
@@ -74,8 +81,10 @@ class ClassService {
 
     if (teacherRecord) {
       cls.teacher_name = teacherRecord.display_name;
+      cls.teacher_username = teacherRecord.username || '';
     }
 
+    await this.syncClassRosterGroup(cls.id);
     return sanitizeClassSecrets(cls);
   }
 
@@ -117,6 +126,7 @@ class ClassService {
       .where({ 'classes.id': classId })
       .first();
 
+    await this.syncClassRosterGroup(classId);
     return sanitizeClassSecrets(updatedCls);
   }
 
@@ -149,7 +159,7 @@ class ClassService {
       if (!userSchoolId) return [];
       const list = await db('classes')
         .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
-        .select('classes.*', 'teachers.display_name as teacher_name')
+        .select('classes.*', 'teachers.display_name as teacher_name', 'teachers.username as teacher_username')
         .where({ 'classes.is_active': true, 'classes.school_id': userSchoolId })
         .orderBy('classes.created_at', 'desc');
 
@@ -160,7 +170,7 @@ class ClassService {
     if (role === 'teacher') {
       let query = db('classes')
         .leftJoin('users as teachers', 'classes.teacher_id', 'teachers.id')
-        .select('classes.*', 'teachers.display_name as teacher_name')
+        .select('classes.*', 'teachers.display_name as teacher_name', 'teachers.username as teacher_username')
         .where('classes.is_active', true)
         .andWhere(function () {
           this.where('classes.teacher_id', userId).orWhereExists(function () {
@@ -283,6 +293,7 @@ class ClassService {
       throw err;
     }
 
+    await this.syncClassRosterGroup(cls.id);
     return sanitizeClassSecrets(cls);
   }
 
@@ -349,8 +360,17 @@ class ClassService {
       throw notFoundError('کلاس مورد نظر یافت نشد');
     }
 
+    let teacherInfo = null;
+    if (cls.teacher_id) {
+      teacherInfo = await db('users')
+        .where({ id: cls.teacher_id })
+        .select('display_name', 'username')
+        .first();
+    }
+
     const enrolledStudents = await db('class_members')
       .join('users', 'users.id', 'class_members.user_id')
+      .leftJoin('students as st', 'st.user_id', 'users.id')
       .where({ 'class_members.class_id': classId })
       .where(function () {
         this.where('class_members.role', 'student')
@@ -359,10 +379,14 @@ class ClassService {
       .select(
         'users.id',
         'users.display_name',
+        'users.username',
         'users.student_code',
         'users.department',
         'users.phone',
         'users.avatar_url',
+        'st.education_level',
+        'st.grade as student_grade',
+        'st.major as student_major',
         'class_members.joined_at'
       )
       .orderBy('users.display_name');
@@ -405,6 +429,8 @@ class ClassService {
       const parent = parentMap.get(s.id);
       return {
         ...s,
+        grade: s.student_grade || cls.grade || s.department || '',
+        major: s.student_major || cls.major || '',
         parent_name: parent ? parent.name : null,
         parent_phone: parent ? parent.phone : null,
       };
@@ -413,19 +439,319 @@ class ClassService {
     const enrolledIds = new Set(studentIds);
     const allSchoolStudents = cls.school_id
       ? await db('users')
-          .where({ role: 'student', school_id: cls.school_id })
-          .select('id', 'display_name', 'student_code', 'department', 'phone')
-          .orderBy('display_name')
+          .leftJoin('students as st', 'st.user_id', 'users.id')
+          .where({ 'users.role': 'student', 'users.school_id': cls.school_id })
+          .select(
+            'users.id',
+            'users.display_name',
+            'users.username',
+            'users.student_code',
+            'users.department',
+            'users.phone',
+            'st.grade as student_grade',
+            'st.major as student_major'
+          )
+          .orderBy('users.display_name')
       : [];
 
     const availableStudents = allSchoolStudents.filter((s) => !enrolledIds.has(s.id));
 
+    const rosterGroup = await this.syncClassRosterGroup(cls.id);
+
     return {
-      class: sanitizeClassSecrets(cls),
+      class: sanitizeClassSecrets({
+        ...cls,
+        teacher_name: teacherInfo?.display_name || cls.teacher_name || '',
+        teacher_username: teacherInfo?.username || '',
+      }),
       students: studentsWithParent,
       total_students: studentsWithParent.length,
       available_students: availableStudents,
+      roster_group: rosterGroup,
     };
+  }
+
+  /**
+   * Synchronize a class's enrolled students into the persisted `class_roster_groups` table
+   * so every class roster is saved in the database as a group of people.
+   */
+  async syncClassRosterGroup(classId, knexInstance = db) {
+    try {
+      const hasTable = await knexInstance.schema.hasTable('class_roster_groups');
+      if (!hasTable) return null;
+
+      const cls = await knexInstance('classes').where({ id: classId }).first();
+      if (!cls) return null;
+
+      const enrolledStudents = await knexInstance('class_members')
+        .join('users', 'users.id', 'class_members.user_id')
+        .leftJoin('students as st', 'st.user_id', 'users.id')
+        .where({ 'class_members.class_id': classId })
+        .where(function () {
+          this.where('class_members.role', 'student')
+            .orWhere('users.role', 'student');
+        })
+        .select(
+          'users.id',
+          'users.display_name',
+          'users.username',
+          'users.student_code',
+          'st.grade as student_grade',
+          'st.major as student_major'
+        )
+        .orderBy('users.display_name');
+
+      const snapshot = buildRosterGroupSnapshot(cls, enrolledStudents);
+      const now = new Date().toISOString();
+
+      const existing = await knexInstance('class_roster_groups')
+        .where({ class_id: classId })
+        .first();
+
+      let savedRow;
+      if (existing) {
+        await knexInstance('class_roster_groups')
+          .where({ id: existing.id })
+          .update({
+            ...snapshot,
+            updated_at: now,
+          });
+        savedRow = await knexInstance('class_roster_groups').where({ id: existing.id }).first();
+      } else {
+        const id = generateId();
+        await knexInstance('class_roster_groups').insert({
+          id,
+          ...snapshot,
+          created_at: now,
+          updated_at: now,
+        });
+        savedRow = await knexInstance('class_roster_groups').where({ id }).first();
+      }
+
+      return parseRosterGroupRow(savedRow);
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /**
+   * Search registered students in the class's school DB by name, @username, or student code.
+   */
+  async searchSchoolStudentsForClass(classId, actor, rawQuery = '') {
+    const cls = await assertOwnsClass(actor, classId);
+    const schoolId = cls.school_id || actor.school_id;
+    if (!schoolId) {
+      return {
+        students: [],
+        query: String(rawQuery || '').trim(),
+        not_found: true,
+        message: 'نام کاربری وجود ندارد',
+      };
+    }
+
+    const enrolledIds = new Set(
+      await db('class_members').where({ class_id: cls.id }).pluck('user_id')
+    );
+
+    const allSchoolStudents = await db('users')
+      .leftJoin('students as st', 'st.user_id', 'users.id')
+      .where({ 'users.role': 'student', 'users.school_id': schoolId })
+      .where(function () {
+        this.where('users.is_active', true).orWhere('users.is_active', 1).orWhereNull('users.is_active');
+      })
+      .select(
+        'users.id',
+        'users.display_name',
+        'users.username',
+        'users.student_code',
+        'users.department',
+        'st.education_level',
+        'st.grade as student_grade',
+        'st.major as student_major'
+      )
+      .orderBy('users.display_name');
+
+    const cleanQuery = String(rawQuery || '').trim();
+    const matched = allSchoolStudents
+      .filter((s) => matchSchoolStudent(s, cleanQuery))
+      .slice(0, 30)
+      .map((s) => ({
+        id: s.id,
+        display_name: s.display_name,
+        username: s.username || '',
+        student_code: s.student_code || '',
+        education_level: s.education_level || '',
+        grade: s.student_grade || s.department || '',
+        major: s.student_major || '',
+        already_in_class: enrolledIds.has(s.id),
+      }));
+
+    return {
+      students: matched,
+      query: cleanQuery,
+      not_found: matched.length === 0,
+      message: matched.length === 0 ? 'نام کاربری وجود ندارد' : null,
+    };
+  }
+
+  /**
+   * Strictly add existing registered school students (selected from DB search or matched by name/@username)
+   * into the class roster and persist the class roster group in `class_roster_groups`.
+   */
+  async addRegisteredStudentsToRoster(classId, actor, { student_ids = [], query = '' } = {}) {
+    const cls = await assertOwnsClass(actor, classId);
+    const schoolId = cls.school_id || actor.school_id;
+    const requestedIds = Array.isArray(student_ids)
+      ? Array.from(new Set(student_ids.map((id) => String(id || '').trim()).filter(Boolean)))
+      : [];
+    const cleanQuery = String(query || '').trim();
+
+    if (requestedIds.length === 0 && !cleanQuery) {
+      const err = new Error('لطفاً حداقل یک دانش‌آموز را جستجو و انتخاب کنید');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    let targetStudents = [];
+
+    if (requestedIds.length > 0) {
+      const rows = await db('users')
+        .leftJoin('students as st', 'st.user_id', 'users.id')
+        .whereIn('users.id', requestedIds)
+        .select(
+          'users.id',
+          'users.display_name',
+          'users.username',
+          'users.student_code',
+          'users.role',
+          'users.school_id',
+          'users.department',
+          'st.education_level',
+          'st.grade as student_grade',
+          'st.major as student_major'
+        );
+
+      if (rows.length !== requestedIds.length) {
+        const err = new Error('نام کاربری وجود ندارد');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      for (const row of rows) {
+        assertSameSchool(actor, row);
+        if (row.role !== 'student') {
+          throw forbiddenError('فقط کاربران دانش‌آموز می‌توانند به لیست کلاس اضافه شوند');
+        }
+      }
+      targetStudents = rows;
+    } else {
+      const schoolStudents = await db('users')
+        .leftJoin('students as st', 'st.user_id', 'users.id')
+        .where({ 'users.role': 'student', 'users.school_id': schoolId })
+        .select(
+          'users.id',
+          'users.display_name',
+          'users.username',
+          'users.student_code',
+          'users.role',
+          'users.school_id',
+          'users.department',
+          'st.education_level',
+          'st.grade as student_grade',
+          'st.major as student_major'
+        );
+
+      const exactMatches = schoolStudents.filter((s) => isExactStudentMatch(s, cleanQuery));
+      if (exactMatches.length > 0) {
+        targetStudents = [exactMatches[0]];
+      } else {
+        const partialMatches = schoolStudents.filter((s) => matchSchoolStudent(s, cleanQuery));
+        if (partialMatches.length === 1) {
+          targetStudents = [partialMatches[0]];
+        } else if (partialMatches.length === 0) {
+          const err = new Error('نام کاربری وجود ندارد');
+          err.statusCode = 404;
+          throw err;
+        } else {
+          const err = new Error('چند دانش‌آموز با این نام یافت شد؛ لطفاً فرد مورد نظر را از لیست نتایج انتخاب کنید');
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+    }
+
+    const result = await db.transaction(async (trx) => {
+      const existingMemberIds = new Set(
+        await trx('class_members').where({ class_id: cls.id }).pluck('user_id')
+      );
+      const hasLinksTable = await trx.schema.hasTable('student_teacher_links');
+      const now = new Date().toISOString();
+
+      const addedStudents = [];
+      let alreadyEnrolledCount = 0;
+
+      for (const st of targetStudents) {
+        if (existingMemberIds.has(st.id)) {
+          alreadyEnrolledCount += 1;
+        } else {
+          await trx('class_members').insert({
+            id: generateId(),
+            class_id: cls.id,
+            user_id: st.id,
+            role: 'student',
+            joined_at: now,
+          });
+          existingMemberIds.add(st.id);
+          addedStudents.push({
+            id: st.id,
+            display_name: st.display_name,
+            username: st.username || '',
+            student_code: st.student_code || '',
+            grade: st.student_grade || cls.grade || st.department || '',
+            major: st.student_major || cls.major || '',
+          });
+        }
+
+        if (hasLinksTable && cls.teacher_id) {
+          const existingLink = await trx('student_teacher_links')
+            .where({ student_user_id: st.id, teacher_user_id: cls.teacher_id })
+            .first();
+          if (existingLink) {
+            await trx('student_teacher_links')
+              .where({ id: existingLink.id })
+              .update({
+                class_id: cls.id,
+                grade: st.student_grade || cls.grade || existingLink.grade,
+                major: st.student_major || cls.major || existingLink.major,
+                updated_at: now,
+              });
+          } else {
+            await trx('student_teacher_links').insert({
+              id: generateId(),
+              school_id: schoolId || null,
+              student_user_id: st.id,
+              teacher_user_id: cls.teacher_id,
+              class_id: cls.id,
+              education_level: st.education_level || null,
+              grade: st.student_grade || cls.grade || null,
+              major: st.student_major || cls.major || null,
+              created_at: now,
+              updated_at: now,
+            });
+          }
+        }
+      }
+
+      const rosterGroup = await this.syncClassRosterGroup(cls.id, trx);
+      return {
+        added_students: addedStudents,
+        already_enrolled_count: alreadyEnrolledCount,
+        roster_group: rosterGroup,
+        total_students: rosterGroup ? rosterGroup.member_count : existingMemberIds.size,
+      };
+    });
+
+    return result;
   }
 
   async addStudentToClass(classId, actor, { student_id, display_name, student_code, department, phone, parent_name, parent_phone }) {
@@ -545,6 +871,8 @@ class ClassService {
         }
       } catch (e) {}
     }
+
+    await this.syncClassRosterGroup(cls.id);
 
     const enrolled = await db('users').where({ id: targetStudentId }).first();
     if (enrolled) delete enrolled.password_hash;
@@ -672,6 +1000,8 @@ class ClassService {
       await db('class_members').insert(newMembershipsToInsert);
     }
 
+    await this.syncClassRosterGroup(classId);
+
     return {
       added_count: addedStudents.length,
       students: addedStudents,
@@ -683,6 +1013,7 @@ class ClassService {
     await db('class_members')
       .where({ class_id: classId, user_id: studentId })
       .del();
+    await this.syncClassRosterGroup(classId);
     return { success: true, message: 'دانش‌آموز از کلاس حذف شد' };
   }
 

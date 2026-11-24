@@ -5,7 +5,6 @@ const nextConfig = {
   reactStrictMode: true,
   trailingSlash: true,
   skipTrailingSlashRedirect: true,
-  trailingSlash: true,
   images: {
     unoptimized: true,
   },
@@ -22,6 +21,14 @@ const nextConfig = {
             {
               source: '/uploads/:path*',
               destination: `${backendOrigin}/uploads/:path*`,
+            },
+            {
+              source: '/socket.io',
+              destination: `${backendOrigin}/socket.io/`,
+            },
+            {
+              source: '/socket.io/',
+              destination: `${backendOrigin}/socket.io/`,
             },
             {
               source: '/socket.io/:path*',
