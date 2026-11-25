@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const DEFAULT_LOCAL_API = 'http://localhost:3000/api/v1';
-export const DEFAULT_TUNNEL_API = process.env.NEXT_PUBLIC_API_URL || 'https://suffered-dec-furnished-guarantees.trycloudflare.com/api/v1';
+export const DEFAULT_TUNNEL_API = process.env.NEXT_PUBLIC_API_URL || 'https://arrested-notices-constantly-illustrated.trycloudflare.com/api/v1';
 
 // Explicit allow-list of permitted API origins (#29/A17)
 export const ALLOWED_API_ORIGINS = [
@@ -12,6 +12,8 @@ export const ALLOWED_API_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   'http://127.0.0.1:5000',
+  'https://arrested-notices-constantly-illustrated.trycloudflare.com',
+  'https://glory-kernel-arrives-kernel.trycloudflare.com',
   'https://suffered-dec-furnished-guarantees.trycloudflare.com',
   ...(process.env.NEXT_PUBLIC_API_URL
     ? [

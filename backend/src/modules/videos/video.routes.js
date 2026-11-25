@@ -1,8 +1,10 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
+const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const db = require('../../config/database');
 const { authenticate, authorize } = require('../../middleware/auth');
@@ -18,6 +20,170 @@ const {
 
 const router = express.Router();
 router.use(authenticate);
+
+const MAX_CONCURRENT_CONVERSIONS = 1;
+const CONVERSION_TIMEOUT_MS = 30000;
+let activeConversions = 0;
+
+/**
+ * POST /api/v1/videos/convert-pptx — converts a PowerPoint presentation into a vector PDF
+ */
+router.post(
+  '/convert-pptx',
+  authorize('teacher', 'admin', 'manager'),
+  (req, res, next) => {
+    if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
+      return res.status(429).json({
+        success: false,
+        message: 'سرور در حال پردازش فایل دیگری است. لطفاً چند لحظه بعد مجدداً تلاش کنید.',
+      });
+    }
+    return next();
+  },
+  multer({ dest: os.tmpdir() }).single('file'),
+  async (req, res, next) => {
+    let slotAcquired = false;
+    const releaseSlot = () => {
+      if (slotAcquired) {
+        slotAcquired = false;
+        activeConversions = Math.max(0, activeConversions - 1);
+      }
+    };
+
+    res.on('close', releaseSlot);
+
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ success: false, message: 'فایل پاورپوینت ارسال نشده است' });
+      }
+
+      const outputPdfFilename = `${path.parse(file.originalname || file.filename).name}.pdf`;
+
+      const cacheDir = path.join(os.tmpdir(), 'educonnect_pptx_cache');
+      if (!fs.existsSync(cacheDir)) {
+        try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (_e) {}
+      }
+
+      let fileHash = '';
+      try {
+        const fileBuffer = fs.readFileSync(file.path);
+        fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        const cachedPdfPath = path.join(cacheDir, `${fileHash}.pdf`);
+
+        if (fs.existsSync(cachedPdfPath) && fs.statSync(cachedPdfPath).size > 1000) {
+          try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(outputPdfFilename)}"`);
+          res.setHeader('X-Cache', 'HIT');
+          return fs.createReadStream(cachedPdfPath).pipe(res);
+        }
+      } catch (hashErr) {
+        console.warn('Cache check error:', hashErr);
+      }
+
+      if (activeConversions >= MAX_CONCURRENT_CONVERSIONS) {
+        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
+        return res.status(429).json({
+          success: false,
+          message: 'سرور در حال پردازش فایل دیگری است. لطفاً چند لحظه بعد مجدداً تلاش کنید.',
+        });
+      }
+
+      activeConversions += 1;
+      slotAcquired = true;
+
+      const fileId = uuidv4();
+      const tempInput = path.join(os.tmpdir(), `${fileId}.pptx`);
+      const tempOutput = path.join(os.tmpdir(), `${fileId}.pdf`);
+      const scriptPath = path.join(os.tmpdir(), `convert_${fileId}.vbs`);
+
+      fs.copyFileSync(file.path, tempInput);
+
+      const vbsContent = [
+        'On Error Resume Next',
+        'Set ppt = CreateObject("PowerPoint.Application")',
+        'Set pres = ppt.Presentations.Open("' + tempInput.replace(/\\/g, '\\\\') + '", -1, 0, 0)',
+        'pres.SaveAs "' + tempOutput.replace(/\\/g, '\\\\') + '", 32',
+        'pres.Close',
+        'ppt.Quit',
+        'Set pres = Nothing',
+        'Set ppt = Nothing',
+        'WScript.Echo "OK"',
+      ].join('\r\n');
+
+      fs.writeFileSync(scriptPath, vbsContent, 'ascii');
+
+      execFile('cscript', ['//nologo', scriptPath], { timeout: CONVERSION_TIMEOUT_MS }, (err) => {
+        try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (_e) {}
+        try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (_e) {}
+        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_e) {}
+
+        if (fs.existsSync(tempOutput) && fs.statSync(tempOutput).size > 1000) {
+          releaseSlot();
+          if (fileHash) {
+            try {
+              const cachedPdfPath = path.join(cacheDir, `${fileHash}.pdf`);
+              fs.copyFileSync(tempOutput, cachedPdfPath);
+            } catch (_cErr) {}
+          }
+
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(outputPdfFilename)}"`);
+          res.setHeader('X-Cache', 'MISS');
+          const stream = fs.createReadStream(tempOutput);
+          stream.pipe(res);
+          stream.on('finish', () => {
+            try {
+              if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+            } catch (_e) {}
+          });
+        } else {
+          const psPath = path.join(os.tmpdir(), `convert_${fileId}.ps1`);
+          const psContent = `
+$ErrorActionPreference = "Stop"
+$ppt = New-Object -ComObject PowerPoint.Application
+try { $ppt.DisplayAlerts = 1 } catch {}
+try {
+    $pres = $ppt.Presentations.Open("${tempInput.replace(/\\/g, '\\\\')}", [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+    $pres.SaveAs("${tempOutput.replace(/\\/g, '\\\\')}", 32)
+    $pres.Close()
+} finally {
+    $ppt.Quit()
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($ppt) | Out-Null
+}
+`;
+          fs.writeFileSync(psPath, psContent, 'utf8');
+          execFile('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psPath], { timeout: CONVERSION_TIMEOUT_MS }, (psErr) => {
+            releaseSlot();
+            try { if (fs.existsSync(psPath)) fs.unlinkSync(psPath); } catch (_e) {}
+            if (fs.existsSync(tempOutput) && fs.statSync(tempOutput).size > 1000) {
+              if (fileHash) {
+                try { fs.copyFileSync(tempOutput, path.join(cacheDir, `${fileHash}.pdf`)); } catch (_e) {}
+              }
+              res.setHeader('Content-Type', 'application/pdf');
+              res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(outputPdfFilename)}"`);
+              res.setHeader('X-Cache', 'MISS');
+              const stream = fs.createReadStream(tempOutput);
+              stream.pipe(res);
+              stream.on('finish', () => {
+                try {
+                  if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+                } catch (_e) {}
+              });
+            } else {
+              try { if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput); } catch (_e) {}
+              res.status(500).json({ success: false, message: 'تبدیل فایل انجام نشد.' });
+            }
+          });
+        }
+      });
+    } catch (err) {
+      releaseSlot();
+      next(err);
+    }
+  }
+);
 
 const DEFAULT_FOLDER_NAME = 'عمومی';
 const UPLOADS_DIR = path.resolve(__dirname, '../../../uploads');
@@ -1451,5 +1617,9 @@ router.delete('/:id', authorize('teacher', 'admin', 'manager', 'school_admin'), 
     next(err);
   }
 });
+
+router._setConversionBusyForTest = (busy) => {
+  activeConversions = busy ? MAX_CONCURRENT_CONVERSIONS : 0;
+};
 
 module.exports = router;

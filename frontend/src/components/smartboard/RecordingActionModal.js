@@ -95,14 +95,67 @@ export default function RecordingActionModal({
   if (!isOpen || !recordedUrl) return null;
 
   const handleDownloadToDevice = () => {
-    const safeName = (videoTitle || 'smartboard-recording').replace(/[\\/:*?"<>|]/g, '_');
-    const a = document.createElement('a');
-    a.href = recordedUrl;
-    a.download = `${safeName}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast.success('ویدیو ضبط‌شده با موفقیت روی دستگاه ذخیره شد');
+    try {
+      const safeName = (videoTitle || 'smartboard-recording').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${safeName}.webm`;
+
+      if (recordedBlob) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          try {
+            const dataUrl = reader.result;
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = filename;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              try { document.body.removeChild(a); } catch (_e) {}
+            }, 1000);
+            toast.success('ویدیو ضبط‌شده با موفقیت روی دستگاه ذخیره شد 📥');
+          } catch (_e) {
+            const a = document.createElement('a');
+            a.href = recordedUrl;
+            a.download = filename;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              try { document.body.removeChild(a); } catch (_err) {}
+            }, 1000);
+            toast.success('ویدیو ضبط‌شده با موفقیت روی دستگاه ذخیره شد 📥');
+          }
+        };
+        reader.onerror = () => {
+          const a = document.createElement('a');
+          a.href = recordedUrl;
+          a.download = filename;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            try { document.body.removeChild(a); } catch (_err) {}
+          }, 1000);
+          toast.success('ویدیو ضبط‌شده با موفقیت روی دستگاه ذخیره شد 📥');
+        };
+        reader.readAsDataURL(recordedBlob);
+      } else {
+        const a = document.createElement('a');
+        a.href = recordedUrl;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (_err) {}
+        }, 1000);
+        toast.success('ویدیو ضبط‌شده با موفقیت روی دستگاه ذخیره شد 📥');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('خطا در ذخیره ویدیو');
+    }
   };
 
   const handleSendToMessages = async () => {

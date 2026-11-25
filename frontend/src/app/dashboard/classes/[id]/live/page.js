@@ -948,7 +948,7 @@ export default function LiveClassroomPage() {
       avatar: user?.avatar || null,
     };
 
-    socket.emit('join_class', { classId, user: currentUserData });
+    socket.emit('join_class', { classId: String(classId), user: currentUserData });
 
     // Initial state from server
     socket.on('init_class_state', (data) => {
@@ -2363,67 +2363,83 @@ export default function LiveClassroomPage() {
       let blob;
       if (data instanceof Blob) {
         blob = data;
-      } else if (typeof data === 'string' && data.startsWith('blob:')) {
-        try {
-          const res = await fetch(data);
-          blob = await res.blob();
-        } catch (e) {
-          blob = new Blob([data], { type: mimeType });
-        }
       } else if (typeof data === 'string' && data.startsWith('data:')) {
         const a = document.createElement('a');
         a.href = data;
         a.download = filename;
-        a.target = '_self';
-        a.style.display = 'none';
+        a.target = '_blank';
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
           try { document.body.removeChild(a); } catch (e) {}
-        }, 500);
+        }, 800);
+        return true;
+      } else if (typeof data === 'string' && data.startsWith('blob:')) {
+        const a = document.createElement('a');
+        a.href = data;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (e) {}
+        }, 800);
         return true;
       } else {
         blob = new Blob([data], { type: mimeType });
       }
 
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.target = '_self';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        try {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(blobUrl);
-        } catch (e) {}
-      }, 800);
-      return true;
-    } catch (err) {
-      console.warn('Live download error, trying FileReader fallback:', err);
-      try {
-        if (data instanceof Blob) {
+      if (blob) {
+        return new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onload = function () {
+          reader.onloadend = () => {
+            try {
+              const dataUrl = reader.result;
+              const a = document.createElement('a');
+              a.href = dataUrl;
+              a.download = filename;
+              a.target = '_blank';
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                try { document.body.removeChild(a); } catch (e) {}
+              }, 1000);
+              resolve(true);
+            } catch (err) {
+              const blobUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = blobUrl;
+              a.download = filename;
+              a.target = '_blank';
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                try { document.body.removeChild(a); } catch (e) {}
+                URL.revokeObjectURL(blobUrl);
+              }, 1000);
+              resolve(true);
+            }
+          };
+          reader.onerror = () => {
+            const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = reader.result;
+            a.href = blobUrl;
             a.download = filename;
-            a.target = '_self';
-            a.style.display = 'none';
+            a.target = '_blank';
             document.body.appendChild(a);
             a.click();
             setTimeout(() => {
               try { document.body.removeChild(a); } catch (e) {}
-            }, 500);
+              URL.revokeObjectURL(blobUrl);
+            }, 1000);
+            resolve(true);
           };
-          reader.readAsDataURL(data);
-          return true;
-        }
-      } catch (err2) {
-        console.error('All live download methods failed:', err2);
+          reader.readAsDataURL(blob);
+        });
       }
+      return true;
+    } catch (err) {
+      console.error('triggerLiveDownloadFile error:', err);
       return false;
     }
   };
@@ -2514,9 +2530,14 @@ export default function LiveClassroomPage() {
         `جلسه ضبط شده با تخته هوشمند و تدریس تعاملی در تاریخ ${new Date().toLocaleDateString('fa-IR')}`
       );
       if (classId) {
-        formData.append('class_id', classId);
+        formData.append('class_id', String(classId));
+        formData.append('class_ids', JSON.stringify([String(classId)]));
+        formData.append('target_class_ids', JSON.stringify([String(classId)]));
       }
       formData.append('folder_name', classData?.name || 'کلاس‌های آنلاین');
+      formData.append('category', 'کلاس آنلاین');
+      formData.append('target_audience', 'teacher_students');
+      formData.append('is_published', 'true');
 
       await api.post('/videos', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -2526,7 +2547,7 @@ export default function LiveClassroomPage() {
       setShowSaveModal(false);
     } catch (err) {
       console.error('Publish error:', err);
-      toast.error('خطا در ذخیره ویدیو در آرشیو');
+      toast.error(err?.response?.data?.message || 'خطا در ذخیره ویدیو در آرشیو');
     } finally {
       setIsUploading(false);
     }
@@ -2785,10 +2806,16 @@ export default function LiveClassroomPage() {
   // ── 14. Chat Sending ──
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-    const socket = getSocket();
-    socket.emit('send_chat_message', { classId, text: chatInput });
-    setChatInput('');
+    const text = chatInput.trim();
+    if (!text) return;
+    try {
+      const socket = getSocket();
+      socket.emit('send_chat_message', { classId: String(classId), text });
+      setChatInput('');
+    } catch (err) {
+      console.error('Chat error:', err);
+      toast.error('خطا در ارسال پیام');
+    }
   };
 
   // ── 15. Copy Direct Live Class Invite Link ──
@@ -3454,6 +3481,59 @@ export default function LiveClassroomPage() {
               </div>
 
               <div className={styles.toolDivider} />
+
+              {/* Direct File & Media Upload Buttons */}
+              {isTeacher && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <button
+                      type="button"
+                      className={styles.toolBtn}
+                      onClick={() => docFileInputRef.current?.click()}
+                      title="بارگذاری اسلاید یا فایل PDF روی تخته"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.15)',
+                        color: '#60a5fa',
+                        borderColor: 'rgba(96, 165, 250, 0.35)',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        padding: '5px 10px',
+                        width: 'auto',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <FaFilePdf size={14} />
+                      <span>بارگذاری فایل / PDF</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.toolBtn}
+                      onClick={() => imageFileInputRef.current?.click()}
+                      title="بارگذاری عکس یا کاربرگ روی تخته"
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#34d399',
+                        borderColor: 'rgba(52, 211, 153, 0.35)',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        padding: '5px 10px',
+                        width: 'auto',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <HiOutlinePhoto size={15} />
+                      <span>عکس / تصویر</span>
+                    </button>
+                  </div>
+                  <div className={styles.toolDivider} />
+                </>
+              )}
 
               {/* 3. Dropdown Menu for All Other Features & Tools */}
               <div className={styles.menuContainer} ref={toolsMenuRef}>

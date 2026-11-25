@@ -80,6 +80,7 @@ export default function SmartboardToolbar({
   isExporting,
   onDownloadPdf,
   onDownloadPng,
+  onDownloadActiveMedia,
   // Exit studio
   onExitBoard,
 }) {
@@ -489,6 +490,20 @@ export default function SmartboardToolbar({
                 <HiOutlineRectangleStack style={{ color: '#2563eb' }} />
                 <span>دانلود تصویر صفحه فعلی (PNG)</span>
               </button>
+              {activeMedia && (
+                <button
+                  type="button"
+                  className={styles.moreMenuItem}
+                  onClick={() => {
+                    setOpenMenu(null);
+                    onDownloadActiveMedia?.();
+                  }}
+                  title="دانلود فایل اصلی بازشده روی تخته"
+                >
+                  <HiOutlineArrowDownTray style={{ color: '#10b981' }} />
+                  <span>دانلود فایل بارگذاری‌شده ({activeMedia.name || 'فایل'})</span>
+                </button>
+              )}
             </div>
           )}
         </div>

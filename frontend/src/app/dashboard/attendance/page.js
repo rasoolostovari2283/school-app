@@ -821,54 +821,82 @@ export default function AttendancePage() {
       </html>
     `;
 
-    const printFrame = document.createElement('iframe');
-    printFrame.style.position = 'fixed';
-    printFrame.style.right = '0';
-    printFrame.style.bottom = '0';
-    printFrame.style.width = '0';
-    printFrame.style.height = '0';
-    printFrame.style.border = '0';
-    document.body.appendChild(printFrame);
+    let printWin = null;
+    try {
+      printWin = window.open('', '_blank');
+    } catch (_e) {}
 
-    const frameDoc = printFrame.contentWindow.document;
-    frameDoc.open();
-    frameDoc.write(printHtml);
-    frameDoc.close();
-
-    printFrame.contentWindow.focus();
-    setTimeout(() => {
-      printFrame.contentWindow.print();
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(printHtml);
+      printWin.document.close();
+      printWin.focus();
       setTimeout(() => {
-        if (document.body.contains(printFrame)) {
-          document.body.removeChild(printFrame);
-        }
-      }, 1500);
-    }, 400);
+        try {
+          printWin.print();
+        } catch (_pe) {}
+      }, 500);
+    } else {
+      const printFrame = document.createElement('iframe');
+      printFrame.style.position = 'fixed';
+      printFrame.style.right = '0';
+      printFrame.style.bottom = '0';
+      printFrame.style.width = '200px';
+      printFrame.style.height = '200px';
+      printFrame.style.opacity = '0.01';
+      printFrame.style.pointerEvents = 'none';
+      printFrame.style.border = '0';
+      document.body.appendChild(printFrame);
+
+      const frameDoc = printFrame.contentWindow?.document;
+      if (frameDoc) {
+        frameDoc.open();
+        frameDoc.write(printHtml);
+        frameDoc.close();
+        printFrame.contentWindow?.focus();
+        setTimeout(() => {
+          try {
+            printFrame.contentWindow?.print();
+          } catch (_pe) {
+            window.print();
+          }
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) {
+              document.body.removeChild(printFrame);
+            }
+          }, 2000);
+        }, 500);
+      } else {
+        window.print();
+      }
+    }
   };
 
   /**
-   * Export crisp PNG Image containing ONLY present and absent lists
+   * Helper to render crisp attendance report canvas with complete font loading
    */
-  const handleDownloadImage = (type = 'combined') => {
-    if (!report) {
-      toast.error('اطلاعات جلسه یافت نشد');
-      return;
-    }
+  const buildAttendanceCanvas = async (type = 'combined') => {
+    if (!report) return null;
     const className = selectedClass?.name || 'کلاس';
     const datePersian = getPersianDateText(new Date(report.session?.created_at || Date.now()));
-    const dateStr = getSafeDateString();
 
     const presentList = type === 'absent' ? [] : (report.present_students || []);
     const absentList = type === 'present' ? [] : (report.absent_students || []);
 
     if (type === 'present' && presentList.length === 0) {
       toast.error('دانش‌آموزی در لیست حاضرین نیست');
-      return;
+      return null;
     }
     if (type === 'absent' && absentList.length === 0) {
       toast.error('دانش‌آموزی در لیست غایبین نیست');
-      return;
+      return null;
     }
+
+    try {
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+    } catch (_fe) {}
 
     let mainTitle = 'گزارش تفکیکی اسامی حضور و غیاب';
     if (type === 'present') mainTitle = 'لیست اسامی حاضرین کلاس';
@@ -960,7 +988,6 @@ export default function AttendancePage() {
 
     // Helper to draw clean table
     const renderTable = (secTitle, items, isPresent) => {
-      // Section Box
       ctx.fillStyle = isPresent ? '#f0fdf4' : '#fef2f2';
       if (ctx.roundRect) {
         ctx.beginPath();
@@ -1080,22 +1107,103 @@ export default function AttendancePage() {
     ctx.font = '11px Vazirmatn, Tahoma, Arial, sans-serif';
     ctx.fillText('سامانه هوشمند مدیریت آموزشی EduConnect — دریافت رسمی فایل اسامی حضور و غیاب', width - 36, currentY + 16);
 
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        toast.error('خطا در ایجاد عکس');
-        return;
-      }
-      const filename = `عکس_${mainTitle.replace(/\s+/g, '_')}_${className.replace(/\s+/g, '_')}_${dateStr}.png`;
-      const url = URL.createObjectURL(blob);
+    return canvas;
+  };
+
+  /**
+   * Export crisp PNG Image containing ONLY present and absent lists
+   */
+  const handleDownloadImage = async (type = 'combined') => {
+    if (!report) {
+      toast.error('اطلاعات جلسه یافت نشد');
+      return;
+    }
+    const canvas = await buildAttendanceCanvas(type);
+    if (!canvas) return;
+
+    const className = selectedClass?.name || 'کلاس';
+    const dateStr = getSafeDateString();
+    let mainTitle = 'گزارش تفکیکی اسامی حضور و غیاب';
+    if (type === 'present') mainTitle = 'لیست اسامی حاضرین کلاس';
+    if (type === 'absent') mainTitle = 'لیست اسامی غایبین کلاس';
+
+    const filename = `عکس_${mainTitle.replace(/\s+/g, '_')}_${className.replace(/\s+/g, '_')}_${dateStr}.png`;
+
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
       const a = document.createElement('a');
-      a.href = url;
+      a.href = dataUrl;
       a.download = filename;
+      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        try {
+          document.body.removeChild(a);
+        } catch (_e) {}
+      }, 800);
       toast.success('فایل عکس اسامی با موفقیت دریافت شد 🖼️');
-    }, 'image/png');
+    } catch (_err) {
+      toast.error('خطا در ذخیره تصویر');
+    }
+  };
+
+  /**
+   * Export official PDF document containing ONLY present and absent lists
+   */
+  const handleDownloadPdf = async (type = 'combined') => {
+    if (!report) {
+      toast.error('اطلاعات جلسه یافت نشد');
+      return;
+    }
+    const canvas = await buildAttendanceCanvas(type);
+    if (!canvas) return;
+
+    const className = selectedClass?.name || 'کلاس';
+    const dateStr = getSafeDateString();
+    let mainTitle = 'گزارش تفکیکی اسامی حضور و غیاب';
+    if (type === 'present') mainTitle = 'لیست اسامی حاضرین کلاس';
+    if (type === 'absent') mainTitle = 'لیست اسامی غایبین کلاس';
+
+    const filename = `PDF_${mainTitle.replace(/\s+/g, '_')}_${className.replace(/\s+/g, '_')}_${dateStr}.pdf`;
+    const loadingToast = toast.loading('در حال ساخت فایل PDF رسمی اسامی...');
+
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = 210;
+      const pdfHeight = 297;
+      const margin = 8;
+      const printWidth = pdfWidth - margin * 2; // 194 mm
+      const printHeight = (canvas.height / canvas.width) * printWidth;
+      const maxPageContentHeight = pdfHeight - margin * 2;
+
+      const imgData = canvas.toDataURL('image/png');
+
+      if (printHeight <= maxPageContentHeight) {
+        pdf.addImage(imgData, 'PNG', margin, margin, printWidth, printHeight);
+      } else {
+        // Multi-page slicing
+        let position = 0;
+        let pageHeightLeft = printHeight;
+        while (pageHeightLeft > 0) {
+          if (position > 0) {
+            pdf.addPage();
+          }
+          pdf.addImage(imgData, 'PNG', margin, margin - position, printWidth, printHeight);
+          position += maxPageContentHeight;
+          pageHeightLeft -= maxPageContentHeight;
+        }
+      }
+
+      pdf.save(filename);
+      toast.dismiss(loadingToast);
+      toast.success('فایل رسمی PDF اسامی با موفقیت دریافت شد 📄📥');
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(loadingToast);
+      toast.error('خطا در ایجاد فایل PDF');
+    }
   };
 
   /**
@@ -1794,12 +1902,27 @@ export default function AttendancePage() {
                   </button>
                   <button
                     className={`${styles.downloadPillBtn} ${styles.downloadBtnPdf}`}
-                    onClick={() => handlePrintOnlyLists('combined')}
-                    title="چاپ یا ذخیره فایل PDF استاندارد فقط شامل جدول اسامی حاضرین و غایبین (بدون منوها و ابزارهای سایت)"
+                    onClick={() => handleDownloadPdf('combined')}
+                    title="دانلود مستقیم فایل استاندارد PDF شامل جدول اسامی حاضرین و غایبین"
                     style={{ fontSize: '0.85rem', padding: '7px 14px' }}
                   >
+                    <HiOutlineDocumentText style={{ fontSize: '1.1rem' }} />
+                    <span>دانلود فایل PDF اسامی 📄</span>
+                  </button>
+                  <button
+                    className={`${styles.downloadPillBtn}`}
+                    onClick={() => handlePrintOnlyLists('combined')}
+                    title="چاپ کاغذی یا پرینت رسمی فقط شامل جدول اسامی حاضرین و غایبین"
+                    style={{
+                      fontSize: '0.85rem',
+                      padding: '7px 14px',
+                      background: 'rgba(59, 130, 246, 0.12)',
+                      color: '#3b82f6',
+                      borderColor: 'rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
                     <HiOutlinePrinter style={{ fontSize: '1.1rem' }} />
-                    <span>چاپ و فایل PDF اسامی 🖨️</span>
+                    <span>چاپ و پرینت اسامی 🖨️</span>
                   </button>
                   <button
                     className="btn btn-secondary btn-sm"
@@ -1874,11 +1997,24 @@ export default function AttendancePage() {
                     </button>
                     <button
                       className={`${styles.downloadPillBtn} ${styles.downloadBtnPdf}`}
+                      onClick={() => handleDownloadPdf('present')}
+                      title="دانلود فایل PDF رسمی اسامی حاضرین کلاس"
+                    >
+                      <HiOutlineDocumentText />
+                      <span>فایل PDF حاضرین</span>
+                    </button>
+                    <button
+                      className={`${styles.downloadPillBtn}`}
                       onClick={() => handlePrintOnlyLists('present')}
-                      title="چاپ یا خروجی PDF رسمی فقط از اسامی حاضرین"
+                      title="چاپ یا پرینت رسمی فقط از اسامی حاضرین"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.1)',
+                        color: '#3b82f6',
+                        borderColor: 'rgba(59, 130, 246, 0.25)',
+                      }}
                     >
                       <HiOutlinePrinter />
-                      <span>چاپ / PDF حاضرین</span>
+                      <span>چاپ حاضرین</span>
                     </button>
                     <button
                       className={`${styles.downloadPillBtn} ${styles.downloadBtnExcel}`}
@@ -2002,11 +2138,24 @@ export default function AttendancePage() {
                     </button>
                     <button
                       className={`${styles.downloadPillBtn} ${styles.downloadBtnPdf}`}
+                      onClick={() => handleDownloadPdf('absent')}
+                      title="دانلود فایل PDF رسمی اسامی غایبین کلاس"
+                    >
+                      <HiOutlineDocumentText />
+                      <span>فایل PDF غایبین</span>
+                    </button>
+                    <button
+                      className={`${styles.downloadPillBtn}`}
                       onClick={() => handlePrintOnlyLists('absent')}
-                      title="چاپ یا خروجی PDF رسمی فقط از اسامی غایبین"
+                      title="چاپ یا پرینت رسمی فقط از اسامی غایبین"
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        color: '#ef4444',
+                        borderColor: 'rgba(239, 68, 68, 0.25)',
+                      }}
                     >
                       <HiOutlinePrinter />
-                      <span>چاپ / PDF غایبین</span>
+                      <span>چاپ غایبین</span>
                     </button>
                     <button
                       className={`${styles.downloadPillBtn} ${styles.downloadBtnExcel}`}

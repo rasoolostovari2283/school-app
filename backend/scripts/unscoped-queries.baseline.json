@@ -4,5 +4,113 @@
     "file": "src/modules/courses/course.routes.js",
     "route": "POST /:id/enroll",
     "table": "courses"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::GET /items/:id/stream::school_meeting_items",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "GET /items/:id/stream",
+    "table": "school_meeting_items"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::GET /items/:id/download::school_meeting_items",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "GET /items/:id/download",
+    "table": "school_meeting_items"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::DELETE /items/:id::school_meeting_items",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "DELETE /items/:id",
+    "table": "school_meeting_items"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::PUT /notices/:id::school_meeting_notices",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "PUT /notices/:id",
+    "table": "school_meeting_notices"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::DELETE /notices/:id::school_meeting_notices",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "DELETE /notices/:id",
+    "table": "school_meeting_notices"
+  },
+  {
+    "key": "src/modules/schoolMeetings/schoolMeetings.routes.js::POST /webinar/:id/end::school_webinar_sessions",
+    "file": "src/modules/schoolMeetings/schoolMeetings.routes.js",
+    "route": "POST /webinar/:id/end",
+    "table": "school_webinar_sessions"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::PUT /folders/:id::video_folders",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "PUT /folders/:id",
+    "table": "video_folders"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::GET /:id/stream::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "GET /:id/stream",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::GET /:id/download::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "GET /:id/download",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::PATCH /:id/folder::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "PATCH /:id/folder",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::PUT /:id/folders::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "PUT /:id/folders",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::PUT /:id/classes::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "PUT /:id/classes",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::PUT /:id/audience::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "PUT /:id/audience",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::POST /:id/pdf::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "POST /:id/pdf",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::DELETE /:id/pdf/:pdfId::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "DELETE /:id/pdf/:pdfId",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::DELETE /:id/pdf/:pdfId::video_pdfs",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "DELETE /:id/pdf/:pdfId",
+    "table": "video_pdfs"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::GET /:id::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "GET /:id",
+    "table": "videos"
+  },
+  {
+    "key": "src/modules/videos/video.routes.js::DELETE /:id::videos",
+    "file": "src/modules/videos/video.routes.js",
+    "route": "DELETE /:id",
+    "table": "videos"
   }
 ]

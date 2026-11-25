@@ -739,24 +739,89 @@ export default function SmartBoardPage() {
     }
   }, []);
 
-  // ── Export & Download (PNG & Multi-Page PDF) ──
+  // ── Export & Download (PNG & Multi-Page PDF & Original File) ──
   const handleDownloadPng = () => {
     try {
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = 1600;
       exportCanvas.height = 900;
-      renderCompositeFrame(exportCanvas);
+      try {
+        renderCompositeFrame(exportCanvas);
+      } catch (_frameErr) {
+        const ctx = exportCanvas.getContext('2d');
+        drawBoardBackground(ctx, 1600, 900, boardType);
+        if (mainDrawCanvasRef.current) {
+          ctx.drawImage(mainDrawCanvasRef.current, 0, 0, 1600, 900);
+        }
+      }
 
       const safeTitle = (sessionTitle || 'smartboard').replace(/[\\/:*?"<>|]/g, '_');
-      const link = document.createElement('a');
-      link.download = `${safeTitle}.png`;
-      link.href = exportCanvas.toDataURL('image/png');
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success('تصویر صفحه تخته (PNG) دانلود شد');
+      const filename = `${safeTitle}.png`;
+
+      try {
+        const dataUrl = exportCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = dataUrl;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          try { document.body.removeChild(link); } catch (_e) {}
+        }, 800);
+        toast.success('تصویر صفحه تخته (PNG) دانلود شد 🖼️');
+      } catch (_secErr) {
+        if (mainDrawCanvasRef.current) {
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = mainDrawCanvasRef.current.toDataURL('image/png');
+          link.target = '_blank';
+          document.body.appendChild(link);
+          link.click();
+          setTimeout(() => {
+            try { document.body.removeChild(link); } catch (_e) {}
+          }, 800);
+          toast.success('تصویر نقاشی‌های تخته دانلود شد');
+        } else {
+          toast.error('خطا در ذخیره تصویر صفحه');
+        }
+      }
     } catch (_err) {
       toast.error('خطا در ذخیره تصویر صفحه');
+    }
+  };
+
+  const handleDownloadActiveMedia = () => {
+    if (!activeMedia) return;
+    try {
+      const filename = activeMedia.name || 'smartboard-file';
+      if (activeMedia.file) {
+        const url = URL.createObjectURL(activeMedia.file);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (_e) {}
+          URL.revokeObjectURL(url);
+        }, 1000);
+        toast.success(`فایل «${filename}» دانلود شد 📥`);
+      } else if (activeMedia.url) {
+        const a = document.createElement('a');
+        a.href = activeMedia.url;
+        a.download = filename;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (_e) {}
+        }, 1000);
+        toast.success(`فایل «${filename}» دانلود شد 📥`);
+      }
+    } catch (e) {
+      toast.error('خطا در دانلود فایل بازشده');
     }
   };
 
@@ -1012,6 +1077,7 @@ export default function SmartBoardPage() {
         isExporting={isExporting}
         onDownloadPdf={handleDownloadPdf}
         onDownloadPng={handleDownloadPng}
+        onDownloadActiveMedia={handleDownloadActiveMedia}
         onExitBoard={() => setHasEnteredBoard(false)}
       />
 
@@ -1085,6 +1151,7 @@ export default function SmartBoardPage() {
                 <video
                   ref={videoElRef}
                   src={activeMedia.url}
+                  crossOrigin="anonymous"
                   className={styles.mediaVideoEl}
                   playsInline
                   onTimeUpdate={(e) => setVideoProgress(e.currentTarget.currentTime)}

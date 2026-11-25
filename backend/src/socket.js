@@ -281,7 +281,7 @@ function initSocket(server, config) {
       }
 
       // Clean up previous room membership if switching rooms (SEC-SOCKET-012)
-      if (currentClassId && currentClassId !== classId) {
+      if (currentClassId && String(currentClassId) !== String(classId)) {
         socket.leave(`class:${currentClassId}`);
         if (activeClassrooms.has(currentClassId)) {
           const prevRoom = activeClassrooms.get(currentClassId);
@@ -368,7 +368,7 @@ function initSocket(server, config) {
 
     // ── Teacher Starts Live Class ──
     socket.on('start_live', ({ classId, title, boardType } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
 
@@ -393,7 +393,7 @@ function initSocket(server, config) {
 
     // ── Teacher Ends Live Class ──
     socket.on('end_live', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
 
@@ -420,7 +420,7 @@ function initSocket(server, config) {
     };
 
     socket.on('wb_draw', ({ classId, stroke } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -434,7 +434,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_clear', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -445,7 +445,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_undo', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room && room.whiteboardStrokes.length > 0) {
@@ -458,7 +458,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_change_bg', ({ classId, boardType } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -469,7 +469,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_sync_all', ({ classId, strokes, boardType, docState, boardPages, currentPage } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -490,7 +490,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_doc_change', ({ classId, docState } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -501,7 +501,7 @@ function initSocket(server, config) {
     });
 
     socket.on('wb_page_change', ({ classId, pageNum, boardPages } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!canUserDraw(room)) return;
       if (room) {
@@ -513,7 +513,7 @@ function initSocket(server, config) {
     });
 
     socket.on('grant_whiteboard_access', ({ classId, targetSocketId, targetUserId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
@@ -543,7 +543,7 @@ function initSocket(server, config) {
     });
 
     socket.on('revoke_whiteboard_access', ({ classId, targetSocketId, targetUserId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
@@ -573,7 +573,7 @@ function initSocket(server, config) {
     });
 
     socket.on('set_all_whiteboard_access', ({ classId, canDraw } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
@@ -591,7 +591,7 @@ function initSocket(server, config) {
     });
 
     socket.on('request_whiteboard_access', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room.participants.get(socket.id);
       if (participant) {
@@ -605,7 +605,7 @@ function initSocket(server, config) {
     });
 
     socket.on('set_student_permission', ({ classId, targetSocketId, targetUserId, permissionType, allowed } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
@@ -639,7 +639,7 @@ function initSocket(server, config) {
     });
 
     socket.on('toggle_mic', ({ classId, micOn } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (participant) {
@@ -656,7 +656,7 @@ function initSocket(server, config) {
     });
 
     socket.on('start_screen_share', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (participant) {
@@ -675,7 +675,7 @@ function initSocket(server, config) {
     });
 
     socket.on('stop_screen_share', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (room && room.screenSharingUser?.socketId === socket.id) {
         room.screenSharingUser = null;
@@ -687,7 +687,7 @@ function initSocket(server, config) {
 
     socket.on('screen_frame', ({ classId, frame } = {}) => {
       if (!allowSocketEvent(30)) return;
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (!isRoomTeacher(room) && !participant?.canScreenShare) {
@@ -700,7 +700,7 @@ function initSocket(server, config) {
 
     socket.on('audio_chunk', ({ classId, chunk } = {}) => {
       if (!allowSocketEvent(45)) return;
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room?.participants.get(socket.id);
       if (!isRoomTeacher(room) && !participant?.canMic) return;
@@ -714,7 +714,7 @@ function initSocket(server, config) {
 
     socket.on('send_chat_message', async ({ classId, text } = {}) => {
       if (!allowSocketEvent(10)) return;
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       if (!text || typeof text !== 'string' || !text.trim()) return;
       if (!(await isSessionStillValid(socket))) return;
 
@@ -744,7 +744,7 @@ function initSocket(server, config) {
     });
 
     socket.on('toggle_hand_raise', ({ classId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       const participant = room.participants.get(socket.id);
       if (participant) {
@@ -759,7 +759,7 @@ function initSocket(server, config) {
     });
 
     socket.on('lower_student_hand', ({ classId, targetSocketId, targetUserId } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
 
@@ -784,7 +784,7 @@ function initSocket(server, config) {
     });
 
     socket.on('set_all_student_permission', ({ classId, permissionType, allowed } = {}) => {
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) return;
       const requester = room.participants.get(socket.id);
@@ -839,7 +839,7 @@ function initSocket(server, config) {
 
     socket.on('live_video_frame', ({ classId, frame } = {}) => {
       if (!allowSocketEvent(30)) return;
-      if (!classId || classId !== currentClassId) return;
+      if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
       if (!isRoomTeacher(room)) {
         socket.emit('error_message', { message: 'فقط دبیر کلاس مجاز به ارسال تصویر زنده است' });

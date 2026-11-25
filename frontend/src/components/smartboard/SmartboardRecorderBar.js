@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   HiOutlineVideoCamera,
   HiOutlineStop,
@@ -9,6 +9,8 @@ import {
   HiOutlineMicrophone,
   HiOutlineSpeakerXMark,
   HiOutlineFolderArrowDown,
+  HiOutlineArrowsPointingIn,
+  HiOutlineArrowsPointingOut,
 } from 'react-icons/hi2';
 import styles from '../../app/dashboard/record/record.module.css';
 
@@ -29,9 +31,43 @@ export default function SmartboardRecorderBar({
   hasFinishedRecording,
   onOpenRecordingModal,
 }) {
+  const [isMinimized, setIsMinimized] = useState(false);
   const isRecording = recStatus === 'recording';
   const isPaused = recStatus === 'paused';
   const isActive = isRecording || isPaused;
+
+  if (isMinimized) {
+    return (
+      <div className={styles.recorderDockWrap}>
+        <div
+          className={`${styles.recorderBox} ${styles.recorderBoxMinimized} ${isRecording ? styles.recorderBoxLive : ''}`}
+          onClick={() => setIsMinimized(false)}
+          title="برای باز کردن کنترل‌های ضبط کلیک کنید"
+        >
+          <span
+            className={`${styles.recDot} ${
+              isRecording ? styles.recDotLive : isPaused ? styles.recDotPaused : ''
+            }`}
+          />
+          <span className={styles.recBoxTitle}>ضبط</span>
+          <span className={styles.recTimer} dir="ltr" data-testid="recording-timer">
+            {formatTimer(recSeconds)}
+          </span>
+          <button
+            type="button"
+            className={styles.recToggleMinimizeBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMinimized(false);
+            }}
+            title="بزرگنمایی پنل ضبط"
+          >
+            <HiOutlineArrowsPointingOut size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.recorderDockWrap}>
@@ -109,6 +145,15 @@ export default function SmartboardRecorderBar({
               <span>مدیریت ویدیو ضبط‌شده</span>
             </button>
           )}
+
+          <button
+            type="button"
+            className={styles.recToggleMinimizeBtn}
+            onClick={() => setIsMinimized(true)}
+            title="کوچک کردن نوار ضبط برای باز شدن فضای تدریس"
+          >
+            <HiOutlineArrowsPointingIn size={14} />
+          </button>
         </div>
       </div>
     </div>

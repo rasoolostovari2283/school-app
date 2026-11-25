@@ -120,6 +120,12 @@ export function parseWordXmlBlocks(xmlString) {
  * crisp high-DPI canvas pages with prev/next page navigation.
  */
 export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') {
+  try {
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+  } catch (_e) {}
+
   let blocks = [];
 
   try {
@@ -180,9 +186,11 @@ export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') 
   measureCanvas.width = PAGE_W;
   measureCanvas.height = 100;
   const mCtx = measureCanvas.getContext('2d');
+  mCtx.direction = 'rtl';
 
-  const wrapTextLines = (text, font, maxWidth) => {
+  const wrapTextLines = (text, font, maxWidth, isRtl) => {
     mCtx.font = font;
+    mCtx.direction = isRtl ? 'rtl' : 'ltr';
     const rawLines = String(text || '').split('\n');
     const out = [];
     for (const raw of rawLines) {
@@ -226,7 +234,7 @@ export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') 
     const lineHeight = Math.round(fontSize * 1.65);
     const weight = block.bold ? '700' : '400';
     const font = `${weight} ${fontSize}px Vazirmatn, Tahoma, Arial, sans-serif`;
-    const lines = wrapTextLines(block.text, font, MAX_W - (block.type === 'table-row' ? 24 : 0));
+    const lines = wrapTextLines(block.text, font, MAX_W - (block.type === 'table-row' ? 24 : 0), block.rtl);
 
     for (const line of lines) {
       if (currentY + lineHeight > PAGE_H - MARGIN_BOTTOM) {
@@ -266,6 +274,7 @@ export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') 
     ctx.fillRect(0, 0, PAGE_W, 8);
     ctx.fillStyle = '#64748b';
     ctx.font = '600 18px Vazirmatn, Tahoma, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
     ctx.direction = 'rtl';
     ctx.textAlign = 'right';
     ctx.fillText(fileName, PAGE_W - MARGIN_X, 56);
@@ -284,20 +293,22 @@ export async function loadWordDocument(arrayBuffer, fileName = 'document.docx') 
     for (const item of items) {
       if (item.isTableRow) {
         ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(MARGIN_X, item.y - item.fontSize, MAX_W, item.lineHeight);
+        ctx.fillRect(MARGIN_X, item.y, MAX_W, item.lineHeight);
         ctx.strokeStyle = '#cbd5e1';
         ctx.lineWidth = 1;
-        ctx.strokeRect(MARGIN_X, item.y - item.fontSize, MAX_W, item.lineHeight);
+        ctx.strokeRect(MARGIN_X, item.y, MAX_W, item.lineHeight);
       }
 
       ctx.font = item.font;
       ctx.fillStyle = item.isHeading ? '#1e3a8a' : '#0f172a';
+      ctx.textBaseline = 'top';
       ctx.direction = item.rtl ? 'rtl' : 'ltr';
       ctx.textAlign = item.rtl ? 'right' : 'left';
       const drawX = item.rtl
-        ? PAGE_W - MARGIN_X - (item.isTableRow ? 12 : 0)
-        : MARGIN_X + (item.isTableRow ? 12 : 0);
-      ctx.fillText(item.text, drawX, item.y);
+        ? PAGE_W - MARGIN_X - (item.isTableRow ? 16 : 0)
+        : MARGIN_X + (item.isTableRow ? 16 : 0);
+      const drawY = item.y + (item.isTableRow ? Math.round((item.lineHeight - item.fontSize) / 4) : 0);
+      ctx.fillText(item.text, drawX, drawY);
     }
 
     return targetCanvas;

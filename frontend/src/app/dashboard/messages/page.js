@@ -27,7 +27,9 @@ import {
   HiOutlineClipboardDocument,
   HiOutlineClipboardDocumentCheck,
   HiOutlineArrowRightOnRectangle,
-  HiOutlineArrowRight,
+  HiArrowRight,
+  HiOutlineBell,
+  HiOutlineBellSlash,
 } from 'react-icons/hi2';
 import CallModal from '../../../components/communication/CallModal';
 import MessageAttachments from '../../../components/communication/MessageAttachments';
@@ -229,6 +231,68 @@ export default function MessagesPage() {
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
 
+  // Sound Notification Chime state
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+
+  const playMessageChime = () => {
+    try {
+      if (typeof window === 'undefined') return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, now); // E5
+      osc.frequency.setValueAtTime(880, now + 0.11); // A5
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.45);
+
+      setTimeout(() => {
+        try { ctx.close(); } catch (_e) {}
+      }, 600);
+    } catch (_e) {}
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('messages_sound_enabled');
+      if (stored !== null) {
+        const val = stored !== 'false';
+        setSoundEnabled(val);
+        soundEnabledRef.current = val;
+      }
+    }
+  }, []);
+
+  const toggleSound = () => {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      soundEnabledRef.current = next;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('messages_sound_enabled', String(next));
+      }
+      if (next) {
+        playMessageChime();
+        toast.success('زنگ صوتی پیام‌ها فعال شد 🔔');
+      } else {
+        toast('زنگ پیام‌ها بی‌صدا شد 🔕');
+      }
+      return next;
+    });
+  };
+
   useEffect(() => {
     fetchConversations();
     fetchGroups();
@@ -247,6 +311,9 @@ export default function MessagesPage() {
 
     const onDirectMessage = (incoming) => {
       if (!incoming || !incoming.id) return;
+      if (incoming.sender_id !== user.id && soundEnabledRef.current) {
+        playMessageChime();
+      }
       const partner = activePartnerRef.current;
       if (
         partner &&
@@ -268,6 +335,9 @@ export default function MessagesPage() {
       const incoming = payload?.message;
       const grpId = payload?.group_id || incoming?.group_id;
       if (!incoming || !incoming.id) return;
+      if (incoming.sender_id !== user.id && soundEnabledRef.current) {
+        playMessageChime();
+      }
       if (activeGroupRef.current?.id === grpId) {
         const normalized = {
           ...incoming,
@@ -1321,6 +1391,14 @@ export default function MessagesPage() {
                 👨‍🏫 کادر آموزشی • کلیه پایه‌ها
               </span>
             )}
+            <button
+              type="button"
+              className={`${styles.soundToggleBtn} ${soundEnabled ? styles.soundToggleBtnActive : ''}`}
+              onClick={toggleSound}
+              title={soundEnabled ? 'زنگ پیام‌ها فعال است (کلیک برای بی‌صدا)' : 'زنگ پیام‌ها بی‌صدا است (کلیک برای فعال‌سازی)'}
+            >
+              {soundEnabled ? <HiOutlineBell /> : <HiOutlineBellSlash />}
+            </button>
           </div>
 
           {/* Top 3 Tabs */}
@@ -1974,6 +2052,15 @@ export default function MessagesPage() {
 
                 <div className={styles.headerCallingTools}>
                   <button
+                    type="button"
+                    className={`${styles.callToolBtn} ${soundEnabled ? styles.soundToggleBtnActive : ''}`}
+                    onClick={toggleSound}
+                    title={soundEnabled ? 'زنگ پیام‌ها فعال است (کلیک برای بی‌صدا کردن)' : 'زنگ پیام‌ها بی‌صدا است (کلیک برای فعال‌سازی)'}
+                  >
+                    {soundEnabled ? <HiOutlineBell /> : <HiOutlineBellSlash />}
+                    <span>{soundEnabled ? 'زنگ روشن' : 'بی‌صدا'}</span>
+                  </button>
+                  <button
                     className={styles.callToolBtn}
                     onClick={() => {
                       fetchGroupMembers(activeGroup.id);
@@ -2254,6 +2341,15 @@ export default function MessagesPage() {
                 </div>
 
                 <div className={styles.headerCallingTools}>
+                  <button
+                    type="button"
+                    className={`${styles.callToolBtn} ${soundEnabled ? styles.soundToggleBtnActive : ''}`}
+                    onClick={toggleSound}
+                    title={soundEnabled ? 'زنگ پیام‌ها فعال است (کلیک برای بی‌صدا کردن)' : 'زنگ پیام‌ها بی‌صدا است (کلیک برای فعال‌سازی)'}
+                  >
+                    {soundEnabled ? <HiOutlineBell /> : <HiOutlineBellSlash />}
+                    <span>{soundEnabled ? 'زنگ روشن' : 'بی‌صدا'}</span>
+                  </button>
                   <button
                     className={styles.callToolBtn}
                     onClick={() => handleTriggerCall(activePartner, 'audio', false)}
