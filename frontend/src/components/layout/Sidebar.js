@@ -65,12 +65,9 @@ const navByRole = {
     { href: '/dashboard/assignments/', icon: HiOutlineDocumentText, fa: 'تکالیف کلاسی', en: 'Assignments', group: 'سنجش و تکالیف' },
     { href: '/dashboard/quizzes/', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌ها و بانک سوال', en: 'Quizzes', group: 'سنجش و تکالیف' },
     { href: '/dashboard/study-planner/', icon: HiOutlineBookOpen, fa: 'دفتر برنامه‌ریزی تحصیلی', en: 'Study Planner', group: 'سنجش و تکالیف' },
-    { href: '/dashboard/discipline/', icon: HiOutlineShieldCheck, fa: 'موارد انضباطی و تشویقی', en: 'Discipline', group: 'برنامه و ارتباطات' },
-    { href: '/dashboard/schedule/', icon: HiOutlineCalendarDays, fa: 'برنامه هفتگی', en: 'Weekly Schedule', group: 'برنامه و ارتباطات' },
     { href: '/dashboard/school-meetings/', icon: HiOutlineVideoCamera, fa: 'جلسات آنلاین مدرسه', en: 'School Meetings', group: 'برنامه و ارتباطات' },
     { href: '/dashboard/messages/', icon: HiOutlineChatBubbleLeftRight, fa: 'پیام‌ها', en: 'Messages', badgeKey: 'messages', group: 'برنامه و ارتباطات' },
     { href: '/dashboard/announcements/', icon: HiOutlineMegaphone, fa: 'اطلاعیه‌ها', en: 'Announcements', group: 'برنامه و ارتباطات' },
-    { href: '/dashboard/tickets/', icon: HiOutlineLifebuoy, fa: 'تیکت و پشتیبانی', en: 'Tickets', group: 'برنامه و ارتباطات' },
   ],
   counselor: [
     { href: '/dashboard/', icon: HiOutlineHome, fa: 'میز کار مشاور', en: 'Counselor Desk', group: 'هدایت تحصیلی' },

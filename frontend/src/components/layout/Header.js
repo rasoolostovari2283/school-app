@@ -123,14 +123,19 @@ export default function Header({ onToggleMobileMenu }) {
   const [generatingAi, setGeneratingAi] = useState(false);
 
   const filteredNavItems = useMemo(() => {
+    const teacherHiddenPaths = ['/dashboard/discipline/', '/dashboard/schedule/', '/dashboard/tickets/'];
+    const baseItems =
+      user?.role === 'teacher'
+        ? QUICK_NAV_ITEMS.filter((item) => !teacherHiddenPaths.includes(item.href))
+        : QUICK_NAV_ITEMS;
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return QUICK_NAV_ITEMS.slice(0, 6);
-    return QUICK_NAV_ITEMS.filter(
+    if (!q) return baseItems.slice(0, 6);
+    return baseItems.filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
         item.keywords.toLowerCase().includes(q)
     ).slice(0, 7);
-  }, [searchQuery]);
+  }, [searchQuery, user?.role]);
 
   useEffect(() => {
     const theme = document.documentElement.getAttribute('data-theme') || 'light';
