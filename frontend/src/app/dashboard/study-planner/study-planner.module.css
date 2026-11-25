@@ -70,6 +70,7 @@
 /* View Mode Switcher Tabs */
 .tabSwitcher {
   display: inline-flex;
+  flex-wrap: wrap;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   padding: 6px;
@@ -86,22 +87,29 @@
   border-radius: var(--radius-lg);
   font-size: 0.875rem;
   font-weight: 700;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.tabBtn:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
+  border: 2px solid var(--border-color, #e2e8f0);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-.tabBtnActive {
-  background: var(--primary-600);
-  color: #ffffff !important;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+.tabBtn:hover,
+.tabBtn:focus-visible {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: var(--border-specular, #cbd5e1);
+}
+
+.tabBtnActive,
+.tabBtnActive:hover,
+.tabBtnActive:focus,
+.tabBtnActive:focus-visible,
+.tabBtnActive:active {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  border: 2px solid var(--primary-600, #4f46e5) !important;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.14);
 }
 
 /* ─────────────────────────────────────────────────────────────
