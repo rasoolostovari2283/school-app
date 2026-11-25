@@ -59,17 +59,17 @@
 .backNavBtn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 16px;
-  border-radius: var(--radius-xl);
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 10px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(14, 165, 233, 0.08) 100%);
   border: 1.5px solid rgba(99, 102, 241, 0.35);
   color: var(--primary-600);
-  font-weight: 800;
-  font-size: 0.875rem;
+  font-weight: 700;
+  font-size: 0.78rem;
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
   flex-shrink: 0;
 }
 
@@ -91,7 +91,7 @@
 }
 
 .backNavIcon {
-  font-size: 1.15rem;
+  font-size: 0.95rem;
   stroke-width: 2.2;
 }
 
@@ -500,18 +500,68 @@
 
 /* ── Mobile Responsive Rules ── */
 @media (max-width: 992px) {
-  .hamburgerBtn {
-    display: flex;
-    width: 48px;
-    height: 48px;
-    font-size: 1.95rem;
+  .header {
+    padding: env(safe-area-inset-top, 0px) 10px 0 10px;
+    min-height: 60px;
+    height: calc(60px + env(safe-area-inset-top, 0px));
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
   }
 
-  .header {
-    padding: env(safe-area-inset-top, 0px) var(--space-4) 0 var(--space-4);
-    min-height: 74px;
-    height: calc(74px + env(safe-area-inset-top, 0px));
-    gap: 12px;
+  .leftSection {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .hamburgerBtn {
+    display: flex;
+    width: 36px;
+    height: 36px;
+    font-size: 1.35rem;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .backNavContainer {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .backNavBtn {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    gap: 4px;
+    border-radius: 9px;
+    height: 30px;
+  }
+
+  .backNavIcon {
+    font-size: 0.85rem;
+  }
+
+  .breadcrumbDivider {
+    display: none;
+  }
+
+  .currentSectionBadge {
+    font-size: 0.76rem;
+    min-width: 0;
+    flex: 1;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rightSection {
+    gap: 5px;
+    flex-shrink: 0;
   }
 
   .searchContainer,
@@ -528,8 +578,33 @@
   }
 
   .aiBtn {
-    padding: 8px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
     border-radius: var(--radius-full);
+  }
+
+  .iconBtn {
+    width: 32px;
+    height: 32px;
+    font-size: 0.95rem;
+  }
+
+  .badgeDot {
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+  }
+
+  .teacherSetupBtn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+    border-radius: var(--radius-full);
+    font-size: 0.85rem;
   }
 
   .userTexts {
@@ -537,7 +612,14 @@
   }
 
   .profilePill {
-    padding: 3px;
+    padding: 2px;
+    gap: 0;
+  }
+
+  .profilePill :global(.avatar) {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 0.75rem !important;
   }
 
   .teacherSetupBtnText {
@@ -545,9 +627,9 @@
   }
 
   .roleSelect {
-    max-width: 95px;
-    font-size: 0.75rem;
-    padding: 5px 6px;
+    max-width: 82px;
+    font-size: 0.72rem;
+    padding: 4px 5px;
   }
 
   .returnAdminBtnText {

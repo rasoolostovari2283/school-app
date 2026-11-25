@@ -1778,6 +1778,75 @@
   }
 }
 
+.desktopGradeTableWrap {
+  display: block;
+  width: 100%;
+}
+
+.mobileGradeCardsList {
+  display: none;
+}
+
+.mobileGradeCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.mobileGradeCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mobileGradeRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobileGradeRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.84rem;
+}
+
+.mobileGradeLabel {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.mobileGradeValue {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .desktopGradeTableWrap {
+    display: none;
+  }
+
+  .mobileGradeCardsList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+}
+
 /* ── Print Specific Styles ── */
 @media print {
   /* Hide non-printable elements */

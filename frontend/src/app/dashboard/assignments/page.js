@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import useAuthStore from '../../../stores/authStore';
-import api from '../../../lib/api';
+import api, { getApiBaseUrl } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -27,6 +27,110 @@ import {
   HiOutlineChatBubbleLeftRight,
 } from 'react-icons/hi2';
 import styles from './assignments.module.css';
+
+function resolveAssignmentFileUrl(url) {
+  if (!url) return '';
+  if (
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:')
+  ) {
+    return url;
+  }
+  const backendBase = getApiBaseUrl().replace(/\/api\/v1\/?$/, '');
+  return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+function isImageAttachmentFile(file) {
+  const url = String(file?.url || '');
+  const mime = String(file?.mimetype || '').toLowerCase();
+  const name = String(file?.originalname || file?.name || '');
+  return (
+    mime.startsWith('image/') ||
+    /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(url) ||
+    /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)
+  );
+}
+
+function AuthAssignmentImage({ src, alt, className, style, onClick, title }) {
+  const [objectUrl, setObjectUrl] = useState('');
+  const [loadingImg, setLoadingImg] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl = '';
+    const resolved = resolveAssignmentFileUrl(src);
+    if (!resolved) {
+      setLoadingImg(false);
+      setFailed(true);
+      return;
+    }
+    if (resolved.startsWith('data:') || resolved.startsWith('blob:')) {
+      setObjectUrl(resolved);
+      setLoadingImg(false);
+      setFailed(false);
+      return;
+    }
+
+    setLoadingImg(true);
+    setFailed(false);
+    api
+      .get(resolved, { responseType: 'blob', baseURL: '' })
+      .then((res) => {
+        if (!active) return;
+        createdUrl = URL.createObjectURL(res.data);
+        setObjectUrl(createdUrl);
+        setLoadingImg(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setFailed(true);
+        setLoadingImg(false);
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [src]);
+
+  if (loadingImg) {
+    return (
+      <div
+        className={className}
+        style={{
+          padding: '12px',
+          textAlign: 'center',
+          fontSize: '0.75rem',
+          color: 'var(--text-tertiary)',
+          background: 'var(--bg-card)',
+          borderRadius: '10px',
+          ...style,
+        }}
+      >
+        در حال بارگذاری تصویر...
+      </div>
+    );
+  }
+
+  if (failed || !objectUrl) {
+    return null;
+  }
+
+  return (
+    <img
+      src={objectUrl}
+      alt={alt}
+      className={className}
+      style={style}
+      onClick={onClick}
+      title={title}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export default function AssignmentsPage() {
   const { user } = useAuthStore();
@@ -73,16 +177,54 @@ export default function AssignmentsPage() {
   const [studentUploading, setStudentUploading] = useState(false);
   const [submittingResponse, setSubmittingResponse] = useState(false);
 
+  const [lightboxFile, setLightboxFile] = useState(null);
+
   const teacherFileInputRef = useRef(null);
   const studentFileInputRef = useRef(null);
 
   const getFullFileUrl = (url) => {
-    if (!url) return '#';
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    const backendBase = process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/v1\/?$/, '')
-      : 'http://localhost:5000';
-    return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
+    return resolveAssignmentFileUrl(url) || '#';
+  };
+
+  const handleDownloadAssignmentFile = async (rawUrl, preferredName = 'assignment-file') => {
+    const fullUrl = resolveAssignmentFileUrl(rawUrl);
+    if (!fullUrl) {
+      toast.error('آدرس فایل معتبر نیست');
+      return;
+    }
+    const toastId = toast.loading('در حال آماده‌سازی فایل برای دانلود...');
+    try {
+      const res = await api.get(fullUrl, { responseType: 'blob', baseURL: '' });
+      const blob = res.data;
+      const extMatch = String(rawUrl || '').match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+      const ext = extMatch ? `.${extMatch[1]}` : '';
+      const safeName = preferredName.includes('.') || !ext ? preferredName : `${preferredName}${ext}`;
+
+      await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          try {
+            const link = document.createElement('a');
+            link.href = reader.result;
+            link.download = safeName;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      toast.success('فایل با موفقیت دانلود شد 📥', { id: toastId });
+    } catch (err) {
+      console.error('Download assignment file error:', err);
+      toast.error('خطا در دانلود یا باز کردن فایل', { id: toastId });
+    }
   };
 
   const getDeadlineInfo = (dueDate, allowLate) => {
@@ -791,16 +933,15 @@ export default function AssignmentsPage() {
                     </span>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
                       {assignment.attachments.map((att, i) => (
-                        <a
+                        <button
                           key={i}
-                          href={getFullFileUrl(att.url)}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          type="button"
+                          onClick={() => handleDownloadAssignmentFile(att.url, att.originalname || `assignment-file-${i + 1}`)}
                           className={styles.attachmentLink}
                         >
                           <HiOutlineDocumentArrowDown />
                           <span>{att.originalname || 'دانلود فایل'}</span>
-                        </a>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -897,8 +1038,8 @@ export default function AssignmentsPage() {
                     </div>
 
                     {assignment.submission?.feedback_text && (
-                      <div style={{ background: 'rgba(99, 102, 241, 0.08)', borderRight: '3px solid #818cf8', padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: '#e2e8f0' }}>
-                        <strong>نظر و بازخورد دبیر: </strong>{assignment.submission.feedback_text}
+                      <div style={{ background: 'rgba(99, 102, 241, 0.08)', borderRight: '3px solid #6366f1', padding: '8px 12px', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', color: 'var(--text-primary)' }}>
+                        <strong>یادداشت و بازخورد دبیر: </strong>{assignment.submission.feedback_text}
                       </div>
                     )}
 
@@ -911,15 +1052,14 @@ export default function AssignmentsPage() {
                               ? JSON.parse(assignment.submission.files)
                               : assignment.submission.files;
                             return Array.isArray(files) ? files.map((f, fi) => (
-                              <a
+                              <button
                                 key={fi}
-                                href={getFullFileUrl(f.url)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#818cf8', textDecoration: 'underline' }}
+                                type="button"
+                                onClick={() => handleDownloadAssignmentFile(f.url, f.originalname || f.name || `submission-file-${fi + 1}`)}
+                                className={styles.attachmentLink}
                               >
-                                📎 {f.name || 'دانلود فایل ارسالی'}
-                              </a>
+                                📎 {f.originalname || f.name || 'دانلود فایل ارسالی'}
+                              </button>
                             )) : null;
                           } catch (e) {
                             return null;
@@ -953,6 +1093,23 @@ export default function AssignmentsPage() {
                           : 'هنوز ارسال نشده'}
                       </strong>
                     </div>
+
+                    {assignment.submission?.feedback_text && (
+                      <div
+                        style={{
+                          background: 'rgba(99, 102, 241, 0.08)',
+                          borderRight: '3px solid #6366f1',
+                          padding: '9px 12px',
+                          borderRadius: 'var(--radius-md)',
+                          fontSize: '0.8125rem',
+                          color: 'var(--text-primary)',
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        <strong style={{ color: 'var(--primary-600)' }}>📝 یادداشت و بازخورد دبیر: </strong>
+                        <span>{assignment.submission.feedback_text}</span>
+                      </div>
+                    )}
 
                     {/* بنر هشدار بسته شدن آپلود برای دانش‌آموز در صورت اتمام مهلت */}
                     {deadline.isLocked && !assignment.submission && (
@@ -1557,19 +1714,52 @@ export default function AssignmentsPage() {
                           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#38bdf8' }}>
                             📎 فایل‌های ارسالی دانش‌آموز ({sub.files.length}):
                           </span>
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                            {sub.files.map((f, fi) => (
-                              <a
-                                key={fi}
-                                href={`http://localhost:5000${f.url}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.attachmentLink}
-                              >
-                                <HiOutlineDocumentArrowDown />
-                                <span>{f.originalname || 'دانلود فایل حل تمرین'}</span>
-                              </a>
-                            ))}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
+                            {sub.files.map((f, fi) => {
+                              const fileName = f.originalname || f.name || `فایل-حل-تمرین-${fi + 1}`;
+                              const isImg = isImageAttachmentFile(f);
+                              return (
+                                <div key={fi} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  {isImg && (
+                                    <AuthAssignmentImage
+                                      src={f.url}
+                                      alt={fileName}
+                                      style={{
+                                        width: '100%',
+                                        maxHeight: '260px',
+                                        objectFit: 'contain',
+                                        borderRadius: '10px',
+                                        background: '#ffffff',
+                                        border: '1px solid var(--border-color)',
+                                        cursor: 'zoom-in',
+                                      }}
+                                      onClick={() => setLightboxFile({ url: f.url, name: fileName })}
+                                      title="کلیک برای بزرگنمایی تصویر"
+                                    />
+                                  )}
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadAssignmentFile(f.url, fileName)}
+                                      className={styles.attachmentLink}
+                                    >
+                                      <HiOutlineDocumentArrowDown />
+                                      <span>دانلود: {fileName}</span>
+                                    </button>
+                                    {isImg && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setLightboxFile({ url: f.url, name: fileName })}
+                                        className={styles.attachmentLink}
+                                      >
+                                        <HiOutlinePhoto />
+                                        <span>مشاهده بزرگ</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1726,6 +1916,58 @@ export default function AssignmentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal for Viewing & Downloading Student/Teacher Images */}
+      {lightboxFile && (
+        <div
+          className={styles.modalBackdrop}
+          style={{ zIndex: 1200 }}
+          onClick={() => setLightboxFile(null)}
+        >
+          <div
+            className={styles.modalContent}
+            style={{ maxWidth: '760px', padding: '16px', textAlign: 'center' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.modalHeader} style={{ marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                🖼️ {lightboxFile.name || 'پیش‌نمایش تصویر'}
+              </h3>
+              <button type="button" className={styles.closeBtn} onClick={() => setLightboxFile(null)}>
+                &times;
+              </button>
+            </div>
+            <AuthAssignmentImage
+              src={lightboxFile.url}
+              alt={lightboxFile.name || 'تصویر پیوست'}
+              style={{
+                width: '100%',
+                maxHeight: '68vh',
+                objectFit: 'contain',
+                borderRadius: '12px',
+                background: '#ffffff',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => handleDownloadAssignmentFile(lightboxFile.url, lightboxFile.name || 'image')}
+              >
+                <HiOutlineDocumentArrowDown />
+                <span>دانلود تصویر</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setLightboxFile(null)}
+              >
+                بستن
+              </button>
+            </div>
           </div>
         </div>
       )}

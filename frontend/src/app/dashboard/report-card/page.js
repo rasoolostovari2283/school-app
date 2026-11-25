@@ -974,8 +974,134 @@ export default function ReportCardPage() {
     );
   }, [gradebookData, searchQuery]);
 
-  const handlePrint = () => {
-    window.print();
+  const buildTeacherGradebookPdfParams = () => {
+    const activeCls = classes.find((c) => String(c.id) === String(selectedClassId)) || gradebookData?.class || {};
+    const cats = gradebookData?.categories || [];
+    const studentsList = filteredStudents || gradebookData?.students || [];
+
+    const columns = [
+      { label: 'ردیف', weight: 0.5, align: 'center' },
+      { label: 'نام دانش‌آموز', weight: 1.8, align: 'right' },
+      ...cats.map((c) => ({ label: c.title, weight: 1.0, align: 'center' })),
+      { label: 'میانگین', weight: 0.9, align: 'center' },
+      { label: 'وضعیت', weight: 1.1, align: 'center' },
+    ];
+
+    const rows = studentsList.map((st, idx) => {
+      const catValues = cats.map((c) => {
+        const val = st.scores?.[c.id];
+        return val !== null && val !== undefined && val !== '' ? String(val) : '—';
+      });
+      const avg = st.average != null ? String(st.average) : '—';
+      const statusText = st.status || '—';
+      return [
+        String(idx + 1),
+        st.display_name || 'دانش‌آموز',
+        ...catValues,
+        avg,
+        statusText,
+      ];
+    });
+
+    const numericAvgs = studentsList.map((s) => Number(s.average)).filter((n) => !Number.isNaN(n) && n > 0);
+    const stats = computeLocalClassStats(numericAvgs, {
+      totalStudents: studentsList.length,
+      passThreshold: 12,
+    });
+
+    return {
+      title: `لیست نمرات ${activeCls.subject || activeCls.name || 'کلاس'}`,
+      subtitle: `${activeCls.name || ''}${activeCls.grade ? ` · ${activeCls.grade}` : ''}`,
+      schoolName: user?.school_name || 'مدرسه هوشمند',
+      teacherName: user?.display_name || '',
+      columns,
+      rows,
+      stats,
+      fileName: `grades-${activeCls.name || selectedClassId || 'class'}.pdf`,
+    };
+  };
+
+  const handleDownloadTeacherGradesPdf = async () => {
+    if (!gradebookData || (!filteredStudents.length && !(gradebookData.students || []).length)) {
+      toast.error('لیست نمرات برای دانلود خالی است');
+      return;
+    }
+    try {
+      await exportGradeTableToPdf(buildTeacherGradebookPdfParams());
+      toast.success('فایل پی‌دی‌اف لیست نمرات با موفقیت دانلود شد 📄');
+    } catch (err) {
+      console.error('Teacher PDF export failed:', err);
+      toast.error('خطا در تولید فایل پی‌دی‌اف نمرات');
+    }
+  };
+
+  const handleShareTeacherGradesPdf = async () => {
+    if (!gradebookData || (!filteredStudents.length && !(gradebookData.students || []).length)) {
+      toast.error('لیست نمرات برای ارسال خالی است');
+      return;
+    }
+    try {
+      const params = buildTeacherGradebookPdfParams();
+      const { blob, fileName } = await exportGradeTableToPdf({ ...params, returnBlobOnly: true });
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: params.title,
+          text: `${params.title} — ${params.subtitle}`,
+        });
+        toast.success('فایل نمرات آماده ارسال شد 📤');
+        return;
+      }
+      // Fallback: download the PDF directly if Web Share with files isn't supported
+      await exportGradeTableToPdf(params);
+      toast.success('فایل PDF دانلود شد و می‌توانید آن را ارسال کنید 📥');
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      console.error('Share grades PDF failed:', err);
+      toast.error('خطا در آماده‌سازی فایل برای ارسال');
+    }
+  };
+
+  const handlePrint = async () => {
+    // If in teacher view with gradebookData, generate a clean printable HTML window (works reliably on desktop; falls back to PDF download on mobile WebView)
+    if (isTeacher && gradebookData?.students) {
+      const params = buildTeacherGradebookPdfParams();
+      try {
+        const win = typeof window !== 'undefined' ? window.open('', '_blank', 'width=960,height=720') : null;
+        if (win) {
+          const thHtml = params.columns.map((c) => `<th>${c.label}</th>`).join('');
+          const trHtml = params.rows
+            .map((r) => `<tr>${r.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
+            .join('');
+          win.document.write(`<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>${params.title}</title>
+            <style>
+              body { font-family: Tahoma, Arial, sans-serif; padding: 24px; color: #0f172a; direction: rtl; }
+              h2 { margin: 0 0 6px; font-size: 18px; }
+              p { margin: 0 0 16px; font-size: 13px; color: #475569; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; }
+              th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: center; }
+              th { background: #eef2ff; color: #312e81; font-weight: 700; }
+              tr:nth-child(even) td { background: #f8fafc; }
+              @media print { body { padding: 8px; } }
+            </style></head><body>
+            <h2>${params.title}</h2>
+            <p>${params.subtitle}${params.teacherName ? ` · دبیر: ${params.teacherName}` : ''}</p>
+            <table><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table>
+            <script>window.onload = function() { setTimeout(function() { window.print(); }, 250); };</script>
+            </body></html>`);
+          win.document.close();
+          return;
+        }
+      } catch (_e) {}
+      // Mobile WebView fallback: download PDF directly
+      await handleDownloadTeacherGradesPdf();
+      return;
+    }
+
+    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+      window.print();
+    }
   };
 
   const getScoreColorClass = (score) => {
@@ -1230,13 +1356,36 @@ export default function ReportCardPage() {
                 </button>
 
                 <button
+                  type="button"
+                  onClick={handleDownloadTeacherGradesPdf}
+                  className="btn btn-primary btn-sm"
+                  title="دانلود فایل پی‌دی‌اف لیست نمرات کلاس"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <HiOutlineDocumentArrowDown style={{ fontSize: '1.1rem' }} />
+                  <span>دانلود نمرات (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleShareTeacherGradesPdf}
+                  className="btn btn-secondary btn-sm"
+                  title="ارسال و اشتراک‌گذاری فایل لیست نمرات"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <HiOutlinePaperAirplane style={{ fontSize: '1.05rem', transform: 'rotate(180deg)' }} />
+                  <span>ارسال فایل نمرات</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handlePrint}
                   className="btn btn-secondary btn-sm"
-                  title="چاپ لیست نمرات یا ذخیره به صورت PDF"
+                  title="چاپ لیست نمرات"
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
                   <HiOutlinePrinter style={{ fontSize: '1.1rem' }} />
-                  <span>چاپ لیست نمرات (PDF)</span>
+                  <span>چاپ لیست نمرات</span>
                 </button>
 
                 <button
@@ -2571,120 +2720,195 @@ function OfficialReportCardPaperSheet({ reportData }) {
         </div>
       </div>
 
-      {/* Formal Grades Table */}
-      <div className={styles.mobileScrollHint}>
-        <span>برای مشاهده نمرات ارزشیابی مستمر، آزمون میانسالی، آزمون پایان سال و وضعیت، جدول را به چپ بکشید ⟷</span>
+      {/* Formal Grades Table (Desktop) */}
+      <div className={styles.desktopGradeTableWrap}>
+        <div className={styles.tableContainer}>
+          <table className={styles.gradeTable}>
+            <thead>
+              <tr>
+                <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                <th>عنوان درس</th>
+                <th>دبیر مدرس</th>
+                <th style={{ textAlign: 'center' }}>ارزشیابی مستمر</th>
+                <th style={{ textAlign: 'center' }}>آزمون میانسالی</th>
+                <th style={{ textAlign: 'center' }}>آزمون پایان سال</th>
+                <th style={{ textAlign: 'center' }}>میانگین</th>
+                <th style={{ textAlign: 'center' }}>وضعیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportData.reportCards?.map((item, idx) => {
+                const contScore = item.continuous_score != null
+                  ? item.continuous_score
+                  : item.breakdowns?.find((b) => b.title.includes('مستمر'))?.score;
+                const midScore = item.midterm_score != null
+                  ? item.midterm_score
+                  : item.breakdowns?.find((b) => b.title.includes('میانسال') || b.title.includes('میان‌ترم') || b.title.includes('میان ترم'))?.score;
+                const finScore = item.final_score != null
+                  ? item.final_score
+                  : item.breakdowns?.find((b) => b.title.includes('پایان') || b.title.includes('نوبت'))?.score;
+                const finalScore = item.final_average;
+
+                const positiveStatuses = new Set(['قبول', 'خیلی خوب', 'خوب', 'قابل قبول']);
+                const negativeStatuses = new Set(['مردود', 'نیازمند تلاش بیشتر', 'نیاز به تلاش']);
+                const statusText = item.teacher_status || item.status || '';
+                const isPositive = positiveStatuses.has(statusText);
+                const isNegative = negativeStatuses.has(statusText);
+
+                return (
+                  <tr key={item.class_id || idx} data-testid={`report-card-row-${item.class_id || idx}`}>
+                    <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                      {idx + 1}
+                    </td>
+
+                    <td>
+                      <div className={styles.courseTitleCell}>
+                        <span className={styles.courseName}>{item.subject || item.class_name}</span>
+                        <span className={styles.teacherName}>
+                          {item.class_name}{item.grade ? ` · ${item.grade}` : ''}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td>
+                      <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
+                        {item.teacher_name || 'دبیر تخصصی'}
+                      </span>
+                    </td>
+
+                    <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                      {contScore != null ? (
+                        <span className={styles.scorePill} style={{ color: '#10b981' }}>{contScore}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                      {midScore != null ? (
+                        <span className={styles.scorePill} style={{ color: '#3b82f6' }}>{midScore}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                      {finScore != null ? (
+                        <span className={styles.scorePill} style={{ color: '#6366f1' }}>{finScore}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                      {finalScore != null ? (
+                        <span className={styles.scorePill} style={{ fontSize: '0.938rem', fontWeight: 900, color: '#10b981' }}>
+                          {finalScore}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                      )}
+                    </td>
+
+                    <td style={{ textAlign: 'center' }} data-testid={`report-card-status-${item.class_id || idx}`}>
+                      {isPositive ? (
+                        <span className={styles.statusPassBadge}>
+                          <HiOutlineCheckCircle />
+                          <span>{statusText}</span>
+                        </span>
+                      ) : isNegative ? (
+                        <span className={styles.statusFailBadge}>
+                          <HiOutlineExclamationCircle />
+                          <span>{statusText}</span>
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                          در انتظار نمره
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div className={styles.tableContainer}>
-        <table className={styles.gradeTable}>
-          <thead>
-            <tr>
-              <th style={{ width: '40px', textAlign: 'center' }}>#</th>
-              <th>عنوان درس</th>
-              <th>دبیر مدرس</th>
-              <th style={{ textAlign: 'center' }}>ارزشیابی مستمر</th>
-              <th style={{ textAlign: 'center' }}>آزمون میانسالی</th>
-              <th style={{ textAlign: 'center' }}>آزمون پایان سال</th>
-              <th style={{ textAlign: 'center' }}>میانگین</th>
-              <th style={{ textAlign: 'center' }}>وضعیت</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reportData.reportCards?.map((item, idx) => {
-              const contScore = item.continuous_score != null
-                ? item.continuous_score
-                : item.breakdowns?.find((b) => b.title.includes('مستمر'))?.score;
-              const midScore = item.midterm_score != null
-                ? item.midterm_score
-                : item.breakdowns?.find((b) => b.title.includes('میانسال') || b.title.includes('میان‌ترم') || b.title.includes('میان ترم'))?.score;
-              const finScore = item.final_score != null
-                ? item.final_score
-                : item.breakdowns?.find((b) => b.title.includes('پایان') || b.title.includes('نوبت'))?.score;
-              const finalScore = item.final_average;
 
-              const positiveStatuses = new Set(['قبول', 'خیلی خوب', 'خوب', 'قابل قبول']);
-              const negativeStatuses = new Set(['مردود', 'نیازمند تلاش بیشتر', 'نیاز به تلاش']);
-              const statusText = item.teacher_status || item.status || '';
-              const isPositive = positiveStatuses.has(statusText);
-              const isNegative = negativeStatuses.has(statusText);
+      {/* Formal Grades Vertical Cards (Mobile) */}
+      <div className={styles.mobileGradeCardsList}>
+        {reportData.reportCards?.map((item, idx) => {
+          const contScore = item.continuous_score != null
+            ? item.continuous_score
+            : item.breakdowns?.find((b) => b.title.includes('مستمر'))?.score;
+          const midScore = item.midterm_score != null
+            ? item.midterm_score
+            : item.breakdowns?.find((b) => b.title.includes('میانسال') || b.title.includes('میان‌ترم') || b.title.includes('میان ترم'))?.score;
+          const finScore = item.final_score != null
+            ? item.final_score
+            : item.breakdowns?.find((b) => b.title.includes('پایان') || b.title.includes('نوبت'))?.score;
+          const finalScore = item.final_average;
+          const positiveStatuses = new Set(['قبول', 'خیلی خوب', 'خوب', 'قابل قبول']);
+          const negativeStatuses = new Set(['مردود', 'نیازمند تلاش بیشتر', 'نیاز به تلاش']);
+          const statusText = item.teacher_status || item.status || '';
+          const isPositive = positiveStatuses.has(statusText);
+          const isNegative = negativeStatuses.has(statusText);
 
-              return (
-                <tr key={item.class_id || idx} data-testid={`report-card-row-${item.class_id || idx}`}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {idx + 1}
-                  </td>
+          return (
+            <div key={`m-${item.class_id || idx}`} className={styles.mobileGradeCard}>
+              <div className={styles.mobileGradeCardHeader}>
+                <div style={{ minWidth: 0 }}>
+                  <div className={styles.courseName}>{item.subject || item.class_name}</div>
+                  <div className={styles.teacherName}>
+                    {item.teacher_name || 'دبیر تخصصی'}{item.grade ? ` · ${item.grade}` : ''}
+                  </div>
+                </div>
+                {isPositive ? (
+                  <span className={styles.statusPassBadge}>
+                    <HiOutlineCheckCircle />
+                    <span>{statusText}</span>
+                  </span>
+                ) : isNegative ? (
+                  <span className={styles.statusFailBadge}>
+                    <HiOutlineExclamationCircle />
+                    <span>{statusText}</span>
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '0.76rem', fontWeight: 600 }}>
+                    در انتظار نمره
+                  </span>
+                )}
+              </div>
 
-                  <td>
-                    <div className={styles.courseTitleCell}>
-                      <span className={styles.courseName}>{item.subject || item.class_name}</span>
-                      <span className={styles.teacherName}>
-                        {item.class_name}{item.grade ? ` · ${item.grade}` : ''}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td>
-                    <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
-                      {item.teacher_name || 'دبیر تخصصی'}
-                    </span>
-                  </td>
-
-                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {contScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#10b981' }}>{contScore}</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-tertiary)' }}>—</span>
-                    )}
-                  </td>
-
-                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {midScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#3b82f6' }}>{midScore}</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-tertiary)' }}>—</span>
-                    )}
-                  </td>
-
-                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {finScore != null ? (
-                      <span className={styles.scorePill} style={{ color: '#6366f1' }}>{finScore}</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-tertiary)' }}>—</span>
-                    )}
-                  </td>
-
-                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    {finalScore != null ? (
-                      <span className={styles.scorePill} style={{ fontSize: '0.938rem', fontWeight: 900, color: '#10b981' }}>
-                        {finalScore}
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--text-tertiary)' }}>—</span>
-                    )}
-                  </td>
-
-                  <td style={{ textAlign: 'center' }} data-testid={`report-card-status-${item.class_id || idx}`}>
-                    {isPositive ? (
-                      <span className={styles.statusPassBadge}>
-                        <HiOutlineCheckCircle />
-                        <span>{statusText}</span>
-                      </span>
-                    ) : isNegative ? (
-                      <span className={styles.statusFailBadge}>
-                        <HiOutlineExclamationCircle />
-                        <span>{statusText}</span>
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--text-tertiary)', fontSize: '0.82rem', fontWeight: 600 }}>
-                        در انتظار نمره
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              <div className={styles.mobileGradeRows}>
+                <div className={styles.mobileGradeRow}>
+                  <span className={styles.mobileGradeLabel}>ارزشیابی مستمر</span>
+                  <span className={styles.mobileGradeValue} style={{ color: '#10b981' }}>
+                    {contScore != null ? contScore : '—'}
+                  </span>
+                </div>
+                <div className={styles.mobileGradeRow}>
+                  <span className={styles.mobileGradeLabel}>آزمون میانسالی</span>
+                  <span className={styles.mobileGradeValue} style={{ color: '#3b82f6' }}>
+                    {midScore != null ? midScore : '—'}
+                  </span>
+                </div>
+                <div className={styles.mobileGradeRow}>
+                  <span className={styles.mobileGradeLabel}>آزمون پایان سال</span>
+                  <span className={styles.mobileGradeValue} style={{ color: '#6366f1' }}>
+                    {finScore != null ? finScore : '—'}
+                  </span>
+                </div>
+                <div className={styles.mobileGradeRow} style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '8px' }}>
+                  <span className={styles.mobileGradeLabel} style={{ fontWeight: 800, color: 'var(--text-primary)' }}>میانگین کل درس</span>
+                  <span className={styles.mobileGradeValue} style={{ fontWeight: 900, fontSize: '1rem', color: '#10b981' }}>
+                    {finalScore != null ? finalScore : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Personal Recorded Exams Breakdown (Visible in Student & Parent Panels) */}
@@ -2761,55 +2985,94 @@ function OfficialReportCardPaperSheet({ reportData }) {
               </button>
             </div>
           </div>
-          <table className={styles.gradeTable}>
-            <thead>
-              <tr>
-                <th style={{ width: '40px', textAlign: 'center' }}>#</th>
-                <th>موضوع آزمون</th>
-                <th>کلاس / درس</th>
-                <th>دبیر</th>
-                <th style={{ textAlign: 'center' }}>نمره کسب‌شده</th>
-                <th>توضیح دبیر</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportData.examScores.map((exam, idx) => (
-                <tr key={exam.score_id || `${exam.category_id}-${idx}`} data-testid={`personal-exam-row-${exam.category_id}`}>
-                  <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {idx + 1}
-                  </td>
-                  <td style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {exam.exam_title}
-                  </td>
-                  <td>
-                    <div className={styles.courseTitleCell}>
-                      <span className={styles.courseName}>{exam.subject || exam.class_name}</span>
-                      <span className={styles.teacherName}>
-                        {exam.class_name}{exam.grade ? ` · ${exam.grade}` : ''}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
-                    {exam.teacher_name || 'دبیر کلاس'}
-                  </td>
-                  <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                    <span
-                      className={styles.scorePill}
-                      style={{
-                        fontWeight: 900,
-                        color: Number(exam.score) >= (Number(exam.max_score) || 20) * 0.6 ? '#059669' : '#dc2626',
-                      }}
-                    >
-                      {exam.score} از {exam.max_score || 20}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    {exam.teacher_comment || '—'}
-                  </td>
+          <div className={styles.desktopGradeTableWrap}>
+            <table className={styles.gradeTable}>
+              <thead>
+                <tr>
+                  <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                  <th>موضوع آزمون</th>
+                  <th>کلاس / درس</th>
+                  <th>دبیر</th>
+                  <th style={{ textAlign: 'center' }}>نمره کسب‌شده</th>
+                  <th>توضیح دبیر</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {reportData.examScores.map((exam, idx) => (
+                  <tr key={exam.score_id || `${exam.category_id}-${idx}`} data-testid={`personal-exam-row-${exam.category_id}`}>
+                    <td style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                      {idx + 1}
+                    </td>
+                    <td style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                      {exam.exam_title}
+                    </td>
+                    <td>
+                      <div className={styles.courseTitleCell}>
+                        <span className={styles.courseName}>{exam.subject || exam.class_name}</span>
+                        <span className={styles.teacherName}>
+                          {exam.class_name}{exam.grade ? ` · ${exam.grade}` : ''}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
+                      {exam.teacher_name || 'دبیر کلاس'}
+                    </td>
+                    <td style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                      <span
+                        className={styles.scorePill}
+                        style={{
+                          fontWeight: 900,
+                          color: Number(exam.score) >= (Number(exam.max_score) || 20) * 0.6 ? '#059669' : '#dc2626',
+                        }}
+                      >
+                        {exam.score} از {exam.max_score || 20}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {exam.teacher_comment || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className={styles.mobileGradeCardsList} style={{ padding: '12px' }}>
+            {reportData.examScores.map((exam, idx) => (
+              <div key={`m-exam-${exam.score_id || `${exam.category_id}-${idx}`}`} className={styles.mobileGradeCard}>
+                <div className={styles.mobileGradeCardHeader}>
+                  <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                    {exam.exam_title}
+                  </span>
+                  <span
+                    className={styles.scorePill}
+                    style={{
+                      fontWeight: 900,
+                      color: Number(exam.score) >= (Number(exam.max_score) || 20) * 0.6 ? '#059669' : '#dc2626',
+                    }}
+                  >
+                    {exam.score} از {exam.max_score || 20}
+                  </span>
+                </div>
+                <div className={styles.mobileGradeRows}>
+                  <div className={styles.mobileGradeRow}>
+                    <span className={styles.mobileGradeLabel}>کلاس / درس</span>
+                    <span className={styles.mobileGradeValue}>{exam.subject || exam.class_name}</span>
+                  </div>
+                  <div className={styles.mobileGradeRow}>
+                    <span className={styles.mobileGradeLabel}>دبیر</span>
+                    <span className={styles.mobileGradeValue}>{exam.teacher_name || 'دبیر کلاس'}</span>
+                  </div>
+                  {exam.teacher_comment && (
+                    <div className={styles.mobileGradeRow}>
+                      <span className={styles.mobileGradeLabel}>توضیح دبیر</span>
+                      <span className={styles.mobileGradeValue}>{exam.teacher_comment}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

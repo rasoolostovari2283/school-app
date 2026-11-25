@@ -123,7 +123,12 @@ export default function Header({ onToggleMobileMenu }) {
   const [generatingAi, setGeneratingAi] = useState(false);
 
   const filteredNavItems = useMemo(() => {
-    const teacherHiddenPaths = ['/dashboard/discipline/', '/dashboard/schedule/', '/dashboard/tickets/'];
+    const teacherHiddenPaths = [
+      '/dashboard/discipline/',
+      '/dashboard/schedule/',
+      '/dashboard/tickets/',
+      '/dashboard/smart-operations/',
+    ];
     const baseItems =
       user?.role === 'teacher'
         ? QUICK_NAV_ITEMS.filter((item) => !teacherHiddenPaths.includes(item.href))

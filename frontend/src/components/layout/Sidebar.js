@@ -60,7 +60,6 @@ const navByRole = {
     { href: '/dashboard/attendance/', icon: HiOutlineCheckBadge, fa: 'ثبت حضور و غیاب', en: 'Attendance', group: 'میز کار آموزشی' },
     { href: '/dashboard/record/', icon: HiOutlineComputerDesktop, fa: 'تخته هوشمند', en: 'Smart Board', group: 'میز کار آموزشی', tag: 'ضبط' },
     { href: '/dashboard/videos/', icon: HiOutlinePlayCircle, fa: 'ویدیوها و محتوای آموزشی', en: 'Educational Videos', group: 'میز کار آموزشی' },
-    { href: '/dashboard/smart-operations/', icon: HiOutlineCpuChip, fa: 'عملیات هوشمند (سیدا و OCR)', en: 'Smart Operations', group: 'میز کار آموزشی', tag: 'هوشمند' },
     { href: '/dashboard/report-card/', icon: HiOutlineSparkles, fa: 'کارنامه‌ها', en: 'Report Cards & Gradebook', group: 'سنجش و تکالیف' },
     { href: '/dashboard/assignments/', icon: HiOutlineDocumentText, fa: 'تکالیف کلاسی', en: 'Assignments', group: 'سنجش و تکالیف' },
     { href: '/dashboard/quizzes/', icon: HiOutlineClipboardDocumentCheck, fa: 'آزمون‌ها و بانک سوال', en: 'Quizzes', group: 'سنجش و تکالیف' },

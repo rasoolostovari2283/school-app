@@ -14,6 +14,7 @@ export async function exportGradeTableToPdf({
   rows = [],
   stats = null,
   fileName = 'class-grades.pdf',
+  returnBlobOnly = false,
 }) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -294,5 +295,36 @@ export async function exportGradeTableToPdf({
   const safeName = String(fileName || 'class-grades.pdf')
     .replace(/[\\/:*?"<>|]+/g, '_')
     .trim();
-  pdf.save(safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`);
+  const finalName = safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`;
+  const pdfBlob = pdf.output('blob');
+
+  if (returnBlobOnly) {
+    return { blob: pdfBlob, fileName: finalName };
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        try {
+          const link = document.createElement('a');
+          link.href = reader.result;
+          link.download = finalName;
+          link.target = '_blank';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(pdfBlob);
+    });
+  } catch {
+    pdf.save(finalName);
+  }
+
+  return { blob: pdfBlob, fileName: finalName };
 }

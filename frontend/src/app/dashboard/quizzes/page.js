@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import useAuthStore from '../../../stores/authStore';
-import api from '../../../lib/api';
+import api, { getApiBaseUrl } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -35,6 +35,205 @@ import {
   HiOutlineLink,
 } from 'react-icons/hi2';
 import styles from './quizzes.module.css';
+
+function resolveQuizFileUrl(url) {
+  if (!url) return '';
+  if (
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:')
+  ) {
+    return url;
+  }
+  const backendBase = getApiBaseUrl().replace(/\/api\/v1\/?$/, '');
+  return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+function isPdfAttachment(att) {
+  const url = String(att?.url || '');
+  const mime = String(att?.mimetype || '');
+  const name = String(att?.originalname || '');
+  return (
+    mime.toLowerCase().includes('pdf') ||
+    /\.pdf(\?|#|$)/i.test(url) ||
+    /\.pdf$/i.test(name)
+  );
+}
+
+function isImageAttachment(att) {
+  const url = String(att?.url || '');
+  const mime = String(att?.mimetype || '');
+  const name = String(att?.originalname || '');
+  return (
+    mime.toLowerCase().startsWith('image/') ||
+    /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(url) ||
+    /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)
+  );
+}
+
+function AuthImage({ src, alt, className, style, onClick, title }) {
+  const [objectUrl, setObjectUrl] = useState('');
+  const [loadingImg, setLoadingImg] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl = '';
+    const resolved = resolveQuizFileUrl(src);
+    if (!resolved) {
+      setLoadingImg(false);
+      setLoadFailed(true);
+      return;
+    }
+    if (resolved.startsWith('data:') || resolved.startsWith('blob:')) {
+      setObjectUrl(resolved);
+      setLoadingImg(false);
+      setLoadFailed(false);
+      return;
+    }
+
+    setLoadingImg(true);
+    setLoadFailed(false);
+    api
+      .get(resolved, { responseType: 'blob', baseURL: '' })
+      .then((res) => {
+        if (!active) return;
+        createdUrl = URL.createObjectURL(res.data);
+        setObjectUrl(createdUrl);
+        setLoadingImg(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setObjectUrl(resolved);
+        setLoadingImg(false);
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [src]);
+
+  if (loadingImg) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '90px',
+          background: 'var(--bg-hover)',
+          color: 'var(--text-tertiary)',
+          fontSize: '0.78rem',
+          borderRadius: '10px',
+        }}
+      >
+        در حال بارگذاری تصویر...
+      </div>
+    );
+  }
+
+  if (loadFailed || !objectUrl) {
+    return (
+      <div
+        className={className}
+        style={{
+          ...style,
+          padding: '12px',
+          background: 'var(--bg-hover)',
+          color: 'var(--text-tertiary)',
+          fontSize: '0.78rem',
+          borderRadius: '10px',
+          textAlign: 'center',
+        }}
+      >
+        تصویر در دسترس نیست
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={objectUrl}
+      alt={alt}
+      className={className}
+      style={style}
+      onClick={onClick}
+      title={title}
+      onError={() => setLoadFailed(true)}
+    />
+  );
+}
+
+function AuthPdfFrame({ src, title, style, onDownload }) {
+  const [blobUrl, setBlobUrl] = useState('');
+  const [loadingPdf, setLoadingPdf] = useState(true);
+  const [errorPdf, setErrorPdf] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl = '';
+    const resolved = resolveQuizFileUrl(src);
+    if (!resolved) {
+      setLoadingPdf(false);
+      setErrorPdf(true);
+      return;
+    }
+
+    setLoadingPdf(true);
+    setErrorPdf(false);
+    api
+      .get(resolved, { responseType: 'blob', baseURL: '' })
+      .then((res) => {
+        if (!active) return;
+        const pdfBlob = new Blob([res.data], { type: 'application/pdf' });
+        createdUrl = URL.createObjectURL(pdfBlob);
+        setBlobUrl(createdUrl);
+        setLoadingPdf(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setLoadingPdf(false);
+        setErrorPdf(true);
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [src]);
+
+  if (loadingPdf) {
+    return (
+      <div style={{ padding: '24px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+        در حال بارگذاری فایل PDF...
+      </div>
+    );
+  }
+
+  if (errorPdf || !blobUrl) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+        <p style={{ marginBottom: '10px' }}>پیش‌نمایش مستقیم در این مرورگر پشتیبانی نمی‌شود.</p>
+        {onDownload && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={onDownload}>
+            <HiOutlineDocumentArrowDown />
+            <span>دانلود فایل PDF</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return <iframe src={blobUrl} style={style} title={title} />;
+}
 
 export default function QuizzesPage() {
   const { user } = useAuthStore();
@@ -88,6 +287,9 @@ export default function QuizzesPage() {
 
   // Modal: Results & Participants (Teacher)
   const [resultsQuiz, setResultsQuiz] = useState(null);
+  // Modal: Preview Quiz Questions & Files (Teacher / Admin)
+  const [previewQuiz, setPreviewQuiz] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
   const [participantFilter, setParticipantFilter] = useState('all');
   const [liveMonitoring, setLiveMonitoring] = useState(false);
@@ -169,12 +371,63 @@ export default function QuizzesPage() {
   };
 
   const getFullFileUrl = (url) => {
-    if (!url) return '#';
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    const backendBase = process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/v1\/?$/, '')
-      : 'http://localhost:5000';
-    return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
+    return resolveQuizFileUrl(url) || '#';
+  };
+
+  const handleDownloadQuizFile = async (rawUrl, preferredName = 'quiz-file') => {
+    const fullUrl = resolveQuizFileUrl(rawUrl);
+    if (!fullUrl) {
+      toast.error('آدرس فایل معتبر نیست');
+      return;
+    }
+    const toastId = toast.loading('در حال آماده‌سازی فایل برای دانلود...');
+    try {
+      const res = await api.get(fullUrl, { responseType: 'blob', baseURL: '' });
+      const blob = res.data;
+      const urlExtMatch = String(rawUrl || '').match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+      const ext = urlExtMatch ? `.${urlExtMatch[1]}` : '';
+      const safeName = preferredName.includes('.') || !ext ? preferredName : `${preferredName}${ext}`;
+
+      await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          try {
+            const link = document.createElement('a');
+            link.href = reader.result;
+            link.download = safeName;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      toast.success('فایل با موفقیت دانلود شد 📥', { id: toastId });
+    } catch (err) {
+      console.error('Download quiz file error:', err);
+      toast.error('خطا در دانلود فایل؛ لطفاً اتصال اینترنت را بررسی کنید', { id: toastId });
+    }
+  };
+
+  const handleOpenPreviewQuiz = async (quiz) => {
+    setLoadingPreview(true);
+    setPreviewQuiz({ ...quiz, questions: quiz.questions || [], attachments: quiz.attachments || [] });
+    try {
+      const res = await api.get(`/classes/${quiz.class_id}/quizzes/${quiz.id}`);
+      if (res.data?.data?.quiz) {
+        setPreviewQuiz(res.data.data.quiz);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'خطا در دریافت سوالات و فایل‌های آزمون');
+    } finally {
+      setLoadingPreview(false);
+    }
   };
 
   const formatTimer = (totalSeconds) => {
@@ -1034,23 +1287,34 @@ ${url}`;
                       <span>گفتگو با دبیر این درس</span>
                     </Link>
                   ) : (isTeacher || isAdmin) ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', width: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                       <button
+                        type="button"
                         className="btn btn-secondary btn-sm"
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px' }}
-                        onClick={() => handleOpenResults(quiz)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', width: '100%' }}
+                        onClick={() => handleOpenPreviewQuiz(quiz)}
                       >
-                        <HiOutlineUserGroup style={{ color: '#6366f1', fontSize: '1.1rem' }} />
-                        <span>شرکت‌کنندگان ({quiz.attempts_count || 0})</span>
+                        <HiOutlineEye style={{ color: '#10b981', fontSize: '1.1rem' }} />
+                        <span>مشاهده و دانلود سوالات و فایل‌ها</span>
                       </button>
-                      <button
-                        className="btn btn-primary btn-sm"
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)', border: 'none' }}
-                        onClick={() => handleOpenShareModal(quiz)}
-                      >
-                        <HiOutlineShare style={{ fontSize: '1.1rem' }} />
-                        <span>اشتراک‌گذاری</span>
-                      </button>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', width: '100%' }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px' }}
+                          onClick={() => handleOpenResults(quiz)}
+                        >
+                          <HiOutlineUserGroup style={{ color: '#6366f1', fontSize: '1.1rem' }} />
+                          <span>شرکت‌کنندگان ({quiz.attempts_count || 0})</span>
+                        </button>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)', border: 'none' }}
+                          onClick={() => handleOpenShareModal(quiz)}
+                        >
+                          <HiOutlineShare style={{ fontSize: '1.1rem' }} />
+                          <span>اشتراک‌گذاری</span>
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <button
@@ -1491,11 +1755,11 @@ ${url}`;
                       {/* پیش‌نمایش تصویر صورت سوال */}
                       {q.question_image_url && (
                         <div className={styles.questionImagePreviewCard}>
-                          <img
-                            src={getFullFileUrl(q.question_image_url)}
+                          <AuthImage
+                            src={q.question_image_url}
                             alt={`تصویر سوال ${qIndex + 1}`}
                             className={styles.questionImageThumbnail}
-                            onClick={() => setLightboxImage(getFullFileUrl(q.question_image_url))}
+                            onClick={() => setLightboxImage(q.question_image_url)}
                             title="کلیک برای مشاهده بزرگنمایی تصویر"
                           />
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -1568,11 +1832,11 @@ ${url}`;
 
                             {optImg ? (
                               <div className={styles.optionImagePreviewBox}>
-                                <img
-                                  src={getFullFileUrl(optImg)}
+                                <AuthImage
+                                  src={optImg}
                                   alt={`گزینه ${label}`}
                                   className={styles.optionImageThumbnail}
-                                  onClick={() => setLightboxImage(getFullFileUrl(optImg))}
+                                  onClick={() => setLightboxImage(optImg)}
                                   title="کلیک برای بزرگنمایی تصویر گزینه"
                                 />
                                 <button
@@ -1751,39 +2015,85 @@ ${url}`;
                           onClick={() => setShowInlineFile(!showInlineFile)}
                         >
                           <HiOutlineEye />
-                          <span>{showInlineFile ? 'پنهان کردن پیش‌نمایش' : 'مشاهده برگه در همین صفحه'}</span>
+                          <span>{showInlineFile ? 'پنهان کردن پیش‌نمایش' : 'مشاهده فایل‌ها در همین صفحه'}</span>
                         </button>
                         {takingQuiz.attachments.map((att, i) => (
-                          <a
+                          <button
                             key={i}
-                            href={getFullFileUrl(att.url)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            type="button"
+                            onClick={() => handleDownloadQuizFile(att.url, att.originalname || `سوالات-آزمون-${i + 1}`)}
                             className="btn btn-primary btn-sm"
                           >
                             <HiOutlineDocumentArrowDown />
-                            <span>دانلود / باز کردن {att.originalname || 'فایل'}</span>
-                          </a>
+                            <span>دانلود {att.originalname || `فایل سوالات ${i + 1}`}</span>
+                          </button>
                         ))}
                       </div>
                     </div>
 
-                    {/* پیش‌نمایش داخل صفحه در صورت کلیک */}
-                    {showInlineFile && takingQuiz.attachments[0] && (
-                      <div style={{ marginTop: '8px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: '#fff' }}>
-                        {takingQuiz.attachments[0].url.endsWith('.pdf') ? (
-                          <iframe
-                            src={getFullFileUrl(takingQuiz.attachments[0].url)}
-                            style={{ width: '100%', height: '480px', border: 'none' }}
-                            title="پیش‌نمایش سوالات آزمون"
-                          />
-                        ) : (
-                          <img
-                            src={getFullFileUrl(takingQuiz.attachments[0].url)}
-                            alt="برگه سوالات"
-                            style={{ width: '100%', maxHeight: '550px', objectFit: 'contain' }}
-                          />
-                        )}
+                    {/* پیش‌نمایش تمام فایل‌های پیوست داخل صفحه */}
+                    {showInlineFile && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px' }}>
+                        {takingQuiz.attachments.map((att, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 'var(--radius-lg)',
+                              overflow: 'hidden',
+                              background: 'var(--bg-card)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '8px 12px',
+                                background: 'var(--bg-hover)',
+                                borderBottom: '1px solid var(--border-color)',
+                                gap: '8px',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                📎 فایل {i + 1}: {att.originalname || 'فایل سوالات'}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                onClick={() => handleDownloadQuizFile(att.url, att.originalname || `سوالات-آزمون-${i + 1}`)}
+                              >
+                                <HiOutlineDocumentArrowDown />
+                                <span>دانلود فایل</span>
+                              </button>
+                            </div>
+
+                            {isPdfAttachment(att) ? (
+                              <AuthPdfFrame
+                                src={att.url}
+                                title={att.originalname || `پیش‌نمایش سوالات آزمون ${i + 1}`}
+                                style={{ width: '100%', height: '480px', border: 'none', background: '#fff' }}
+                                onDownload={() => handleDownloadQuizFile(att.url, att.originalname || `سوالات-آزمون-${i + 1}`)}
+                              />
+                            ) : isImageAttachment(att) ? (
+                              <div style={{ padding: '8px', textAlign: 'center', background: '#fff' }}>
+                                <AuthImage
+                                  src={att.url}
+                                  alt={att.originalname || `برگه سوالات ${i + 1}`}
+                                  style={{ width: '100%', maxHeight: '550px', objectFit: 'contain', cursor: 'zoom-in' }}
+                                  onClick={() => setLightboxImage(att.url)}
+                                  title="کلیک برای بزرگنمایی"
+                                />
+                              </div>
+                            ) : (
+                              <div style={{ padding: '18px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                برای مشاهده این فایل روی دکمه <strong>دانلود فایل</strong> کلیک کنید.
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1827,17 +2137,28 @@ ${url}`;
                       {/* عکس صورت سوال (در صورت وجود) */}
                       {q.question_image_url && (
                         <div className={styles.questionImageBox}>
-                          <img
-                            src={getFullFileUrl(q.question_image_url)}
+                          <AuthImage
+                            src={q.question_image_url}
                             alt={`تصویر سوال ${idx + 1}`}
                             className={styles.questionImageDisplay}
-                            onClick={() => setLightboxImage(getFullFileUrl(q.question_image_url))}
+                            onClick={() => setLightboxImage(q.question_image_url)}
                             title="کلیک برای بزرگنمایی تصویر سوال"
                           />
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <HiOutlineMagnifyingGlassPlus />
-                            <span>برای مشاهده در ابعاد بزرگتر روی عکس کلیک کنید</span>
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <HiOutlineMagnifyingGlassPlus />
+                              <span>برای مشاهده در ابعاد بزرگتر روی عکس کلیک کنید</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                              onClick={() => handleDownloadQuizFile(q.question_image_url, `question-${idx + 1}`)}
+                            >
+                              <HiOutlineDocumentArrowDown />
+                              <span>دانلود تصویر سوال</span>
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -1877,13 +2198,13 @@ ${url}`;
                                 </div>
 
                                 {optImg && (
-                                  <img
-                                    src={getFullFileUrl(optImg)}
+                                  <AuthImage
+                                    src={optImg}
                                     alt={`گزینه ${['الف', 'ب', 'ج', 'د'][optIdx]}`}
                                     className={styles.optionImageDisplay}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setLightboxImage(getFullFileUrl(optImg));
+                                      setLightboxImage(optImg);
                                     }}
                                     title="کلیک برای مشاهده بزرگنمایی تصویر این گزینه"
                                   />
@@ -2329,17 +2650,16 @@ ${url}`;
                                 </strong>
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                   {studentFiles.map((f, fi) => (
-                                    <a
+                                    <button
                                       key={fi}
-                                      href={getFullFileUrl(f.url)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
+                                      type="button"
+                                      onClick={() => handleDownloadQuizFile(f.url, f.originalname || `پاسخنامه-${fi + 1}`)}
                                       className="btn btn-secondary btn-sm"
                                       style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                                     >
                                       <HiOutlineDocumentArrowDown />
-                                      <span>مشاهده برگه {fi + 1} ({f.originalname || 'فایل'})</span>
-                                    </a>
+                                      <span>دانلود برگه {fi + 1} ({f.originalname || 'فایل'})</span>
+                                    </button>
                                   ))}
                                 </div>
                               </div>
@@ -2507,6 +2827,184 @@ ${url}`;
         </div>
       )}
 
+      {/* 👁️ Modal: Preview & Download Quiz Questions & Files (Teacher / Admin) */}
+      {previewQuiz && (
+        <div className={styles.modalBackdrop} onClick={() => setPreviewQuiz(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: '820px' }}>
+            <div className={styles.modalHeader}>
+              <div>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800 }}>📝 {previewQuiz.title}</h2>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                  مشاهده و دانلود سوالات، تصاویر و فایل‌های پیوست آزمون
+                </p>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPreviewQuiz(null)}>
+                <HiOutlineXMark style={{ fontSize: '1.25rem' }} />
+              </button>
+            </div>
+
+            {loadingPreview ? (
+              <div style={{ textAlign: 'center', padding: '36px 0' }}>
+                <div className="spinner" style={{ margin: '0 auto' }}></div>
+                <p style={{ marginTop: '10px', fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
+                  در حال دریافت سوالات و فایل‌های آزمون...
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '72vh', overflowY: 'auto', paddingRight: '2px' }}>
+                {previewQuiz.attachments && previewQuiz.attachments.length > 0 && (
+                  <div className={styles.examFileCard}>
+                    <div className={styles.examFileHeader}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                        <HiOutlineDocumentText style={{ color: '#6366f1', fontSize: '1.25rem' }} />
+                        <span>فایل‌های پیوست سوالات ({previewQuiz.attachments.length} فایل)</span>
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+                      {previewQuiz.attachments.map((att, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 'var(--radius-lg)',
+                            overflow: 'hidden',
+                            background: 'var(--bg-card)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '8px 12px',
+                              background: 'var(--bg-hover)',
+                              borderBottom: '1px solid var(--border-color)',
+                              gap: '8px',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+                              📎 فایل {i + 1}: {att.originalname || 'فایل سوالات'}
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                              onClick={() => handleDownloadQuizFile(att.url, att.originalname || `سوالات-آزمون-${i + 1}`)}
+                            >
+                              <HiOutlineDocumentArrowDown />
+                              <span>دانلود فایل</span>
+                            </button>
+                          </div>
+
+                          {isPdfAttachment(att) ? (
+                            <AuthPdfFrame
+                              src={att.url}
+                              title={att.originalname || `فایل سوالات ${i + 1}`}
+                              style={{ width: '100%', height: '420px', border: 'none', background: '#fff' }}
+                              onDownload={() => handleDownloadQuizFile(att.url, att.originalname || `سوالات-آزمون-${i + 1}`)}
+                            />
+                          ) : isImageAttachment(att) ? (
+                            <div style={{ padding: '8px', textAlign: 'center', background: '#fff' }}>
+                              <AuthImage
+                                src={att.url}
+                                alt={att.originalname || `تصویر سوالات ${i + 1}`}
+                                style={{ width: '100%', maxHeight: '480px', objectFit: 'contain', cursor: 'zoom-in' }}
+                                onClick={() => setLightboxImage(att.url)}
+                                title="کلیک برای بزرگنمایی"
+                              />
+                            </div>
+                          ) : (
+                            <div style={{ padding: '16px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                              برای دریافت و مشاهده این فایل از دکمه <strong>دانلود فایل</strong> استفاده کنید.
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {previewQuiz.questions && previewQuiz.questions.length > 0 ? (
+                  previewQuiz.questions.map((q, idx) => (
+                    <div key={q.id || idx} className={styles.quizQuestionBox}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
+                          سوال {idx + 1} {q.question_text ? `: ${q.question_text}` : ''}
+                        </h4>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', background: 'var(--bg-surface)', padding: '2px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                          {q.points || 1} نمره
+                        </span>
+                      </div>
+
+                      {q.question_image_url && (
+                        <div className={styles.questionImageBox}>
+                          <AuthImage
+                            src={q.question_image_url}
+                            alt={`تصویر سوال ${idx + 1}`}
+                            className={styles.questionImageDisplay}
+                            onClick={() => setLightboxImage(q.question_image_url)}
+                            title="کلیک برای بزرگنمایی"
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                              onClick={() => handleDownloadQuizFile(q.question_image_url, `question-${idx + 1}`)}
+                            >
+                              <HiOutlineDocumentArrowDown />
+                              <span>دانلود تصویر سوال</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {q.options && q.options.length > 0 && (
+                        <div className={styles.optionsListVertical} style={{ marginTop: '8px' }}>
+                          {q.options.map((opt, optIdx) => {
+                            const optText = typeof opt === 'string' ? opt : (opt?.text || '');
+                            const optImg = typeof opt === 'object' ? (opt?.image_url || '') : '';
+                            const isCorrect = String(q.correct_option) === String(optIdx);
+                            return (
+                              <div
+                                key={optIdx}
+                                className={`${styles.optionSelectBtn} ${isCorrect ? styles.optionSelected : ''}`}
+                                style={{ cursor: 'default', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontWeight: 800 }}>{['الف', 'ب', 'ج', 'د'][optIdx]})</span>
+                                  <span>{optText}</span>
+                                  {isCorrect && <span style={{ marginRight: 'auto', color: '#10b981', fontSize: '0.75rem', fontWeight: 700 }}>✓ گزینه صحیح</span>}
+                                </div>
+                                {optImg && (
+                                  <AuthImage
+                                    src={optImg}
+                                    alt={`گزینه ${['الف', 'ب', 'ج', 'د'][optIdx]}`}
+                                    className={styles.optionImageDisplay}
+                                    onClick={() => setLightboxImage(optImg)}
+                                    title="کلیک برای بزرگنمایی"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                ) : (!previewQuiz.attachments || previewQuiz.attachments.length === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)' }}>
+                    سوال یا فایلی برای این آزمون ثبت نشده است.
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 🔍 Lightbox Image Viewer */}
       {lightboxImage && (
         <div className={styles.lightboxModal} onClick={() => setLightboxImage(null)}>
@@ -2518,7 +3016,17 @@ ${url}`;
             >
               &times;
             </button>
-            <img src={lightboxImage} alt="بزرگنمایی تصویر" className={styles.lightboxImg} />
+            <AuthImage src={lightboxImage} alt="بزرگنمایی تصویر" className={styles.lightboxImg} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => handleDownloadQuizFile(lightboxImage, 'quiz-image')}
+              >
+                <HiOutlineDocumentArrowDown />
+                <span>دانلود تصویر</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
