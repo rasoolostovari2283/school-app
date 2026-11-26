@@ -1222,7 +1222,7 @@ export default function DashboardPage() {
                 ];
                 const bgGrad = gradients[i % gradients.length];
                 return (
-                  <Link key={cls.id} href={`/dashboard/classes/${cls.id}/`} className={styles.classCard}>
+                  <Link key={cls.id} href={`/dashboard/classes/1/?classId=${encodeURIComponent(cls.id)}`} className={styles.classCard}>
                     <div className={styles.classCardBanner} style={{ background: bgGrad }}>
                       <span
                         style={{

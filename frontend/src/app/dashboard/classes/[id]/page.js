@@ -221,7 +221,7 @@ export default function ClassDetailPage() {
       const { provider, joinUrl, target } = res.data.data;
 
       if (provider === 'native') {
-        router.push(joinUrl);
+        router.push(`/dashboard/classes/1/live/?classId=${encodeURIComponent(classId)}`);
         return;
       } else {
         window.open(joinUrl, target || '_blank');
@@ -248,7 +248,7 @@ export default function ClassDetailPage() {
       window.open(bbbServerUrl.trim(), '_blank');
       toast.success('اتاق بیگ‌بلو‌باتن کلاس در صفحه جدید باز شد 🚀');
     } else {
-      router.push(`/dashboard/classes/${classId}/live`);
+      router.push(`/dashboard/classes/1/live/?classId=${encodeURIComponent(classId)}`);
     }
   };
 
@@ -469,7 +469,7 @@ export default function ClassDetailPage() {
         </button>
 
         <Link
-          href={`/dashboard/classes/${classId}/live`}
+          href={`/dashboard/classes/1/live/?classId=${encodeURIComponent(classId)}`}
           className={styles.tabItem}
           style={{ color: '#ef4444', fontWeight: 800 }}
           title="پخش زنده و تخته هوشمند کلاس"

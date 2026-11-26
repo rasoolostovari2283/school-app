@@ -401,7 +401,7 @@ export default function CoursesEnrollmentPage() {
             {classes.map((cls) => (
               <Link
                 key={cls.id}
-                href={`/dashboard/classes/${cls.id}/`}
+                href={`/dashboard/classes/1/?classId=${encodeURIComponent(cls.id)}`}
                 style={{
                   padding: '14px 16px',
                   borderRadius: '14px',

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 
 let sharp = null;
 try {
@@ -258,5 +260,89 @@ router.post('/', (req, res, next) => {
     }
   });
 });
+
+// ── Temporary Capability Ticket Relay for Reliable Mobile/Android WebView Downloads ──
+const tempDownloadStore = new Map();
+const TEMP_DOWNLOAD_TTL_MS = 5 * 60 * 1000;
+
+function cleanupExpiredTempDownloads() {
+  const now = Date.now();
+  for (const [ticket, entry] of tempDownloadStore.entries()) {
+    if (entry.expiresAt <= now) {
+      tempDownloadStore.delete(ticket);
+      try {
+        if (entry.filePath && fs.existsSync(entry.filePath)) fs.unlinkSync(entry.filePath);
+      } catch (_e) {}
+    }
+  }
+}
+
+router.post('/temp-download', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message || 'خطا در آماده‌سازی فایل دانلود' });
+    }
+    const file = req.file;
+    if (!file || !file.path) {
+      return res.status(400).json({ success: false, message: 'فایل ارسال نشده است' });
+    }
+
+    cleanupExpiredTempDownloads();
+
+    let cleanName = req.body?.filename || file.originalname || file.filename || 'download.bin';
+    try {
+      const decoded = Buffer.from(cleanName, 'latin1').toString('utf8');
+      if (!decoded.includes('\uFFFD') && /[\u0600-\u06FF]/.test(decoded)) {
+        cleanName = decoded;
+      }
+    } catch (_e) {}
+    cleanName = String(cleanName).replace(/[\\/:*?"<>|\r\n]+/g, '_').trim() || 'download.bin';
+
+    const ticket = crypto.randomBytes(32).toString('hex');
+    const tempDir = path.join(os.tmpdir(), 'educonnect_temp_downloads');
+    try {
+      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    } catch (_e) {}
+    const destPath = path.join(tempDir, `${ticket}_${path.basename(file.filename)}`);
+
+    try {
+      fs.renameSync(file.path, destPath);
+    } catch (_moveErr) {
+      fs.copyFileSync(file.path, destPath);
+      try { fs.unlinkSync(file.path); } catch (_e) {}
+    }
+
+    tempDownloadStore.set(ticket, {
+      filePath: destPath,
+      filename: cleanName,
+      mimetype: file.mimetype || 'application/octet-stream',
+      expiresAt: Date.now() + TEMP_DOWNLOAD_TTL_MS,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        ticket,
+        downloadPath: `/api/v1/temp-downloads/${ticket}`,
+        filename: cleanName,
+      },
+    });
+  });
+});
+
+router.consumeTempDownload = (ticket) => {
+  cleanupExpiredTempDownloads();
+  if (!ticket || typeof ticket !== 'string' || !/^[a-f0-9]{64}$/i.test(ticket)) {
+    return null;
+  }
+  const entry = tempDownloadStore.get(ticket);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now() || !fs.existsSync(entry.filePath)) {
+    tempDownloadStore.delete(ticket);
+    return null;
+  }
+  tempDownloadStore.delete(ticket);
+  return entry;
+};
 
 module.exports = router;

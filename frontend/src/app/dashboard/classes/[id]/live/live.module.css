@@ -2306,6 +2306,131 @@
   }
 }
 
+/* ── Persistent Floating Teacher Permission Requests Banner ── */
+.teacherPendingRequestsBar {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 24px));
+  pointer-events: auto;
+  direction: rtl;
+}
+
+.pendingReqCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1.5px solid #f59e0b;
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+  color: #f8fafc;
+}
+
+.pendingReqTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-wrap: wrap;
+}
+
+.pendingReqType {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.pendingReqActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pendingGrantBtn {
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.pendingGrantBtn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+.pendingDismissBtn {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.docDownloadBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.docDownloadBtn:hover {
+  background: #10b981;
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .teacherPendingRequestsBar {
+    top: 48px;
+    width: calc(100vw - 16px);
+  }
+  .pendingReqCard {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .pendingReqTitle {
+    font-size: 0.78rem;
+  }
+  .pendingGrantBtn {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+  .docDownloadBtn span {
+    display: none;
+  }
+}
+
 
 
 

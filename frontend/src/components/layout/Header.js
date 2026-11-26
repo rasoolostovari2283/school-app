@@ -83,8 +83,13 @@ export default function Header({ onToggleMobileMenu }) {
   const handleGoBack = () => {
     try {
       if (pathname.includes('/live')) {
-        const parentClassPath = pathname.replace(/\/live\/?$/, '/');
-        router.push(parentClassPath);
+        const qId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('classId') : null;
+        if (qId) {
+          router.push(`/dashboard/classes/1/?classId=${encodeURIComponent(qId)}`);
+        } else {
+          const parentClassPath = pathname.replace(/\/live\/?$/, '/');
+          router.push(parentClassPath);
+        }
         return;
       }
       if (pathname.startsWith('/dashboard/classes/') && pathname.replace(/\/+$/, '').split('/').length === 4) {

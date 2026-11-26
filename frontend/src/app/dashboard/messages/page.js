@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import useAuthStore from '../../../stores/authStore';
 import api from '../../../lib/api';
@@ -27,6 +27,7 @@ import {
   HiOutlineClipboardDocument,
   HiOutlineClipboardDocumentCheck,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineArrowRight,
   HiArrowRight,
   HiOutlineBell,
   HiOutlineBellSlash,
@@ -66,10 +67,10 @@ const getLastMsgPreviewText = (lastMsg) => {
   return 'پیام جدید';
 };
 
-export default function MessagesPage() {
+function MessagesPageContent() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
-  const targetUserId = searchParams.get('user') || searchParams.get('partner');
+  const targetUserId = searchParams?.get('user') || searchParams?.get('partner');
 
   // Active view tab: 'chats' | 'groups' | 'directory'
   const [activeTab, setActiveTab] = useState('chats');
@@ -436,14 +437,14 @@ export default function MessagesPage() {
   useEffect(() => {
     if (targetUserId) {
       const match = conversations.find((c) => c.id === targetUserId || c.user?.id === targetUserId);
-      if (match) {
+      if (match?.user) {
         selectConversation(match.user);
       } else if (directory?.all?.length > 0) {
         const found = directory.all.find((u) => u.id === targetUserId);
         if (found) selectConversation(found);
       }
     } else if (conversations.length > 0 && !activePartner && !activeGroup) {
-      if (typeof window !== 'undefined' && window.innerWidth > 900) {
+      if (typeof window !== 'undefined' && window.innerWidth > 900 && conversations[0]?.user) {
         selectConversation(conversations[0].user);
       }
     }
@@ -3281,5 +3282,20 @@ export default function MessagesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '12px' }}>
+          <div className="spinner"></div>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: '0.875rem' }}>در حال بارگذاری پیام‌رسان...</p>
+        </div>
+      }
+    >
+      <MessagesPageContent />
+    </Suspense>
   );
 }

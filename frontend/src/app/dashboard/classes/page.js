@@ -60,10 +60,10 @@ export default function ClassesPage() {
       setFormData({ name: '', subject: '', grade: '', join_code: '', teacher_name: '' });
       if (launchLive) {
         toast.loading('در حال انتقال به کلاس آنلاین...', { duration: 1500 });
-        router.push(`/dashboard/classes/${cls.id}/live`);
+        router.push(`/dashboard/classes/1/live/?classId=${encodeURIComponent(cls.id)}`);
       } else {
         toast.loading(`در حال ورود به کلاس "${cls.name}"...`, { duration: 1200 });
-        router.push(`/dashboard/classes/${cls.id}`);
+        router.push(`/dashboard/classes/1/?classId=${encodeURIComponent(cls.id)}`);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'خطا در ثبت کلاس');
@@ -185,7 +185,7 @@ export default function ClassesPage() {
             return (
               <Link
                 key={cls.id}
-                href={`/dashboard/classes/${cls.id}`}
+                href={`/dashboard/classes/1/?classId=${encodeURIComponent(cls.id)}`}
                 className={styles.classCard}
               >
                 <div className={styles.banner} style={{ background: bgGrad }}>
@@ -248,7 +248,7 @@ export default function ClassesPage() {
 
                       <div className={styles.codeActions}>
                         <Link
-                          href={`/dashboard/classes/${cls.id}/live`}
+                          href={`/dashboard/classes/1/live/?classId=${encodeURIComponent(cls.id)}`}
                           onClick={(e) => e.stopPropagation()}
                           className="btn btn-primary btn-sm"
                           style={{
@@ -289,7 +289,7 @@ export default function ClassesPage() {
                   {user?.role !== 'teacher' && (
                     <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
                       <Link
-                        href={`/dashboard/classes/${cls.id}/live`}
+                        href={`/dashboard/classes/1/live/?classId=${encodeURIComponent(cls.id)}`}
                         onClick={(e) => e.stopPropagation()}
                         className="btn btn-primary btn-sm"
                         style={{

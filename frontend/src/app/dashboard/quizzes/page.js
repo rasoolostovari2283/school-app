@@ -34,6 +34,8 @@ import {
   HiOutlineMegaphone,
   HiOutlineLink,
 } from 'react-icons/hi2';
+import { triggerReliableDownload, shareOrDownloadBlob } from '../../../utils/mobileDownload';
+import AuthPdfCanvas from '../../../components/AuthPdfCanvas';
 import styles from './quizzes.module.css';
 
 function resolveQuizFileUrl(url) {
@@ -170,69 +172,13 @@ function AuthImage({ src, alt, className, style, onClick, title }) {
   );
 }
 
-function AuthPdfFrame({ src, title, style, onDownload }) {
-  const [blobUrl, setBlobUrl] = useState('');
-  const [loadingPdf, setLoadingPdf] = useState(true);
-  const [errorPdf, setErrorPdf] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    let createdUrl = '';
-    const resolved = resolveQuizFileUrl(src);
-    if (!resolved) {
-      setLoadingPdf(false);
-      setErrorPdf(true);
-      return;
-    }
-
-    setLoadingPdf(true);
-    setErrorPdf(false);
-    api
-      .get(resolved, { responseType: 'blob', baseURL: '' })
-      .then((res) => {
-        if (!active) return;
-        const pdfBlob = new Blob([res.data], { type: 'application/pdf' });
-        createdUrl = URL.createObjectURL(pdfBlob);
-        setBlobUrl(createdUrl);
-        setLoadingPdf(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setLoadingPdf(false);
-        setErrorPdf(true);
-      });
-
-    return () => {
-      active = false;
-      if (createdUrl) {
-        URL.revokeObjectURL(createdUrl);
-      }
-    };
-  }, [src]);
-
-  if (loadingPdf) {
-    return (
-      <div style={{ padding: '24px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-        در حال بارگذاری فایل PDF...
-      </div>
-    );
-  }
-
-  if (errorPdf || !blobUrl) {
-    return (
-      <div style={{ padding: '20px', textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-        <p style={{ marginBottom: '10px' }}>پیش‌نمایش مستقیم در این مرورگر پشتیبانی نمی‌شود.</p>
-        {onDownload && (
-          <button type="button" className="btn btn-primary btn-sm" onClick={onDownload}>
-            <HiOutlineDocumentArrowDown />
-            <span>دانلود فایل PDF</span>
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return <iframe src={blobUrl} style={style} title={title} />;
+function AuthPdfFrame({ src, style, onDownload }) {
+  const resolved = resolveQuizFileUrl(src);
+  return (
+    <div style={{ width: '100%', padding: '8px', background: style?.background || '#fff' }}>
+      <AuthPdfCanvas resolvedUrl={resolved} onDownload={onDownload} maxHeight={style?.height || '480px'} />
+    </div>
+  );
 }
 
 export default function QuizzesPage() {
@@ -374,7 +320,7 @@ export default function QuizzesPage() {
     return resolveQuizFileUrl(url) || '#';
   };
 
-  const handleDownloadQuizFile = async (rawUrl, preferredName = 'quiz-file') => {
+  const handleDownloadQuizFile = async (rawUrl, preferredName = 'quiz-file', mimeHint = '') => {
     const fullUrl = resolveQuizFileUrl(rawUrl);
     if (!fullUrl) {
       toast.error('آدرس فایل معتبر نیست');
@@ -384,34 +330,56 @@ export default function QuizzesPage() {
     try {
       const res = await api.get(fullUrl, { responseType: 'blob', baseURL: '' });
       const blob = res.data;
+      const detectedMime = mimeHint || blob?.type || 'application/octet-stream';
       const urlExtMatch = String(rawUrl || '').match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
-      const ext = urlExtMatch ? `.${urlExtMatch[1]}` : '';
+      const mimeExt = detectedMime.includes('pdf')
+        ? '.pdf'
+        : detectedMime.includes('png')
+        ? '.png'
+        : detectedMime.includes('jpeg') || detectedMime.includes('jpg')
+        ? '.jpg'
+        : '';
+      const ext = urlExtMatch ? `.${urlExtMatch[1]}` : mimeExt;
       const safeName = preferredName.includes('.') || !ext ? preferredName : `${preferredName}${ext}`;
 
-      await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          try {
-            const link = document.createElement('a');
-            link.href = reader.result;
-            link.download = safeName;
-            link.target = '_blank';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            resolve();
-          } catch (e) {
-            reject(e);
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      toast.success('فایل با موفقیت دانلود شد 📥', { id: toastId });
+      const ok = await triggerReliableDownload(blob, safeName, detectedMime);
+      if (ok) {
+        toast.success('فایل با موفقیت دانلود شد 📥', { id: toastId });
+      } else {
+        toast.error('خطا در ذخیره فایل روی دستگاه', { id: toastId });
+      }
     } catch (err) {
       console.error('Download quiz file error:', err);
       toast.error('خطا در دانلود فایل؛ لطفاً اتصال اینترنت را بررسی کنید', { id: toastId });
+    }
+  };
+
+  const handleShareQuizFile = async (rawUrl, preferredName = 'quiz-file', mimeHint = '') => {
+    const fullUrl = resolveQuizFileUrl(rawUrl);
+    if (!fullUrl) {
+      toast.error('آدرس فایل معتبر نیست');
+      return;
+    }
+    const toastId = toast.loading('در حال آماده‌سازی فایل برای اشتراک‌گذاری...');
+    try {
+      const res = await api.get(fullUrl, { responseType: 'blob', baseURL: '' });
+      const blob = res.data;
+      const detectedMime = mimeHint || blob?.type || 'application/octet-stream';
+      const urlExtMatch = String(rawUrl || '').match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/);
+      const ext = urlExtMatch ? `.${urlExtMatch[1]}` : detectedMime.includes('pdf') ? '.pdf' : '.png';
+      const safeName = preferredName.includes('.') || !ext ? preferredName : `${preferredName}${ext}`;
+
+      const result = await shareOrDownloadBlob(blob, safeName, detectedMime, safeName, safeName);
+      if (result.shared) {
+        toast.success('فایل با موفقیت به اشتراک گذاشته شد 📤', { id: toastId });
+      } else if (result.downloaded) {
+        toast.success('فایل برای ذخیره و اشتراک دانلود شد 📥', { id: toastId });
+      } else {
+        toast.dismiss(toastId);
+      }
+    } catch (err) {
+      console.error('Share quiz file error:', err);
+      toast.error('خطا در اشتراک‌گذاری فایل', { id: toastId });
     }
   };
 
@@ -2649,18 +2617,35 @@ ${url}`;
                                   📎 برگه‌های پاسخنامه آپلود شده ({studentFiles.length} فایل):
                                 </strong>
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                  {studentFiles.map((f, fi) => (
-                                    <button
-                                      key={fi}
-                                      type="button"
-                                      onClick={() => handleDownloadQuizFile(f.url, f.originalname || `پاسخنامه-${fi + 1}`)}
-                                      className="btn btn-secondary btn-sm"
-                                      style={{ fontSize: '0.72rem', padding: '3px 8px' }}
-                                    >
-                                      <HiOutlineDocumentArrowDown />
-                                      <span>دانلود برگه {fi + 1} ({f.originalname || 'فایل'})</span>
-                                    </button>
-                                  ))}
+                                  {studentFiles.map((f, fi) => {
+                                    const fname = f.originalname || f.name || `پاسخنامه-${fi + 1}`;
+                                    const fIsImg = isImageAttachment(f);
+                                    const fIsPdf = isPdfAttachment(f);
+                                    return (
+                                      <div key={fi} style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {(fIsImg || fIsPdf) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setLightboxImage({ url: f.url, name: fname, isPdf: fIsPdf, mimetype: f.mimetype })}
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontSize: '0.72rem', padding: '3px 8px', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.35)' }}
+                                          >
+                                            <HiOutlineEye />
+                                            <span>{fIsPdf ? `مشاهده PDF` : `مشاهده برگه ${fi + 1}`}</span>
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDownloadQuizFile(f.url, fname, f.mimetype)}
+                                          className="btn btn-secondary btn-sm"
+                                          style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                                        >
+                                          <HiOutlineDocumentArrowDown />
+                                          <span>دانلود برگه {fi + 1} ({f.originalname || 'فایل'})</span>
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -3005,31 +2990,55 @@ ${url}`;
         </div>
       )}
 
-      {/* 🔍 Lightbox Image Viewer */}
-      {lightboxImage && (
-        <div className={styles.lightboxModal} onClick={() => setLightboxImage(null)}>
-          <div className={styles.lightboxContent} onClick={(e) => e.stopPropagation()}>
-            <button
-              className={styles.lightboxCloseBtn}
-              onClick={() => setLightboxImage(null)}
-              title="بستن (ESC)"
-            >
-              &times;
-            </button>
-            <AuthImage src={lightboxImage} alt="بزرگنمایی تصویر" className={styles.lightboxImg} />
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+      {/* 🔍 Lightbox Image & PDF Viewer */}
+      {lightboxImage && (() => {
+        const lbUrl = typeof lightboxImage === 'string' ? lightboxImage : lightboxImage.url;
+        const lbName = typeof lightboxImage === 'string' ? 'quiz-file' : (lightboxImage.name || 'quiz-file');
+        const lbMime = typeof lightboxImage === 'string' ? '' : (lightboxImage.mimetype || '');
+        const lbIsPdf = typeof lightboxImage === 'object' && (lightboxImage.isPdf || isPdfAttachment(lightboxImage));
+        return (
+          <div className={styles.lightboxModal} onClick={() => setLightboxImage(null)}>
+            <div className={styles.lightboxContent} onClick={(e) => e.stopPropagation()} style={lbIsPdf ? { maxWidth: '820px', width: '95%' } : undefined}>
               <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => handleDownloadQuizFile(lightboxImage, 'quiz-image')}
+                className={styles.lightboxCloseBtn}
+                onClick={() => setLightboxImage(null)}
+                title="بستن (ESC)"
               >
-                <HiOutlineDocumentArrowDown />
-                <span>دانلود تصویر</span>
+                &times;
               </button>
+              {lbIsPdf ? (
+                <div style={{ width: '100%', paddingTop: '12px' }}>
+                  <AuthPdfFrame
+                    src={lbUrl}
+                    style={{ width: '100%', height: '65vh', background: '#fff' }}
+                    onDownload={() => handleDownloadQuizFile(lbUrl, lbName, lbMime)}
+                  />
+                </div>
+              ) : (
+                <AuthImage src={lbUrl} alt={lbName} className={styles.lightboxImg} />
+              )}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleDownloadQuizFile(lbUrl, lbName, lbMime)}
+                >
+                  <HiOutlineDocumentArrowDown />
+                  <span>{lbIsPdf ? 'دانلود PDF' : 'دانلود تصویر'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleShareQuizFile(lbUrl, lbName, lbMime)}
+                >
+                  <HiOutlineShare />
+                  <span>اشتراک‌گذاری 📤</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -309,6 +309,7 @@ function initSocket(server, config) {
         || isSchoolAdmin(authUser);
       const canDraw = isTeacher;
       const canMic = isTeacher;
+      const canCamera = isTeacher;
       const canScreenShare = isTeacher;
 
       room.participants.set(socket.id, {
@@ -322,6 +323,7 @@ function initSocket(server, config) {
         cameraOn: false,
         canDraw,
         canMic,
+        canCamera,
         canScreenShare,
         joinedAt: new Date().toISOString(),
       });
@@ -349,6 +351,7 @@ function initSocket(server, config) {
         participants: participantsList,
         canDraw,
         canMic,
+        canCamera,
         canScreenShare,
         screenSharingUser: room.screenSharingUser || null,
       });
@@ -625,7 +628,18 @@ function initSocket(server, config) {
       if (target) {
         if (permissionType === 'whiteboard') target.canDraw = !!allowed;
         if (permissionType === 'mic') target.canMic = !!allowed;
+        if (permissionType === 'camera') target.canCamera = !!allowed;
         if (permissionType === 'screen') target.canScreenShare = !!allowed;
+
+        if (allowed && target.handRaised) {
+          target.handRaised = false;
+          io.to(`class:${classId}`).emit('hand_status_changed', {
+            socketId: target.socketId,
+            userId: target.userId,
+            name: target.name,
+            handRaised: false,
+          });
+        }
 
         io.to(`class:${classId}`).emit('student_permission_changed', {
           socketId: target.socketId,
@@ -634,6 +648,22 @@ function initSocket(server, config) {
           permissionType,
           allowed: !!allowed,
           grantedBy: requester?.name || 'دبیر',
+        });
+      }
+    });
+
+    socket.on('toggle_camera', ({ classId, cameraOn } = {}) => {
+      if (!classId || String(classId) !== String(currentClassId)) return;
+      const room = getOrCreateClassroom(classId);
+      const participant = room?.participants.get(socket.id);
+      if (participant) {
+        if (!isRoomTeacher(room) && !participant.canCamera && cameraOn) return;
+        participant.cameraOn = !!cameraOn;
+        io.to(`class:${classId}`).emit('participant_camera_changed', {
+          socketId: socket.id,
+          userId: participant.userId,
+          name: participant.name,
+          cameraOn: !!cameraOn,
         });
       }
     });
@@ -743,6 +773,30 @@ function initSocket(server, config) {
       io.to(`class:${classId}`).emit('new_chat_message', msg);
     });
 
+    socket.on('request_permission', ({ classId, permissionType = 'hand' } = {}) => {
+      if (!classId || String(classId) !== String(currentClassId)) return;
+      const room = getOrCreateClassroom(classId);
+      const participant = room.participants.get(socket.id);
+      if (participant) {
+        participant.handRaised = true;
+        const payload = {
+          socketId: socket.id,
+          userId: participant.userId,
+          name: participant.name,
+          permissionType,
+          requestedAt: new Date().toISOString(),
+        };
+        io.to(`class:${classId}`).emit('student_permission_requested', payload);
+        io.to(`class:${classId}`).emit('hand_status_changed', {
+          socketId: socket.id,
+          userId: participant.userId,
+          name: participant.name,
+          handRaised: true,
+          permissionType,
+        });
+      }
+    });
+
     socket.on('toggle_hand_raise', ({ classId } = {}) => {
       if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
@@ -754,7 +808,17 @@ function initSocket(server, config) {
           userId: participant.userId,
           name: participant.name,
           handRaised: participant.handRaised,
+          permissionType: 'hand',
         });
+        if (participant.handRaised) {
+          io.to(`class:${classId}`).emit('student_permission_requested', {
+            socketId: socket.id,
+            userId: participant.userId,
+            name: participant.name,
+            permissionType: 'hand',
+            requestedAt: new Date().toISOString(),
+          });
+        }
       }
     });
 
@@ -793,6 +857,7 @@ function initSocket(server, config) {
         if (p.role !== 'teacher' && p.role !== 'admin' && p.role !== 'manager') {
           if (permissionType === 'whiteboard') p.canDraw = !!allowed;
           if (permissionType === 'mic') p.canMic = !!allowed;
+          if (permissionType === 'camera') p.canCamera = !!allowed;
           if (permissionType === 'screen') p.canScreenShare = !!allowed;
         }
       }
@@ -841,12 +906,19 @@ function initSocket(server, config) {
       if (!allowSocketEvent(30)) return;
       if (!classId || String(classId) !== String(currentClassId)) return;
       const room = getOrCreateClassroom(classId);
-      if (!isRoomTeacher(room)) {
-        socket.emit('error_message', { message: 'فقط دبیر کلاس مجاز به ارسال تصویر زنده است' });
+      const participant = room.participants.get(socket.id);
+      if (!isRoomTeacher(room) && !participant?.canCamera) {
+        socket.emit('error_message', { message: 'شما مجاز به ارسال تصویر دوربین نیستید' });
         return;
       }
       if (typeof frame !== 'string' || frame.length > 1_000_000) return;
-      socket.to(`class:${classId}`).emit('live_video_frame', frame);
+      socket.to(`class:${classId}`).emit('live_video_frame', {
+        frame,
+        senderSocketId: socket.id,
+        senderUserId: participant?.userId || currentUser.id,
+        senderName: participant?.name || currentUser.name,
+        senderRole: participant?.role || currentUser.role,
+      });
     });
 
     socket.on('disconnect', () => {

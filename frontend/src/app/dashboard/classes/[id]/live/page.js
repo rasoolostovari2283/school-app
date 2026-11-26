@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../../../../stores/authStore';
 import { getSocket } from '../../../../../lib/socket';
-import api from '../../../../../lib/api';
+import api, { getApiBaseUrl } from '../../../../../lib/api';
 import {
   HiOutlinePencil,
   HiOutlinePaintBrush,
@@ -88,11 +88,19 @@ export default function LiveClassroomPage() {
   const [hasWhiteboardAccess, setHasWhiteboardAccess] = useState(false);
   const [hasMicAccess, setHasMicAccess] = useState(false);
   const [hasScreenAccess, setHasScreenAccess] = useState(false);
+  const [hasCameraAccess, setHasCameraAccess] = useState(false);
   const [wbRequestSent, setWbRequestSent] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
 
   const canDraw = isTeacher || hasWhiteboardAccess;
   const canUseMic = isTeacher || hasMicAccess;
   const canUseScreen = isTeacher || hasScreenAccess;
+  const canUseCamera = isTeacher || hasCameraAccess;
+
+  const activeBoardFileRef = useRef(null);
+  const videoBroadcastIntervalRef = useRef(null);
+  const [remoteVideoData, setRemoteVideoData] = useState(null);
+  const stopCameraRef = useRef(null);
 
   // Screen sharing & audio states
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -533,6 +541,7 @@ export default function LiveClassroomPage() {
   const applyRemoteDocState = (remoteDoc) => {
     if (!remoteDoc || !remoteDoc.pageDataUrl) {
       remoteDocImageRef.current = null;
+      activeBoardFileRef.current = null;
       setDocType(null);
       setPdfFileName('');
       setPdfCurrentPage(1);
@@ -540,6 +549,13 @@ export default function LiveClassroomPage() {
       renderCompositeCanvas();
       return;
     }
+
+    const baseTitle = (remoteDoc.fileName || 'سند_کلاس').replace(/\.[^/.]+$/, '');
+    activeBoardFileRef.current = {
+      dataUrl: remoteDoc.pageDataUrl,
+      name: `${baseTitle}_صفحه_${remoteDoc.currentPage || 1}.jpg`,
+      mimeType: 'image/jpeg',
+    };
 
     const img = new Image();
     img.onload = () => {
@@ -635,9 +651,59 @@ export default function LiveClassroomPage() {
     getSocket().emit('toggle_mic', { classId, micOn: false });
   }, [classId]);
 
+  const playRequestChime = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(660, now);
+      osc.frequency.setValueAtTime(880, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.36);
+      setTimeout(() => {
+        try { ctx.close(); } catch (_) {}
+      }, 450);
+    } catch (_) {}
+  }, []);
+
+  const handleRequestPermission = useCallback((permissionType) => {
+    if (isTeacher) return;
+    const socket = getSocket();
+    socket.emit('request_permission', {
+      classId: String(classId),
+      permissionType,
+    });
+    setHandRaised(true);
+    if (permissionType === 'whiteboard') setWbRequestSent(true);
+
+    const msgMap = {
+      mic: 'درخواست اجازه میکروفون برای معلم ارسال شد 🎙️✋',
+      camera: 'درخواست اجازه دوربین برای معلم ارسال شد 📷✋',
+      screen: 'درخواست اجازه اشتراک صفحه برای معلم ارسال شد 🖥️✋',
+      whiteboard: 'درخواست اجازه نوشتن روی تخته برای معلم ارسال شد ✏️✋',
+    };
+    toast.success(msgMap[permissionType] || 'درخواست اجازه برای معلم ارسال شد ✋', {
+      duration: 4000,
+      style: { background: '#f59e0b', color: '#1e293b', fontWeight: 'bold' },
+    });
+  }, [classId, isTeacher]);
+
   const startMic = useCallback(async () => {
     if (!canUseMic) {
-      toast.error('شما اجازه روشن کردن میکروفون را ندارید! ابتدا دست خود را بالا ببرید تا معلم اجازه دهد ✋');
+      handleRequestPermission('mic');
+      return;
+    }
+
+    if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      toast.error('مرورگر یا دستگاه از ضبط میکروفون پشتیبانی نمی‌کند.');
       return;
     }
 
@@ -652,11 +718,14 @@ export default function LiveClassroomPage() {
       micMediaStreamRef.current = stream;
 
       let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
+      if (typeof MediaRecorder !== 'undefined' && !MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/webm';
       }
 
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorderOptions = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mimeType)
+        ? { mimeType }
+        : undefined;
+      const recorder = new MediaRecorder(stream, recorderOptions);
       audioRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -667,7 +736,7 @@ export default function LiveClassroomPage() {
             if (typeof res === 'string') {
               const base64Data = res.split(',')[1];
               if (base64Data) {
-                getSocket().emit('audio_chunk', { classId, chunk: base64Data });
+                getSocket().emit('audio_chunk', { classId: String(classId), chunk: base64Data });
               }
             }
           };
@@ -677,13 +746,13 @@ export default function LiveClassroomPage() {
 
       recorder.start(400); // 400ms slices for smooth real-time speech
       setIsMicOn(true);
-      getSocket().emit('toggle_mic', { classId, micOn: true });
+      getSocket().emit('toggle_mic', { classId: String(classId), micOn: true });
       toast.success('میکروفون روشن شد 🎙️ صدای شما برای اعضای کلاس پخش می‌شود');
     } catch (err) {
       console.error('Mic start error:', err);
-      toast.error('دسترسی به میکروفون امکان‌پذیر نیست یا توسط مرورگر مسدود شده است');
+      toast.error('دسترسی به میکروفون داده نشد! لطفاً مجوز میکروفون را در تنظیمات گوشی یا مرورگر فعال کنید.');
     }
-  }, [canUseMic, classId]);
+  }, [canUseMic, classId, handleRequestPermission]);
 
   const toggleMic = useCallback(() => {
     if (isMicOn) {
@@ -704,12 +773,17 @@ export default function LiveClassroomPage() {
       screenStreamRef.current = null;
     }
     setIsScreenSharing(false);
-    getSocket().emit('stop_screen_share', { classId });
+    getSocket().emit('stop_screen_share', { classId: String(classId) });
   }, [classId]);
 
   const startScreenShare = useCallback(async () => {
     if (!canUseScreen) {
-      toast.error('اجازه اشتراک‌گذاری صفحه نمایش را ندارید! از معلم درخواست اجازه کنید ✋');
+      handleRequestPermission('screen');
+      return;
+    }
+
+    if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+      toast.error('اشتراک‌گذاری مستقیم صفحه در وب‌ویو موبایل پشتیبانی نمی‌شود؛ می‌توانید فایل PDF، تصویر یا ویدیو را روی تخته باز کنید.');
       return;
     }
 
@@ -738,7 +812,7 @@ export default function LiveClassroomPage() {
       const screenCanvas = document.createElement('canvas');
       const screenCtx = screenCanvas.getContext('2d');
 
-      getSocket().emit('start_screen_share', { classId });
+      getSocket().emit('start_screen_share', { classId: String(classId) });
       setIsScreenSharing(true);
       setScreenSharingUser({
         userId: user?.id,
@@ -759,7 +833,7 @@ export default function LiveClassroomPage() {
           screenCanvas.height = targetH;
           screenCtx.drawImage(screenVideo, 0, 0, targetW, targetH);
           const frameData = screenCanvas.toDataURL('image/jpeg', 0.65);
-          getSocket().emit('screen_frame', { classId, frame: frameData });
+          getSocket().emit('screen_frame', { classId: String(classId), frame: frameData });
         }
       }, 350);
 
@@ -770,7 +844,7 @@ export default function LiveClassroomPage() {
         toast.error('خطا در آغاز اشتراک صفحه نمایش');
       }
     }
-  }, [canUseScreen, classId, stopScreenShare, user]);
+  }, [canUseScreen, classId, handleRequestPermission, stopScreenShare, user]);
 
   const toggleScreenShare = useCallback(() => {
     if (isScreenSharing) {
@@ -781,17 +855,18 @@ export default function LiveClassroomPage() {
     }
   }, [isScreenSharing, stopScreenShare, startScreenShare]);
 
-  const handleToggleStudentPermission = useCallback((targetParticipant, permissionType) => {
+  const handleToggleStudentPermission = useCallback((targetParticipant, permissionType, forceAllowed) => {
     if (!isTeacher) return;
     const socket = getSocket();
     let currentVal = false;
     if (permissionType === 'whiteboard') currentVal = !!targetParticipant.canDraw;
     if (permissionType === 'mic') currentVal = !!targetParticipant.canMic;
     if (permissionType === 'screen') currentVal = !!targetParticipant.canScreenShare;
+    if (permissionType === 'camera') currentVal = !!targetParticipant.canCamera;
 
-    const nextVal = !currentVal;
+    const nextVal = typeof forceAllowed === 'boolean' ? forceAllowed : !currentVal;
     socket.emit('set_student_permission', {
-      classId,
+      classId: String(classId),
       targetSocketId: targetParticipant.socketId,
       targetUserId: targetParticipant.userId,
       permissionType,
@@ -800,28 +875,45 @@ export default function LiveClassroomPage() {
 
     setParticipants((prev) =>
       prev.map((p) => {
-        if (p.socketId === targetParticipant.socketId || p.userId === targetParticipant.userId) {
+        if (p.socketId === targetParticipant.socketId || (targetParticipant.userId && p.userId === targetParticipant.userId)) {
           const updated = { ...p };
           if (permissionType === 'whiteboard') updated.canDraw = nextVal;
           if (permissionType === 'mic') updated.canMic = nextVal;
           if (permissionType === 'screen') updated.canScreenShare = nextVal;
+          if (permissionType === 'camera') updated.canCamera = nextVal;
+          if (nextVal) updated.handRaised = false;
           return updated;
         }
         return p;
       })
     );
 
+    if (nextVal) {
+      setPendingRequests((prev) =>
+        prev.filter(
+          (req) =>
+            !(
+              (req.socketId === targetParticipant.socketId ||
+                (targetParticipant.userId && req.userId === targetParticipant.userId)) &&
+              (req.permissionType === permissionType || req.permissionType === 'general')
+            )
+        )
+      );
+    }
+
     const permLabel =
       permissionType === 'whiteboard'
         ? 'تخته هوشمند'
         : permissionType === 'mic'
         ? 'میکروفون'
+        : permissionType === 'camera'
+        ? 'دوربین'
         : 'اشتراک صفحه';
 
     toast(
       nextVal
-        ? `دسترسی «${permLabel}» برای «${targetParticipant.name}» فعال شد ✅`
-        : `دسترسی «${permLabel}» برای «${targetParticipant.name}» غیرفعال شد 🔒`,
+        ? `دسترسی «${permLabel}» برای «${targetParticipant.name || 'دانش‌آموز'}» فعال شد ✅`
+        : `دسترسی «${permLabel}» برای «${targetParticipant.name || 'دانش‌آموز'}» غیرفعال شد 🔒`,
       {
         icon: nextVal ? '✅' : '🔒',
         duration: 3000,
@@ -833,7 +925,7 @@ export default function LiveClassroomPage() {
     if (!isTeacher) return;
     const socket = getSocket();
     socket.emit('set_all_student_permission', {
-      classId,
+      classId: String(classId),
       permissionType,
       allowed,
     });
@@ -845,17 +937,26 @@ export default function LiveClassroomPage() {
           if (permissionType === 'whiteboard') updated.canDraw = allowed;
           if (permissionType === 'mic') updated.canMic = allowed;
           if (permissionType === 'screen') updated.canScreenShare = allowed;
+          if (permissionType === 'camera') updated.canCamera = allowed;
           return updated;
         }
         return p;
       })
     );
 
+    if (allowed) {
+      setPendingRequests((prev) =>
+        prev.filter((req) => req.permissionType !== permissionType && req.permissionType !== 'general')
+      );
+    }
+
     const permLabel =
       permissionType === 'whiteboard'
         ? 'تخته هوشمند'
         : permissionType === 'mic'
         ? 'میکروفون'
+        : permissionType === 'camera'
+        ? 'دوربین'
         : 'اشتراک صفحه';
 
     toast(
@@ -872,28 +973,33 @@ export default function LiveClassroomPage() {
   const handleLowerHand = useCallback((target) => {
     const socket = getSocket();
     socket.emit('lower_student_hand', {
-      classId,
+      classId: String(classId),
       targetSocketId: target.socketId,
       targetUserId: target.userId,
     });
     setParticipants((prev) =>
       prev.map((p) =>
-        p.socketId === target.socketId || p.userId === target.userId
+        p.socketId === target.socketId || (target.userId && p.userId === target.userId)
           ? { ...p, handRaised: false }
           : p
       )
     );
-    toast('دست دانش‌آموز پایین آورده شد 👌', { icon: '👌', duration: 2500 });
+    setPendingRequests((prev) =>
+      prev.filter(
+        (req) => req.socketId !== target.socketId && !(target.userId && req.userId === target.userId)
+      )
+    );
+    toast('درخواست دانش‌آموز بسته شد 👌', { icon: '👌', duration: 2500 });
   }, [classId]);
 
   const handleToggleHandRaise = useCallback(() => {
     const socket = getSocket();
     const nextState = !handRaised;
-    socket.emit('toggle_hand_raise', { classId });
+    socket.emit('toggle_hand_raise', { classId: String(classId) });
     setHandRaised(nextState);
 
     if (nextState) {
-      toast.success('دست شما بالا رفت! معلم متوجه سوال شما شد ✋', {
+      toast.success('دست شما بالا رفت! اعلان فوری برای معلم ارسال شد ✋', {
         duration: 4000,
         style: { background: '#f59e0b', color: '#1e293b', fontWeight: 'bold' },
       });
@@ -906,6 +1012,7 @@ export default function LiveClassroomPage() {
   useEffect(() => {
     stopMicRef.current = stopMic;
     stopScreenShareRef.current = stopScreenShare;
+    stopCameraRef.current = stopCamera;
     playAudioChunkRef.current = playAudioChunk;
     handleToggleStudentPermissionRef.current = handleToggleStudentPermission;
     handleLowerHandRef.current = handleLowerHand;
@@ -948,7 +1055,12 @@ export default function LiveClassroomPage() {
       avatar: user?.avatar || null,
     };
 
-    socket.emit('join_class', { classId: String(classId), user: currentUserData });
+    const emitJoinClass = () => {
+      socket.emit('join_class', { classId: String(classId), user: currentUserData });
+    };
+
+    emitJoinClass();
+    socket.on('connect', emitJoinClass);
 
     // Initial state from server
     socket.on('init_class_state', (data) => {
@@ -977,6 +1089,9 @@ export default function LiveClassroomPage() {
       }
       if (data.canScreenShare !== undefined) {
         setHasScreenAccess(!!data.canScreenShare);
+      }
+      if (data.canCamera !== undefined) {
+        setHasCameraAccess(!!data.canCamera);
       }
       if (data.screenSharingUser) {
         setScreenSharingUser(data.screenSharingUser);
@@ -1094,6 +1209,22 @@ export default function LiveClassroomPage() {
 
     socket.on('whiteboard_access_requested', (data) => {
       if (isTeacher) {
+        playRequestChime();
+        const reqId = `${data.userId || data.socketId}_whiteboard`;
+        setPendingRequests((prev) => {
+          const filtered = prev.filter((item) => item.id !== reqId);
+          return [
+            {
+              id: reqId,
+              socketId: data.socketId,
+              userId: data.userId,
+              name: data.name || 'دانش‌آموز',
+              permissionType: 'whiteboard',
+              timestamp: Date.now(),
+            },
+            ...filtered,
+          ];
+        });
         toast(
           (t) => (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1127,25 +1258,43 @@ export default function LiveClassroomPage() {
       }
     });
 
-    // ── Multi-Permission Changed Listener (Mic, Screen, Whiteboard) ──
+    // ── Multi-Permission Changed Listener (Mic, Camera, Screen, Whiteboard) ──
     socket.on('student_permission_changed', (data) => {
       setParticipants((prev) =>
         prev.map((p) => {
-          if (p.socketId === data.socketId || p.userId === data.userId) {
+          if (p.socketId === data.socketId || (data.userId && p.userId === data.userId)) {
             const updated = { ...p };
             if (data.permissionType === 'whiteboard') updated.canDraw = data.allowed;
             if (data.permissionType === 'mic') updated.canMic = data.allowed;
             if (data.permissionType === 'screen') updated.canScreenShare = data.allowed;
+            if (data.permissionType === 'camera') updated.canCamera = data.allowed;
+            if (data.allowed) updated.handRaised = false;
             return updated;
           }
           return p;
         })
       );
 
+      if (data.allowed) {
+        setPendingRequests((prev) =>
+          prev.filter(
+            (req) =>
+              !(
+                (req.socketId === data.socketId || (data.userId && req.userId === data.userId)) &&
+                (req.permissionType === data.permissionType || req.permissionType === 'general')
+              )
+          )
+        );
+      }
+
       const isMe = (user?.id && data.userId === user.id) || data.socketId === socket.id;
       if (isMe) {
+        if (data.allowed) {
+          setHandRaised(false);
+        }
         if (data.permissionType === 'whiteboard') {
           setHasWhiteboardAccess(data.allowed);
+          if (data.allowed) setWbRequestSent(false);
           toast(data.allowed ? '🎉 دبیر به شما اجازه نوشتن روی تخته را داد!' : '🔒 دسترسی تخته برداشته شد.', {
             icon: data.allowed ? '✏️' : '🔒',
             duration: 4500,
@@ -1158,6 +1307,15 @@ export default function LiveClassroomPage() {
           });
           if (!data.allowed) {
             stopMicRef.current?.();
+          }
+        } else if (data.permissionType === 'camera') {
+          setHasCameraAccess(data.allowed);
+          toast(data.allowed ? '📷 دبیر اجازه روشن کردن دوربین را به شما داد!' : '🔒 دسترسی دوربین توسط دبیر برداشته شد.', {
+            icon: data.allowed ? '📷' : '🔒',
+            duration: 4500,
+          });
+          if (!data.allowed) {
+            stopCameraRef.current?.();
           }
         } else if (data.permissionType === 'screen') {
           setHasScreenAccess(data.allowed);
@@ -1180,6 +1338,7 @@ export default function LiveClassroomPage() {
             if (data.permissionType === 'whiteboard') updated.canDraw = data.allowed;
             if (data.permissionType === 'mic') updated.canMic = data.allowed;
             if (data.permissionType === 'screen') updated.canScreenShare = data.allowed;
+            if (data.permissionType === 'camera') updated.canCamera = data.allowed;
             return updated;
           }
           return p;
@@ -1194,6 +1353,10 @@ export default function LiveClassroomPage() {
           setHasMicAccess(data.allowed);
           if (!data.allowed) stopMicRef.current?.();
           toast(data.allowed ? '🎙️ دبیر اجازه روشن کردن میکروفون را برای همه آزاد کرد!' : '🔇 میکروفون همه قفل شد', { icon: data.allowed ? '🎤' : '🔇', duration: 4000 });
+        } else if (data.permissionType === 'camera') {
+          setHasCameraAccess(data.allowed);
+          if (!data.allowed) stopCameraRef.current?.();
+          toast(data.allowed ? '📷 دبیر اجازه دوربین را برای همه فعال کرد!' : '🔒 دوربین همه قفل شد', { icon: data.allowed ? '📷' : '🔒', duration: 4000 });
         } else if (data.permissionType === 'screen') {
           setHasScreenAccess(data.allowed);
           if (!data.allowed) stopScreenShareRef.current?.();
@@ -1206,6 +1369,37 @@ export default function LiveClassroomPage() {
       setParticipants((prev) =>
         prev.map((p) => (p.socketId === data.socketId ? { ...p, micOn: data.micOn } : p))
       );
+    });
+
+    socket.on('participant_camera_changed', (data) => {
+      setParticipants((prev) =>
+        prev.map((p) => (p.socketId === data.socketId ? { ...p, cameraOn: data.cameraOn } : p))
+      );
+      if (!data.cameraOn) {
+        setRemoteVideoData((prev) => (prev && prev.senderSocketId === data.socketId ? null : prev));
+      }
+    });
+
+    // Dedicated permission request notification for teacher (Mic, Camera, Screen, Whiteboard)
+    socket.on('student_permission_requested', (data) => {
+      if (!isTeacher) return;
+      playRequestChime();
+      const pType = data.permissionType || 'general';
+      const reqId = `${data.userId || data.socketId}_${pType}`;
+      setPendingRequests((prev) => {
+        const filtered = prev.filter((item) => item.id !== reqId);
+        return [
+          {
+            id: reqId,
+            socketId: data.socketId,
+            userId: data.userId,
+            name: data.name || 'دانش‌آموز',
+            permissionType: pType,
+            timestamp: data.timestamp || Date.now(),
+          },
+          ...filtered,
+        ];
+      });
     });
 
     // ── Screen Sharing Broadcast Events ──
@@ -1268,17 +1462,46 @@ export default function LiveClassroomPage() {
         setHandRaised(data.handRaised);
       }
 
+      if (!data.handRaised) {
+        setPendingRequests((prev) =>
+          prev.filter((req) => req.socketId !== data.socketId && !(data.userId && req.userId === data.userId))
+        );
+      }
+
       if (data.handRaised && isTeacher) {
+        playRequestChime();
+        setPendingRequests((prev) => {
+          const hasSpecific = prev.some(
+            (req) =>
+              (req.socketId === data.socketId || (data.userId && req.userId === data.userId)) &&
+              req.permissionType !== 'general'
+          );
+          if (hasSpecific) return prev;
+          const reqId = `${data.userId || data.socketId}_general`;
+          const filtered = prev.filter((item) => item.id !== reqId);
+          return [
+            {
+              id: reqId,
+              socketId: data.socketId,
+              userId: data.userId,
+              name: data.name || 'دانش‌آموز',
+              permissionType: 'general',
+              timestamp: Date.now(),
+            },
+            ...filtered,
+          ];
+        });
+
         toast(
           (t) => (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>
-                ✋ <strong>{data.name}</strong> دستش را بالا برد و اجازه می‌خواهد:
+                ✋ <strong>{data.name}</strong> درخواست اجازه دارد:
               </div>
               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => {
-                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, canMic: false }, 'mic');
+                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, name: data.name }, 'mic', true);
                     toast.dismiss(t.id);
                   }}
                   style={{
@@ -1292,11 +1515,29 @@ export default function LiveClassroomPage() {
                     fontWeight: 700,
                   }}
                 >
-                  🎤 اجازه میکروفون
+                  🎤 میکروفون
                 </button>
                 <button
                   onClick={() => {
-                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, canDraw: false }, 'whiteboard');
+                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, name: data.name }, 'camera', true);
+                    toast.dismiss(t.id);
+                  }}
+                  style={{
+                    background: '#0ea5e9',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '4px 8px',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  📷 دوربین
+                </button>
+                <button
+                  onClick={() => {
+                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, name: data.name }, 'whiteboard', true);
                     toast.dismiss(t.id);
                   }}
                   style={{
@@ -1310,11 +1551,11 @@ export default function LiveClassroomPage() {
                     fontWeight: 700,
                   }}
                 >
-                  ✏️ اجازه تخته
+                  ✏️ تخته
                 </button>
                 <button
                   onClick={() => {
-                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, canScreenShare: false }, 'screen');
+                    handleToggleStudentPermissionRef.current?.({ socketId: data.socketId, userId: data.userId, name: data.name }, 'screen', true);
                     toast.dismiss(t.id);
                   }}
                   style={{
@@ -1328,7 +1569,7 @@ export default function LiveClassroomPage() {
                     fontWeight: 700,
                   }}
                 >
-                  🖥️ اجازه اسکرین
+                  🖥️ اسکرین
                 </button>
                 <button
                   onClick={() => {
@@ -1345,7 +1586,7 @@ export default function LiveClassroomPage() {
                     fontSize: '0.74rem',
                   }}
                 >
-                  👌 پایین آوردن دست
+                  👌 بستن
                 </button>
               </div>
             </div>
@@ -1358,12 +1599,20 @@ export default function LiveClassroomPage() {
       }
     });
 
-    // Teacher Video Frame
-    socket.on('live_video_frame', (frameData) => {
-      setRemoteTeacherFrame(frameData);
+    // Live Webcam Video Frame (Teacher or Authorized Student)
+    socket.on('live_video_frame', (payload) => {
+      if (payload && typeof payload === 'object') {
+        if (payload.senderSocketId === socket.id) return;
+        setRemoteVideoData(payload.frame ? payload : null);
+        setRemoteTeacherFrame(payload.frame || null);
+      } else {
+        setRemoteVideoData(payload ? { frame: payload, senderName: 'استاد کلاس' } : null);
+        setRemoteTeacherFrame(payload || null);
+      }
     });
 
     return () => {
+      socket.off('connect', emitJoinClass);
       socket.off('init_class_state');
       socket.off('class_live_started');
       socket.off('class_live_ended');
@@ -1377,8 +1626,10 @@ export default function LiveClassroomPage() {
       socket.off('all_whiteboard_access_changed');
       socket.off('all_student_permission_changed');
       socket.off('whiteboard_access_requested');
+      socket.off('student_permission_requested');
       socket.off('student_permission_changed');
       socket.off('participant_mic_changed');
+      socket.off('participant_camera_changed');
       socket.off('screen_share_started');
       socket.off('screen_share_stopped');
       socket.off('screen_frame');
@@ -1427,10 +1678,7 @@ export default function LiveClassroomPage() {
   // ── Whiteboard Permission Handlers ──
   const handleRequestWhiteboardAccess = () => {
     if (canDraw) return;
-    const socket = getSocket();
-    socket.emit('request_whiteboard_access', { classId });
-    setWbRequestSent(true);
-    toast.success('درخواست اجازه نوشتن روی تخته برای دبیر ارسال شد ✋');
+    handleRequestPermission('whiteboard');
   };
 
   const handleGrantStudentWb = (targetParticipant) => {
@@ -1877,6 +2125,11 @@ export default function LiveClassroomPage() {
         }
 
         if (pdfDataArray) {
+          activeBoardFileRef.current = {
+            blob: file,
+            name: file.name,
+            mimeType: file.type || 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          };
           const pdfjs = await getPdfJs();
           const loadingTask = pdfjs.getDocument({ data: pdfDataArray });
           const doc = await loadingTask.promise;
@@ -1897,6 +2150,11 @@ export default function LiveClassroomPage() {
         }
 
         // 2. Fallback to client-side parser if backend is unavailable
+        activeBoardFileRef.current = {
+          blob: file,
+          name: file.name,
+          mimeType: file.type || 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        };
         const arrayBuffer = await file.arrayBuffer();
         const pres = await loadPptxPresentation(arrayBuffer);
 
@@ -1924,6 +2182,11 @@ export default function LiveClassroomPage() {
     } else if (file.type === 'application/pdf' || lowerName.endsWith('.pdf')) {
       try {
         toast.loading('در حال باز کردن فایل PDF جزوه...', { id: 'doc-load' });
+        activeBoardFileRef.current = {
+          blob: file,
+          name: file.name,
+          mimeType: 'application/pdf',
+        };
         const arrayBuffer = await file.arrayBuffer();
         const pdfjs = await getPdfJs();
         const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
@@ -1952,6 +2215,11 @@ export default function LiveClassroomPage() {
     if (!file) return;
 
     pageCacheRef.current.clear();
+    activeBoardFileRef.current = {
+      blob: file,
+      name: file.name,
+      mimeType: file.type || 'image/png',
+    };
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
@@ -1981,6 +2249,11 @@ export default function LiveClassroomPage() {
     if (!file) return;
 
     pageCacheRef.current.clear();
+    activeBoardFileRef.current = {
+      blob: file,
+      name: file.name,
+      mimeType: file.type || 'video/mp4',
+    };
     if (videoElementRef.current) {
       videoElementRef.current.pause();
       videoElementRef.current.src = '';
@@ -2131,6 +2404,7 @@ export default function LiveClassroomPage() {
 
   const handleCloseDocument = () => {
     pageCacheRef.current.clear();
+    activeBoardFileRef.current = null;
     if (videoElementRef.current) {
       videoElementRef.current.pause();
       videoElementRef.current.src = '';
@@ -2360,83 +2634,92 @@ export default function LiveClassroomPage() {
 
   const triggerLiveDownloadFile = async (data, filename, mimeType = 'application/octet-stream') => {
     try {
-      let blob;
+      let blob = null;
       if (data instanceof Blob) {
         blob = data;
-      } else if (typeof data === 'string' && data.startsWith('data:')) {
-        const a = document.createElement('a');
-        a.href = data;
-        a.download = filename;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          try { document.body.removeChild(a); } catch (e) {}
-        }, 800);
-        return true;
-      } else if (typeof data === 'string' && data.startsWith('blob:')) {
-        const a = document.createElement('a');
-        a.href = data;
-        a.download = filename;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          try { document.body.removeChild(a); } catch (e) {}
-        }, 800);
-        return true;
-      } else {
+      } else if (typeof data === 'string' && (data.startsWith('data:') || data.startsWith('blob:'))) {
+        try {
+          const resp = await fetch(data);
+          blob = await resp.blob();
+        } catch (fetchErr) {
+          console.warn('Could not fetch URI into Blob:', fetchErr);
+        }
+      } else if (data !== undefined && data !== null) {
         blob = new Blob([data], { type: mimeType });
       }
 
-      if (blob) {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            try {
-              const dataUrl = reader.result;
-              const a = document.createElement('a');
-              a.href = dataUrl;
-              a.download = filename;
-              a.target = '_blank';
-              document.body.appendChild(a);
-              a.click();
+      if (!blob) return false;
+
+      const isCapacitorOrMobileWebView =
+        typeof window !== 'undefined' &&
+        Boolean(
+          window.Capacitor?.isNativePlatform?.() ||
+            /Android|wv|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
+        );
+
+      // 1. On Capacitor / Mobile WebView (or if direct blob anchor could be blocked),
+      // relay via authenticated backend one-time HTTPS download capability
+      if (isCapacitorOrMobileWebView) {
+        try {
+          const formData = new FormData();
+          const safeUploadName =
+            filename && filename.includes('.')
+              ? filename
+              : `${filename || 'class_file'}.${mimeType?.includes('pdf') ? 'pdf' : mimeType?.includes('webm') ? 'webm' : 'png'}`;
+          formData.append('file', blob, safeUploadName);
+          formData.append('filename', filename || safeUploadName);
+
+          const res = await api.post('/upload/temp-download', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 120000,
+          });
+
+          const downloadPath = res.data?.data?.downloadPath;
+          if (downloadPath) {
+            const rawApiBase = typeof getApiBaseUrl === 'function' ? getApiBaseUrl() : '';
+            const backendOrigin = rawApiBase
+              ? rawApiBase.replace(/\/api\/v1\/?$/, '')
+              : typeof window !== 'undefined'
+              ? window.location.origin
+              : '';
+            const fullDownloadUrl = `${backendOrigin}${downloadPath}`;
+
+            const opened = typeof window !== 'undefined' ? window.open(fullDownloadUrl, '_blank', 'noopener,noreferrer') : null;
+            if (!opened) {
+              const link = document.createElement('a');
+              link.href = fullDownloadUrl;
+              link.download = filename || safeUploadName;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.style.display = 'none';
+              document.body.appendChild(link);
+              link.click();
               setTimeout(() => {
-                try { document.body.removeChild(a); } catch (e) {}
-              }, 1000);
-              resolve(true);
-            } catch (err) {
-              const blobUrl = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = blobUrl;
-              a.download = filename;
-              a.target = '_blank';
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try { document.body.removeChild(a); } catch (e) {}
-                URL.revokeObjectURL(blobUrl);
-              }, 1000);
-              resolve(true);
+                try { document.body.removeChild(link); } catch (_) {}
+              }, 2000);
             }
-          };
-          reader.onerror = () => {
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = filename;
-            a.target = '_blank';
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-              try { document.body.removeChild(a); } catch (e) {}
-              URL.revokeObjectURL(blobUrl);
-            }, 1000);
-            resolve(true);
-          };
-          reader.readAsDataURL(blob);
-        });
+            return true;
+          }
+        } catch (relayErr) {
+          console.warn('Temp download HTTPS relay failed, falling back to browser download:', relayErr);
+        }
       }
+
+      // 2. Desktop & fallback browser Blob URL download (with 60s lifetime)
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'download';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try {
+          if (a.parentNode) document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        } catch (_) {}
+      }, 60000);
       return true;
     } catch (err) {
       console.error('triggerLiveDownloadFile error:', err);
@@ -2553,15 +2836,77 @@ export default function LiveClassroomPage() {
     }
   };
 
-  // ── 10. Export Board (PNG & Multi-page PDF) ──
-  const handleDownloadBoardPng = () => {
+  // ── 10. Export Board (PNG & Multi-page PDF & Active Board File) ──
+  const handleDownloadBoardPng = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const link = document.createElement('a');
-    link.download = `تخته_هوشمند_${classData?.name || 'کلاس'}_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    toast.success('تصویر تخته هوشمند با کیفیت بالا دانلود شد 🖼️');
+    const safeClassName = (classData?.name || 'کلاس').replace(/[/\\?%*:|"<>]/g, '_').trim();
+    const dateStr = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+    const fileName = `تخته_هوشمند_${safeClassName}_${dateStr}.png`;
+    const loadingToast = toast.loading('در حال آماده‌سازی تصویر تخته...');
+
+    try {
+      let blob = await new Promise((resolve) => {
+        try {
+          canvas.toBlob((b) => resolve(b), 'image/png');
+        } catch (_) {
+          resolve(null);
+        }
+      });
+
+      // Fallback clean composite if main canvas is cross-origin tainted
+      if (!blob) {
+        const off = document.createElement('canvas');
+        off.width = canvas.width || 1280;
+        off.height = canvas.height || 720;
+        const offCtx = off.getContext('2d');
+        offCtx.fillStyle = boardType === 'blackboard' ? '#0f172a' : '#ffffff';
+        offCtx.fillRect(0, 0, off.width, off.height);
+        if (drawingCanvasRef.current) {
+          offCtx.drawImage(drawingCanvasRef.current, 0, 0, off.width, off.height);
+        }
+        blob = await new Promise((resolve) => off.toBlob((b) => resolve(b), 'image/png'));
+      }
+
+      const ok = blob ? await triggerLiveDownloadFile(blob, fileName, 'image/png') : false;
+      toast.dismiss(loadingToast);
+      if (ok) {
+        toast.success('تصویر تخته هوشمند با موفقیت دانلود شد 🖼️');
+      } else {
+        toast.error('خطا در دانلود تصویر تخته');
+      }
+    } catch (err) {
+      console.error('handleDownloadBoardPng error:', err);
+      toast.dismiss(loadingToast);
+      toast.error('خطا در دانلود تصویر تخته');
+    }
+  };
+
+  const handleDownloadActiveBoardFile = async () => {
+    const activeFile = activeBoardFileRef.current;
+    if (!activeFile) {
+      toast.error('فایل یا تصویر فعالی روی تخته وجود ندارد.');
+      return;
+    }
+    const loadingToast = toast.loading('در حال آماده‌سازی فایل برای دانلود...');
+    try {
+      const payload = activeFile.blob || activeFile.dataUrl;
+      const ok = await triggerLiveDownloadFile(
+        payload,
+        activeFile.name || pdfFileName || 'فایل_کلاس',
+        activeFile.mimeType || 'application/octet-stream'
+      );
+      toast.dismiss(loadingToast);
+      if (ok) {
+        toast.success('فایل کلاس با موفقیت دانلود شد 📥');
+      } else {
+        toast.error('خطا در دانلود فایل کلاس');
+      }
+    } catch (err) {
+      console.error('handleDownloadActiveBoardFile error:', err);
+      toast.dismiss(loadingToast);
+      toast.error('خطا در دانلود فایل کلاس');
+    }
   };
 
   const handleExportPdfBooklet = async () => {
@@ -2746,43 +3091,93 @@ export default function LiveClassroomPage() {
     socket.emit('end_live', { classId });
     setIsLive(false);
     toast.success('کلاس آنلاین با موفقیت بسته شد 🏁');
-    router.push(`/dashboard/classes/${classId}`);
+    router.push(`/dashboard/classes/1/?classId=${encodeURIComponent(String(classId))}`);
   };
 
-  // ── 12. Camera & Webcam (Teacher) ──
+  // Keep local <video> attached whenever camera turns active
+  useEffect(() => {
+    if (cameraActive && localVideoRef.current && mediaStreamRef.current) {
+      if (localVideoRef.current.srcObject !== mediaStreamRef.current) {
+        localVideoRef.current.srcObject = mediaStreamRef.current;
+      }
+      localVideoRef.current.play?.().catch(() => {});
+    }
+  }, [cameraActive]);
+
+  // Clean up all hardware tracks and timers when leaving classroom
+  useEffect(() => {
+    return () => {
+      if (videoBroadcastIntervalRef.current) {
+        clearInterval(videoBroadcastIntervalRef.current);
+        videoBroadcastIntervalRef.current = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (micMediaStreamRef.current) {
+        micMediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        micMediaStreamRef.current = null;
+      }
+      if (screenBroadcastIntervalRef.current) {
+        clearInterval(screenBroadcastIntervalRef.current);
+        screenBroadcastIntervalRef.current = null;
+      }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach((track) => track.stop());
+        screenStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  // ── 12. Camera & Webcam (Teacher & Authorized Student) ──
   const toggleCamera = async () => {
+    if (!canUseCamera) {
+      handleRequestPermission('camera');
+      return;
+    }
+
     if (!cameraActive) {
+      if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        toast.error('دستگاه یا مرورگر از دوربین پشتیبانی نمی‌کند.');
+        return;
+      }
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 360 } },
-          audio: micActive,
+          video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
+          audio: false,
         });
         mediaStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         setCameraActive(true);
-        toast.success('وبکم فعال شد 📷');
+        getSocket().emit('toggle_camera', { classId: String(classId), cameraOn: true });
+        toast.success('دوربین فعال شد 📷');
 
         const frameCanvas = document.createElement('canvas');
         frameCanvas.width = 320;
         frameCanvas.height = 180;
         const frameCtx = frameCanvas.getContext('2d');
 
-        const broadcastInterval = setInterval(() => {
+        if (videoBroadcastIntervalRef.current) {
+          clearInterval(videoBroadcastIntervalRef.current);
+        }
+        videoBroadcastIntervalRef.current = setInterval(() => {
           if (!mediaStreamRef.current || !mediaStreamRef.current.active) {
-            clearInterval(broadcastInterval);
+            clearInterval(videoBroadcastIntervalRef.current);
+            videoBroadcastIntervalRef.current = null;
             return;
           }
           if (localVideoRef.current && localVideoRef.current.readyState >= 2) {
             frameCtx.drawImage(localVideoRef.current, 0, 0, 320, 180);
             const frameData = frameCanvas.toDataURL('image/jpeg', 0.45);
-            getSocket().emit('live_video_frame', { classId, frame: frameData });
+            getSocket().emit('live_video_frame', { classId: String(classId), frame: frameData });
           }
         }, 600);
       } catch (err) {
         console.error('Camera error:', err);
-        toast.error('دسترسی به دوربین داده نشد یا مسدود است');
+        toast.error('دسترسی به دوربین داده نشد! لطفاً مجوز دوربین برنامه را در تنظیمات گوشی یا مرورگر فعال کنید.');
       }
     } else {
       stopCamera();
@@ -2790,6 +3185,10 @@ export default function LiveClassroomPage() {
   };
 
   const stopCamera = () => {
+    if (videoBroadcastIntervalRef.current) {
+      clearInterval(videoBroadcastIntervalRef.current);
+      videoBroadcastIntervalRef.current = null;
+    }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -2798,7 +3197,8 @@ export default function LiveClassroomPage() {
       localVideoRef.current.srcObject = null;
     }
     setCameraActive(false);
-    getSocket().emit('live_video_frame', { classId, frame: null });
+    getSocket().emit('toggle_camera', { classId: String(classId), cameraOn: false });
+    getSocket().emit('live_video_frame', { classId: String(classId), frame: null });
   };
 
 
@@ -2821,8 +3221,8 @@ export default function LiveClassroomPage() {
   // ── 15. Copy Direct Live Class Invite Link ──
   const handleCopyClassLink = () => {
     if (typeof window !== 'undefined') {
-      const url = window.location.href;
-      navigator.clipboard.writeText(url);
+      const url = `${window.location.origin}/dashboard/classes/1/live/?classId=${encodeURIComponent(String(classId))}`;
+      navigator.clipboard?.writeText(url);
       toast.success('لینک ورود مستقیم به کلاس آنلاین کپی شد! می‌توانید آن را برای دانش‌آموزان بفرستید 📋', {
         duration: 5000,
         icon: '🔗',
@@ -2869,10 +3269,10 @@ export default function LiveClassroomPage() {
           <button
             className={styles.headerBtn}
             onClick={() => {
-              if (isLive) {
+              if (isLive && isTeacher) {
                 setShowCloseModal(true);
               } else {
-                router.push(`/dashboard/classes/${classId}`);
+                router.push(`/dashboard/classes/1/?classId=${encodeURIComponent(String(classId))}`);
               }
             }}
             title="بازگشت به کلاس"
@@ -2965,7 +3365,7 @@ export default function LiveClassroomPage() {
             className={`${styles.headerBtn} ${isMicOn ? styles.micBtnActive : ''} ${!canUseMic ? styles.headerBtnDisabled : ''}`}
             onClick={() => {
               if (!canUseMic) {
-                toast.error('دسترسی به میکروفون قفل است. برای اجازه صحبت روی دکمه «دست بالا ✋» کلیک کنید.');
+                handleRequestPermission('mic');
                 return;
               }
               toggleMic();
@@ -2975,11 +3375,11 @@ export default function LiveClassroomPage() {
                 ? 'میکروفون روشن است (کلیک برای قطع صدا)'
                 : canUseMic
                 ? 'روشن کردن میکروفون'
-                : 'میکروفون توسط معلم قفل است'
+                : 'میکروفون قفل است - کلیک برای ارسال درخواست اجازه به معلم'
             }
           >
             <HiOutlineMicrophone style={{ color: isMicOn ? '#34d399' : 'inherit', fontSize: '1.1rem' }} />
-            <span>{isMicOn ? 'میکروفون روشن 🎙️' : canUseMic ? 'میکروفون' : 'میکروفون 🔒'}</span>
+            <span>{isMicOn ? 'میکروفون روشن 🎙️' : canUseMic ? 'میکروفون' : 'درخواست میکروفون 🔒'}</span>
           </button>
 
           {/* Screen Sharing Toggle */}
@@ -2987,7 +3387,7 @@ export default function LiveClassroomPage() {
             className={`${styles.headerBtn} ${isScreenSharing ? styles.screenShareBtnActive : ''} ${!canUseScreen ? styles.headerBtnDisabled : ''}`}
             onClick={() => {
               if (!canUseScreen) {
-                toast.error('دسترسی به اشتراک صفحه قفل است. از معلم درخواست اجازه کنید ✋');
+                handleRequestPermission('screen');
                 return;
               }
               toggleScreenShare();
@@ -2997,21 +3397,25 @@ export default function LiveClassroomPage() {
                 ? 'توقف اشتراک صفحه نمایش'
                 : canUseScreen
                 ? 'اشتراک‌گذاری صفحه نمایش'
-                : 'اشتراک صفحه توسط معلم قفل است'
+                : 'اشتراک صفحه قفل است - کلیک برای ارسال درخواست اجازه به معلم'
             }
           >
             <HiOutlineTv style={{ color: isScreenSharing ? '#60a5fa' : 'inherit', fontSize: '1.1rem' }} />
-            <span>{isScreenSharing ? 'توقف اشتراک ⏹️' : canUseScreen ? 'اشتراک صفحه 🖥️' : 'اشتراک صفحه 🔒'}</span>
+            <span>{isScreenSharing ? 'توقف اشتراک ⏹️' : canUseScreen ? 'اشتراک صفحه 🖥️' : 'درخواست اسکرین 🔒'}</span>
           </button>
 
           {/* Webcam Toggle */}
           <button
-            className={`${styles.headerBtn} ${cameraActive ? styles.headerBtnActive : ''}`}
+            className={`${styles.headerBtn} ${cameraActive ? styles.headerBtnActive : ''} ${!canUseCamera ? styles.headerBtnDisabled : ''}`}
             onClick={toggleCamera}
-            title="روشن/خاموش کردن وبکم"
+            title={
+              canUseCamera
+                ? 'روشن/خاموش کردن دوربین'
+                : 'دوربین قفل است - کلیک برای ارسال درخواست اجازه به معلم'
+            }
           >
             {cameraActive ? <HiOutlineVideoCamera /> : <HiOutlineVideoCameraSlash />}
-            <span>{cameraActive ? 'دوربین روشن' : 'وبکم'}</span>
+            <span>{cameraActive ? 'دوربین روشن' : canUseCamera ? 'وبکم' : 'درخواست دوربین 🔒'}</span>
           </button>
 
           {/* Student Raise Hand Button in Top Bar */}
@@ -3026,17 +3430,23 @@ export default function LiveClassroomPage() {
             </button>
           )}
 
-          {/* Teacher Raised Hands Quick Counter in Top Bar */}
-          {isTeacher && participants.filter((p) => p.role !== 'teacher' && p.role !== 'admin' && p.handRaised).length > 0 && (
+          {/* Teacher Raised Hands & Permission Requests Quick Counter in Top Bar */}
+          {isTeacher &&
+            (pendingRequests.length > 0 ||
+              participants.filter((p) => p.role !== 'teacher' && p.role !== 'admin' && p.handRaised).length > 0) && (
             <button
               className={`${styles.headerBtn} ${styles.handRaisedBtnActive}`}
               onClick={() => setActiveTab('participants')}
-              title="مشاهده دانش‌آموزانی که دست خود را بالا برده‌اند"
+              title="مشاهده درخواست‌های اجازه دانش‌آموزان"
               style={{ background: '#f59e0b', color: '#1e293b', fontWeight: 800, animation: 'pulse 1.5s infinite' }}
             >
               <FaHandPaper />
               <span>
-                {participants.filter((p) => p.role !== 'teacher' && p.role !== 'admin' && p.handRaised).length} نفر دست بالا ✋
+                {Math.max(
+                  pendingRequests.length,
+                  participants.filter((p) => p.role !== 'teacher' && p.role !== 'admin' && p.handRaised).length
+                )}{' '}
+                درخواست اجازه ✋
               </span>
             </button>
           )}
@@ -3073,7 +3483,7 @@ export default function LiveClassroomPage() {
           ) : (
             <button
               className={`${styles.headerBtn} ${styles.leaveBtn}`}
-              onClick={() => router.push(`/dashboard/classes/${classId}`)}
+              onClick={() => router.push(`/dashboard/classes/1/?classId=${encodeURIComponent(String(classId))}`)}
               title="خروج از جلسه کلاس آنلاین"
             >
               <HiOutlinePower />
@@ -3197,10 +3607,86 @@ export default function LiveClassroomPage() {
             </div>
           )}
 
+          {/* Floating Persistent Teacher Pending Permission Requests Banner */}
+          {isTeacher && pendingRequests.length > 0 && (
+            <div className={styles.teacherPendingRequestsBar}>
+              {pendingRequests.slice(0, 3).map((req) => {
+                const reqLabelMap = {
+                  mic: 'میکروفون 🎙️',
+                  camera: 'دوربین 📷',
+                  screen: 'اشتراک صفحه 🖥️',
+                  whiteboard: 'تخته هوشمند ✏️',
+                  general: 'اجازه صحبت / سوال ✋',
+                };
+                const targetObj = {
+                  socketId: req.socketId,
+                  userId: req.userId,
+                  name: req.name,
+                };
+                return (
+                  <div key={req.id} className={styles.pendingReqCard}>
+                    <div className={styles.pendingReqTitle}>
+                      <span>✋ <strong>{req.name}</strong>:</span>
+                      <span className={styles.pendingReqType}>{reqLabelMap[req.permissionType] || 'اجازه'}</span>
+                    </div>
+                    <div className={styles.pendingReqActions}>
+                      {req.permissionType === 'general' ? (
+                        <>
+                          <button
+                            type="button"
+                            className={styles.pendingGrantBtn}
+                            onClick={() => handleToggleStudentPermission(targetObj, 'mic', true)}
+                          >
+                            🎙️ میکروفون
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.pendingGrantBtn}
+                            onClick={() => handleToggleStudentPermission(targetObj, 'camera', true)}
+                          >
+                            📷 دوربین
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.pendingGrantBtn}
+                            onClick={() => handleToggleStudentPermission(targetObj, 'whiteboard', true)}
+                          >
+                            ✏️ تخته
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.pendingGrantBtn}
+                          onClick={() => handleToggleStudentPermission(targetObj, req.permissionType, true)}
+                        >
+                          ✅ تایید و اجازه
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.pendingDismissBtn}
+                        onClick={() => handleLowerHand(targetObj)}
+                        title="رد یا بستن درخواست"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Floating Student Permission Notifications */}
           {!isTeacher && hasMicAccess && !isMicOn && (
             <div className={styles.studentFloatingPermissionNotice}>
               <span>🎙️ دبیر اجازه صحبت داد! برای صحبت کردن دکمه میکروفون بالا را بزنید</span>
+            </div>
+          )}
+          {!isTeacher && hasCameraAccess && !cameraActive && (
+            <div className={styles.studentFloatingPermissionNotice} style={{ bottom: '176px', background: 'rgba(14, 165, 233, 0.95)' }}>
+              <span>📷 دبیر اجازه دوربین داد! برای فعال‌سازی روی دکمه وبکم بالا بزنید</span>
             </div>
           )}
           {!isTeacher && hasScreenAccess && !isScreenSharing && !screenSharingUser && (
@@ -3335,6 +3821,14 @@ export default function LiveClassroomPage() {
                   <HiOutlineMagnifyingGlassMinus />
                 </button>
                 <button
+                  className={styles.docDownloadBtn}
+                  onClick={handleDownloadActiveBoardFile}
+                  title="دانلود فایل در حال نمایش"
+                >
+                  <HiOutlineArrowDownTray size={16} />
+                  <span>دانلود فایل</span>
+                </button>
+                <button
                   className={styles.docCloseBtnProminent}
                   onClick={handleCloseDocument}
                   title="بستن فایل و بازگشت به تخته"
@@ -3377,27 +3871,39 @@ export default function LiveClassroomPage() {
             )}
           </div>
 
-          {/* Floating Teacher Webcam Box */}
+          {/* Floating Live Webcam Box (Teacher or Authorized Student) */}
           <div className={styles.floatingWebcam}>
-            {isTeacher ? (
-              cameraActive ? (
-                <video ref={localVideoRef} autoPlay playsInline muted className={styles.webcamVideo} />
-              ) : (
-                <div className={styles.webcamOffPlaceholder}>
-                  <HiOutlineVideoCameraSlash style={{ fontSize: '2rem' }} />
-                  <span>دوربین شما خاموش است</span>
-                </div>
-              )
-            ) : remoteTeacherFrame ? (
-              <img src={remoteTeacherFrame} alt="تصویر زنده استاد" className={styles.webcamVideo} />
+            {cameraActive ? (
+              <video ref={localVideoRef} autoPlay playsInline muted className={styles.webcamVideo} />
+            ) : remoteVideoData?.frame || remoteTeacherFrame ? (
+              <img
+                src={remoteVideoData?.frame || remoteTeacherFrame}
+                alt="تصویر زنده دوربین"
+                className={styles.webcamVideo}
+              />
             ) : (
               <div className={styles.webcamOffPlaceholder}>
-                <HiOutlineVideoCamera style={{ fontSize: '2rem' }} />
-                <span>تصویر زنده استاد</span>
+                {isTeacher ? (
+                  <>
+                    <HiOutlineVideoCameraSlash style={{ fontSize: '2rem' }} />
+                    <span>دوربین شما خاموش است</span>
+                  </>
+                ) : (
+                  <>
+                    <HiOutlineVideoCamera style={{ fontSize: '2rem' }} />
+                    <span>تصویر زنده استاد</span>
+                  </>
+                )}
               </div>
             )}
             <div className={styles.webcamBadge}>
-              <span>{isTeacher ? 'تصویر شما (معلم)' : 'استاد کلاس'}</span>
+              <span>
+                {cameraActive
+                  ? isTeacher
+                    ? 'تصویر شما (معلم)'
+                    : 'دوربین شما (دانش‌آموز)'
+                  : remoteVideoData?.senderName || 'استاد کلاس'}
+              </span>
             </div>
           </div>
 
@@ -3947,6 +4453,16 @@ export default function LiveClassroomPage() {
 
                             <button
                               type="button"
+                              className={`${styles.urgentActionBtn} ${styles.urgentBtnScreen}`}
+                              onClick={() => handleToggleStudentPermission(p, 'camera')}
+                              title="اجازه روشن کردن دوربین"
+                            >
+                              <HiOutlineVideoCamera />
+                              <span>{p.canCamera ? 'قطع دوربین' : 'اجازه دوربین 📷'}</span>
+                            </button>
+
+                            <button
+                              type="button"
                               className={`${styles.urgentActionBtn} ${styles.urgentBtnWb}`}
                               onClick={() => handleToggleStudentPermission(p, 'whiteboard')}
                               title="اجازه نوشتن روی تخته هوشمند"
@@ -4049,6 +4565,29 @@ export default function LiveClassroomPage() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Camera bulk */}
+                      <div>
+                        <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>دوربین دانش‌آموزان:</div>
+                        <div className={styles.teacherWbActions}>
+                          <button
+                            type="button"
+                            className={styles.bulkWbBtn}
+                            onClick={() => handleToggleAllStudentsPermission('camera', true)}
+                            title="اجازه دوربین به همه دانش‌آموزان"
+                          >
+                            📷 باز برای همه
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.bulkWbBtn} ${styles.bulkWbBtnRevoke}`}
+                            onClick={() => handleToggleAllStudentsPermission('camera', false)}
+                            title="قفل کردن دوربین همه دانش‌آموزان"
+                          >
+                            🔒 قفل برای همه
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4091,6 +4630,9 @@ export default function LiveClassroomPage() {
                                 <span className={p.canScreenShare ? styles.wbAllowedBadge : styles.wbLockedBadge}>
                                   🖥️ {p.canScreenShare ? 'اشتراک مجاز' : 'اشتراک قفل'}
                                 </span>
+                                <span className={p.canCamera ? styles.wbAllowedBadge : styles.wbLockedBadge}>
+                                  📷 {p.canCamera ? 'دوربین مجاز' : 'دوربین قفل'}
+                                </span>
                               </div>
                             )}
                           </div>
@@ -4117,6 +4659,15 @@ export default function LiveClassroomPage() {
                               title="کلیک برای فعال/غیرفعال کردن دسترسی به میکروفون"
                             >
                               🎙️ میکروفون {p.canMic ? 'فعال ✅' : 'قفل 🔒'}
+                            </button>
+
+                            <button
+                              type="button"
+                              className={`${styles.permPill} ${p.canCamera ? styles.permPillActive : styles.permPillLocked}`}
+                              onClick={() => handleToggleStudentPermission(p, 'camera')}
+                              title="کلیک برای فعال/غیرفعال کردن دسترسی به دوربین"
+                            >
+                              📷 دوربین {p.canCamera ? 'فعال ✅' : 'قفل 🔒'}
                             </button>
 
                             <button

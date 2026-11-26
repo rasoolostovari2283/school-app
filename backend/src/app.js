@@ -167,6 +167,34 @@ app.use('/uploads', authenticate, express.static(uploadDir, {
   },
 }));
 
+// One-time 256-bit capability download endpoint (enables native Android DownloadManager to save WebM/PDF/PNG blobs)
+app.get('/api/v1/temp-downloads/:ticket', (req, res) => {
+  const uploadRouter = require('./modules/upload/upload.routes');
+  const entry = typeof uploadRouter.consumeTempDownload === 'function'
+    ? uploadRouter.consumeTempDownload(req.params.ticket)
+    : null;
+  if (!entry) {
+    return res.status(404).json({ success: false, message: 'لینک دانلود منقضی شده یا نامعتبر است' });
+  }
+  const safeAscii = entry.filename.replace(/[^\x20-\x7E]/g, '_') || 'download.bin';
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Type', entry.mimetype || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(entry.filename)}`
+  );
+  const stream = fs.createReadStream(entry.filePath);
+  stream.on('close', () => {
+    try {
+      if (fs.existsSync(entry.filePath)) fs.unlinkSync(entry.filePath);
+    } catch (_e) {}
+  });
+  stream.on('error', () => {
+    if (!res.headersSent) res.status(500).end();
+  });
+  return stream.pipe(res);
+});
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 600,
